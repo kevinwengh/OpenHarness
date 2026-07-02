@@ -18,6 +18,16 @@ cd OpenHarness
 uv sync --extra dev
 ```
 
+For a guided tour of the repository, runtime boundaries, and change workflow, read:
+
+- [`docs/README.md`](docs/README.md) — documentation map and task-based navigation
+- [`docs/developer/ONBOARDING.md`](docs/developer/ONBOARDING.md) — clone-to-first-change path
+- [`docs/developer/CODEBASE_GUIDE.md`](docs/developer/CODEBASE_GUIDE.md) — subsystem and change-impact map
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
+- [`docs/EXTENDING.md`](docs/EXTENDING.md)
+- [`docs/TESTING.md`](docs/TESTING.md)
+
 If you want to work on the React terminal UI as well:
 
 ```bash
@@ -41,6 +51,8 @@ Frontend sanity check:
 cd frontend/terminal
 npx tsc --noEmit
 ```
+
+The full test-selection matrix, dashboard checks, and opt-in live evaluation guidance are in [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Pull request expectations
 

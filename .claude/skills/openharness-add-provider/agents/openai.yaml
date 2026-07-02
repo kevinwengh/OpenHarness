@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add OpenHarness Provider"
+  short_description: "Add or update an OpenHarness model provider"
+  default_prompt: "Use $openharness-add-provider to add and verify a model provider."

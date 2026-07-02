@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenHarness Development"
+  short_description: "Develop and maintain OpenHarness safely"
+  default_prompt: "Use $openharness-development to implement and verify a repository change."

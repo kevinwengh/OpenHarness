@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add OpenHarness Tool"
+  short_description: "Add tools to the OpenHarness agent loop"
+  default_prompt: "Use $openharness-add-tool to add and test a new OpenHarness tool."

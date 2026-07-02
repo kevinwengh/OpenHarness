@@ -187,6 +187,9 @@ OpenHarness is an open-source Python implementation designed for **researchers, 
   <strong>Start here:</strong>
   <a href="#-quick-start">Quick Start</a> ·
   <a href="#-provider-compatibility">Provider Compatibility</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/developer/ONBOARDING.md">Developer Onboarding</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/SHOWCASE.md">Showcase</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="CHANGELOG.md">Changelog</a>
@@ -739,6 +742,8 @@ python scripts/test_real_skills_plugins.py  # Real plugins E2E
 ---
 
 ## 🔧 Extending OpenHarness
+
+For complete extension contracts and verification checklists for tools, skills, plugins, providers, MCP, hooks, channels, commands, and session backends, see [`docs/EXTENDING.md`](docs/EXTENDING.md).
 
 ### Add a Custom Tool
 
