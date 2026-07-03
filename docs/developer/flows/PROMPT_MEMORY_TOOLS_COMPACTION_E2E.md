@@ -34,7 +34,7 @@ sequenceDiagram
     participant Runtime
     participant Memory
     participant Engine as QueryEngine
-    participant Loop as run_query
+    participant QueryLoop as run_query
     participant Model
     participant Tool
     participant Storage
@@ -45,17 +45,17 @@ sequenceDiagram
     Runtime->>Runtime: rebuild system prompt
     Runtime->>Engine: submit_message(user message)
     Engine->>Memory: remember goal and prepare session memory
-    Engine->>Loop: messages + system + tools + context
-    Loop->>Loop: estimate tokens and compact if needed
-    Loop->>Model: streamed request with tool schemas
-    Model-->>Loop: text and zero or more tool_use blocks
+    Engine->>QueryLoop: messages + system + tools + context
+    QueryLoop->>QueryLoop: estimate tokens and compact if needed
+    QueryLoop->>Model: streamed request with tool schemas
+    Model-->>QueryLoop: text and zero or more tool_use blocks
     alt no tool calls
-        Loop-->>Engine: assistant turn complete
+        QueryLoop-->>Engine: assistant turn complete
     else tool calls
-        Loop->>Tool: hooks, validation, permission, execute
-        Tool-->>Loop: ToolResult for every tool_use ID
-        Loop->>Loop: append one user-role tool-result message
-        Loop->>Model: continue with updated messages
+        QueryLoop->>Tool: hooks, validation, permission, execute
+        Tool-->>QueryLoop: ToolResult for every tool_use ID
+        QueryLoop->>QueryLoop: append one user-role tool-result message
+        QueryLoop->>Model: continue with updated messages
     end
     Engine->>Memory: update session memory and optional extraction
     Runtime->>Storage: save sanitized session snapshot
