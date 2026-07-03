@@ -4,6 +4,11 @@ This guide configures OpenHarness to send Anthropic Messages API requests to a m
 locally by LM Studio. It uses an OpenHarness provider profile, so switching back to another
 provider does not require editing global settings.
 
+After configuration, use the
+[local manual test flow](../testing/LM_STUDIO_LOCAL_MANUAL_TEST.md) to validate `oh` print mode,
+the React terminal frontend/backend, `ohmo`, personal memory, and optional gateway channels in
+dependency order.
+
 ## Request path
 
 ```text

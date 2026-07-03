@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- A layered local LM Studio manual-test runbook covering provider setup, dry-run inspection, headless `oh`, the React terminal frontend/backend, `ohmo` workspace and memory behavior, and optional channel-gateway validation.
 - A focused LM Studio guide covering Anthropic-compatible provider profiles, local and token-based authentication, verification, tool-use expectations, and troubleshooting.
 - Focused critical-flow documentation covering CLI entrypoints, runtime bootstrap, prompt/tool execution, permissions/hooks/sandboxing, memory/session/compaction, MCP, extension discovery, the terminal protocol, `ohmo` composition, and background agents.
 - Structured maintainer documentation with a docs hub, new-developer onboarding path, source and change-impact guide, evidence-backed improvement backlog, current-state architecture, extension contracts, and test selection, plus repository-local skills for general development, tool work, and provider work.

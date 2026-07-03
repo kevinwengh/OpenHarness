@@ -50,6 +50,10 @@ Python tests run on 3.10 and 3.11. Ruff and the frontend typecheck run on Python
 
 Real model calls are intentionally separate because they require credentials, cost money, and can be nondeterministic. Use `.claude/skills/harness-eval/SKILL.md` when the user explicitly asks for real API, agent-loop, or end-to-end validation.
 
+For a layered operator-run check of a local Anthropic-compatible model across print mode, the
+React terminal, and `ohmo`, follow the
+[LM Studio local manual test flow](testing/LM_STUDIO_LOCAL_MANUAL_TEST.md).
+
 Useful existing drivers include:
 
 - `scripts/e2e_smoke.py`
