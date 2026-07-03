@@ -27,9 +27,11 @@ standalone answer to a common “how does this actually work?” question and li
 
 ### Provider or authentication work
 
-1. [Codebase guide: provider and authentication path](CODEBASE_GUIDE.md#provider-and-authentication-path)
-2. [Extending: provider](../EXTENDING.md#add-or-modify-a-provider)
-3. `.claude/skills/openharness-add-provider/SKILL.md`
+1. [Anthropic client integration](providers/ANTHROPIC_CLIENT_INTEGRATION.md) for the complete
+   profile, authentication, request, streaming, tool replay, and compatibility path
+2. [Codebase guide: provider and authentication path](CODEBASE_GUIDE.md#provider-and-authentication-path)
+3. [Extending: provider](../EXTENDING.md#add-or-modify-a-provider)
+4. `.claude/skills/openharness-add-provider/SKILL.md`
 
 ### Tools and extensions
 
