@@ -5,6 +5,9 @@ and testing references.
 
 ## Suggested learning tracks
 
+For source-level lifecycle traces, use the [critical runtime flows](flows/README.md). Each flow is a
+standalone answer to a common “how does this actually work?” question and links to its owning tests.
+
 ### First contribution
 
 1. [Developer onboarding](ONBOARDING.md)
@@ -14,10 +17,12 @@ and testing references.
 
 ### Agent runtime or tool-loop work
 
-1. [Architecture: main runtime flows](../ARCHITECTURE.md#main-runtime-flows)
-2. [Codebase guide: interactive request path](CODEBASE_GUIDE.md#interactive-request-path)
-3. `src/openharness/ui/runtime.py`
-4. `src/openharness/engine/query_engine.py` and `src/openharness/engine/query.py`
+1. [CLI entrypoints](flows/CLI_ENTRYPOINTS.md), [runtime bootstrap](flows/RUNTIME_BOOTSTRAP.md), and
+   [prompt/tool loop](flows/PROMPT_TOOL_LOOP.md)
+2. [Tool governance](flows/TOOL_GOVERNANCE.md) for permissions, hooks, and sandboxing
+3. [Architecture: main runtime flows](../ARCHITECTURE.md#main-runtime-flows)
+4. `src/openharness/ui/runtime.py`, `src/openharness/engine/query_engine.py`, and
+   `src/openharness/engine/query.py`
 5. `tests/test_ui/`, `tests/test_engine/`, and affected safety subsystem tests
 
 ### Provider or authentication work
@@ -29,21 +34,32 @@ and testing references.
 ### Tools and extensions
 
 1. [Extending OpenHarness](../EXTENDING.md)
-2. [Codebase guide: tool execution and safety](CODEBASE_GUIDE.md#tool-execution-and-safety-path)
-3. `.claude/skills/openharness-add-tool/SKILL.md` for tool changes
+2. [Tool governance](flows/TOOL_GOVERNANCE.md), [MCP integration](flows/MCP_INTEGRATION.md), or
+   [extension discovery](flows/EXTENSION_DISCOVERY.md)
+3. [Codebase guide: tool execution and safety](CODEBASE_GUIDE.md#tool-execution-and-safety-path)
+4. `.claude/skills/openharness-add-tool/SKILL.md` for tool changes
 
 ### Terminal UI or dashboard work
 
-1. [Development: Python/TypeScript UI protocol](../DEVELOPMENT.md#pythontypescript-ui-protocol)
-2. [Testing: test selection matrix](../TESTING.md#test-selection-matrix)
-3. `src/openharness/ui/` with `frontend/terminal/`, or `src/openharness/autopilot/` with
+1. [Terminal UI protocol](flows/TERMINAL_UI_PROTOCOL.md)
+2. [Development: Python/TypeScript UI protocol](../DEVELOPMENT.md#pythontypescript-ui-protocol)
+3. [Testing: test selection matrix](../TESTING.md#test-selection-matrix)
+4. `src/openharness/ui/` with `frontend/terminal/`, or `src/openharness/autopilot/` with
    `autopilot-dashboard/`
 
 ### `ohmo` work
 
-1. [Codebase guide: OpenHarness and ohmo boundary](CODEBASE_GUIDE.md#openharness-and-ohmo-boundary)
-2. `ohmo/runtime.py`, `ohmo/gateway/`, and `ohmo/workspace.py`
-3. `tests/test_ohmo/` plus affected core tests
+1. [`ohmo` integration flow](flows/OHMO_INTEGRATION.md)
+2. [Codebase guide: OpenHarness and ohmo boundary](CODEBASE_GUIDE.md#openharness-and-ohmo-boundary)
+3. `ohmo/runtime.py`, `ohmo/gateway/`, and `ohmo/workspace.py`
+4. `tests/test_ohmo/` plus affected core tests
+
+### Memory, sessions, or background agents
+
+1. [Memory, sessions, and compaction](flows/MEMORY_SESSION_COMPACTION.md) or
+   [background agents](flows/BACKGROUND_AGENTS.md)
+2. The owning `memory/`, `services/`, `tasks/`, or `swarm/` source and tests
+3. The [prompt/tool loop](flows/PROMPT_TOOL_LOOP.md) where state enters or leaves a model turn
 
 ## Planning work
 

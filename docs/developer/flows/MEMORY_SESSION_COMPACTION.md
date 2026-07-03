@@ -1,0 +1,153 @@
+# Memory, sessions, and compaction
+
+## Question answered
+
+When a prompt is handled, which “memory” is read, which state is persisted, and how does context
+compaction preserve a long-running task?
+
+OpenHarness has several related but distinct state layers. Treating them as one memory system causes
+the most common maintenance mistakes.
+
+## State layers
+
+| Layer | Purpose | Lifetime | Primary owner |
+| --- | --- | --- | --- |
+| Conversation messages | Provider-visible user/assistant/tool history | Current/restored session | `QueryEngine` |
+| Tool carry-over metadata | Goals, files, skills, agents, checkpoints | Current/restored session | query loop + session storage |
+| Session snapshot | Resume/export record of messages, usage, prompt, metadata | Across process restarts | `SessionBackend` |
+| Session memory file | Compact task-state checkpoint used during compaction | Across turns/session work | `src/openharness/services/session_memory/__init__.py` |
+| Project durable memory | Reusable repository knowledge and index | Across sessions for a project | `memory/` |
+| Personalization rules | Best-effort local environment preferences | Across sessions | `personalization/` |
+| Auto-dream output | Optional consolidated durable memory | Across sessions | `src/openharness/services/autodream/` |
+
+## Prompt-time read path
+
+```text
+handle_line(latest user text)
+        │
+        ▼
+build_runtime_system_prompt()
+        ├─ base/system + environment
+        ├─ permission/reasoning guidance
+        ├─ skill catalog
+        ├─ CLAUDE.md/project instructions
+        ├─ local rules and issue/PR context
+        └─ if project memory enabled:
+             ├─ load MEMORY.md entrypoint (bounded)
+             └─ select relevant topic memories for latest prompt
+        │
+        ▼
+engine.set_system_prompt() → provider request
+```
+
+Project memory is therefore not appended as a chat message. It is rebuilt into the system prompt
+for the latest user request. `MEMORY.md` is always bounded by configured line/byte limits, while
+topic files are scanned and relevance-selected using the latest prompt. Selected entries have usage
+metadata updated best-effort.
+
+The default project memory root is derived from the resolved project path:
+
+```text
+OPENHARNESS_DATA_DIR/memory/<project-name>-<sha1-prefix>/
+├── MEMORY.md
+└── <topic>.md
+```
+
+The path hash prevents projects with the same basename from sharing memory accidentally.
+
+## Durable memory writes
+
+The `/memory` command uses a `MemoryCommandBackend`. Plain OpenHarness uses the project memory
+functions; `ohmo` injects a workspace-specific backend. An entry is Markdown with YAML frontmatter
+including schema version, stable ID, type/scope/category, signature, timestamps, and lifecycle flags.
+
+Writes use a file lock plus atomic replacement. Duplicate content signatures refresh an existing
+entry instead of creating another file. Removal is a soft delete (`disabled: true`) and removes the
+index reference. The migration command can dry-run or apply schema normalization with backup.
+
+When `memory.auto_extract_enabled` is true, `QueryEngine` asks the configured provider to extract a
+bounded set of durable records after a turn. Extraction failure is stored in tool metadata and does
+not fail the user turn. Auto-dream is separately scheduled after the turn when enabled.
+
+## Session-memory checkpoints
+
+Before query execution, `_prepare_session_memory()` exposes file-backed session-memory metadata to
+compaction. After query execution, `_update_session_memory()` writes an updated task checkpoint from
+messages and tool carry-over state. This checkpoint is designed to preserve active goal, artifacts,
+verified work, and next-step context when older conversation content must be summarized.
+
+Session memory is controlled by both `memory.enabled` and `memory.session_memory_enabled`. It is not
+the same as the resumable JSON session snapshot.
+
+## Compaction inside the query loop
+
+At the start of every model turn, `run_query()` calls `auto_compact_if_needed()`:
+
+1. Estimate the current request size using messages, system prompt, and configured context window.
+2. If under threshold, keep history unchanged.
+3. If over threshold, first microcompact eligible old tool-result payloads.
+4. If still over threshold, summarize older messages with the provider while retaining recent turns
+   and carry-over checkpoints.
+5. Emit `CompactProgressEvent` updates for UI/gateway consumers.
+6. Replace the loop's message list with the compacted list.
+
+If the provider still returns a context-length error, the loop performs one forced reactive
+compaction and retries when compaction changed the history. Pre/post compact hooks surround the
+compaction lifecycle.
+
+Tool outputs also have an earlier pressure valve: oversized results are written to an artifact and a
+bounded reference is placed in conversation history.
+
+## Session snapshot write path
+
+After a handled prompt, command-submitted prompt, continuation, or max-turn stop, `handle_line()`
+calls the configured `SessionBackend.save_snapshot()` with:
+
+- resolved cwd, model, and the system prompt used;
+- sanitized messages;
+- cumulative usage;
+- stable session ID;
+- a whitelist of JSON-safe carry-over metadata.
+
+The default backend writes both `latest.json` and `session-<id>.json` under a project-hashed session
+directory. Live objects such as MCP managers, hook executors, and callbacks are intentionally not
+persisted. Only keys required for safe continuation are selected and recursively sanitized.
+
+## Resume path
+
+`oh --continue` loads `latest.json`; `oh --resume <id>` loads a named snapshot. The CLI passes saved
+messages and tool metadata into runtime construction. `build_runtime()` validates/sanitizes messages,
+overlays restored metadata onto current defaults, and builds fresh live resources (client, MCP,
+hooks, tools). Persisted runtime objects are never trusted as live dependencies.
+
+`QueryEngine.has_pending_continuation()` detects history ending in user-role tool results after an
+assistant tool request. `/continue` re-enters `run_query()` without adding a new user message.
+
+## `ohmo` differences
+
+`ohmo` uses `OhmoSessionBackend` rooted in its workspace. Gateway snapshots are additionally indexed
+by a hash of the chat/thread session key so the runtime pool can restore the correct conversation.
+`ohmo` injects personal memory through its custom prompt/backend and normally sets
+`include_project_memory=False`, preventing repository memory from leaking into personal sessions.
+
+See [`ohmo` integration](OHMO_INTEGRATION.md) for the application composition path.
+
+## Invariants and failure behavior
+
+- System-prompt memory is bounded; topic selection is based on the current prompt.
+- Session snapshots sanitize message shapes on both save and load.
+- Only whitelisted tool metadata is persisted.
+- Memory writes are locked and atomic.
+- Compaction must preserve valid assistant tool-use/user tool-result ordering.
+- Extraction/consolidation is best-effort and cannot invalidate a completed user turn.
+- Plain OpenHarness and `ohmo` memory/session roots remain isolated by default.
+
+## Verification map
+
+- `tests/test_memory/`: schema, scanning, relevance, migration, and prompt loading.
+- `tests/test_services/test_session_storage.py`: save/load/list/export and metadata persistence.
+- `tests/test_services/test_compact.py`: proactive/reactive compaction and checkpoints.
+- `tests/test_services/test_autodream.py`: optional consolidation.
+- `tests/test_engine/test_query_engine.py`: per-turn session memory and extraction integration.
+- `tests/test_ohmo/test_ohmo_session_storage.py`: workspace/session-key persistence.
+- `tests/test_ohmo/test_prompts.py`: personal versus project memory isolation.

@@ -4,6 +4,9 @@ This guide answers two contributor questions: “where does this behavior live?�
 change here affect?” It describes commit `9b2efd7`; source and tests remain authoritative as the
 repository evolves.
 
+For focused end-to-end traces of the most important paths, see
+[Critical runtime flows](flows/README.md).
+
 ## Repository topology
 
 ```text

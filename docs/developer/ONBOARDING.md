@@ -107,7 +107,8 @@ Read source in this order for a representative request:
 7. The nearest test for the subsystem you plan to change.
 
 Then use the [codebase guide](CODEBASE_GUIDE.md) to branch into providers, persistence, extensions,
-tasks/swarm, frontends, or `ohmo`.
+tasks/swarm, frontends, or `ohmo`. For a line-by-line lifecycle rather than a repository map, choose
+the matching document from [Critical runtime flows](flows/README.md).
 
 ## 4. Choose a first contribution
 

@@ -139,4 +139,5 @@ See [EXTENDING.md](EXTENDING.md) for implementation checklists.
 For a source-oriented walkthrough and change-impact map, see the
 [codebase guide](developer/CODEBASE_GUIDE.md). Prioritized structural and quality opportunities are
 tracked separately in the [improvement backlog](developer/IMPROVEMENTS.md) so this document remains
-a description of current behavior.
+a description of current behavior. Detailed entrypoint-to-cleanup traces for individual subsystems
+are indexed under [critical runtime flows](developer/flows/README.md).
