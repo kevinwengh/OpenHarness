@@ -1,4 +1,15 @@
-"""JSON-lines backend host for the React terminal frontend."""
+"""JSON-lines backend host for the React terminal frontend.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -47,7 +58,12 @@ _PROTOCOL_PREFIX = "OHJSON:"
 
 @dataclass(frozen=True)
 class BackendHostConfig:
-    """Configuration for one backend host session."""
+    """Capture serializable/runtime-injected inputs for one backend host session.
+
+    ``run_backend_host`` normalizes CLI and ohmo overrides into this immutable
+    value before ``ReactBackendHost`` enters its event loop. New fields must be
+    forwarded into ``build_runtime`` without exposing secrets in protocol events.
+    """
 
     model: str | None = None
     max_turns: int | None = None
@@ -71,9 +87,29 @@ class BackendHostConfig:
 
 
 class ReactBackendHost:
-    """Drive the OpenHarness runtime over a structured stdin/stdout protocol."""
+    """Drive one OpenHarness runtime over the React stdin/stdout protocol.
+
+    The host owns request serialization, modal futures, active-turn cancellation,
+    and runtime cleanup. One instance belongs to one asyncio event loop and one
+    frontend process; preserve that ownership when changing queues or callbacks.
+    """
 
     def __init__(self, config: BackendHostConfig) -> None:
+        """Initialize loop-bound coordination state without starting resources.
+
+        Locks, queues, futures, and active tasks are used only after ``run`` starts
+        on the owning event loop. Keep modal maps keyed by protocol request ID and
+        avoid creating background work in the constructor.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``asyncio.Lock``, ``asyncio.Queue``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._config = config
         self._bundle = None
         self._write_lock = asyncio.Lock()
@@ -90,6 +126,13 @@ class ReactBackendHost:
         self._edit_always_approved = False
 
     async def run(self) -> int:
+        """Build the runtime, serve frontend requests, and close all resources.
+
+        Startup emits ``ready`` only after runtime initialization. The main loop
+        enforces one active line while the reader resolves modal responses and
+        interrupts concurrently. Reader cancellation and ``close_runtime`` in
+        ``finally`` are lifecycle invariants; every terminal path must retain them.
+        """
         self._bundle = await build_runtime(
             model=self._config.model,
             max_turns=self._config.max_turns,
@@ -188,6 +231,21 @@ class ReactBackendHost:
         return 0
 
     async def _read_requests(self) -> None:
+        """Read and validate stdin lines without blocking the asyncio event loop.
+
+        Modal responses resolve their futures immediately rather than waiting
+        behind the prompt that requested them; other requests enter the main
+        queue. EOF becomes shutdown. Preserve this split to avoid permission and
+        question deadlocks, and keep malformed input recoverable.
+
+        Integration: Called by ``ReactBackendHost.run`` and collaborates with ``strip``,
+        ``asyncio.to_thread``, ``FrontendRequest.model_validate_json``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         while True:
             raw = await asyncio.to_thread(sys.stdin.buffer.readline)
             if not raw:
@@ -222,6 +280,20 @@ class ReactBackendHost:
             await self._request_queue.put(request)
 
     async def _run_active_request(self, awaitable: Coroutine[Any, Any, bool]) -> bool:
+        """Track one cancellable line/select task and normalize user interruption.
+
+        The reader may cancel ``_active_request_task`` while the main loop awaits
+        it. Cancellation emits recovery snapshots and ``line_complete`` so React
+        can leave busy state; do not swallow unrelated exceptions here.
+
+        Integration: Called by ``ReactBackendHost.run`` and collaborates with
+        ``asyncio.create_task``, ``_emit``, ``BackendEvent``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         task = asyncio.create_task(awaitable)
         self._active_request_task = task
         try:
@@ -242,6 +314,22 @@ class ReactBackendHost:
                 self._active_request_task = None
 
     async def _interrupt_active_request(self) -> None:
+        """Request cancellation of the current line without shutting down the host.
+
+        Cancellation is cooperative on the same event loop and completion is
+        rendered by ``_run_active_request``. Keep this method idempotent for
+        duplicate Escape/Ctrl-C requests.
+
+        Integration: Called by ``ReactBackendHost.run``, ``ReactBackendHost._read_requests`` and
+        collaborates with ``task.cancel``, ``task.done``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         task = self._active_request_task
         if task is None or task.done():
             return
@@ -254,6 +342,24 @@ class ReactBackendHost:
         transcript_line: str | None = None,
         images: list[FrontendImageAttachment] | None = None,
     ) -> bool:
+        """Submit one line to the shared runtime and translate all stream events.
+
+        This is the Python/React turn boundary: it emits the user row, adapts
+        runtime callbacks, optionally drains coordinator agents, refreshes
+        authoritative state/tasks, and emits exactly one final ``line_complete``.
+        Event ordering controls frontend busy state, so tool, assistant,
+        compaction, error, and completion changes require both protocol suites.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_build_user_message_with_images``, ``is_coordinator_mode``,
+        ``_emit``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         assert self._bundle is not None
         user_message = _build_user_message_with_images(line, images or [])
         await self._emit(
@@ -267,11 +373,28 @@ class ReactBackendHost:
         )
 
         async def _print_system(message: str) -> None:
+            """Translate a runtime system notice into a transcript event.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``_emit``, ``BackendEvent``, ``TranscriptItem``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await self._emit(
                 BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
             )
 
         async def _render_event(event: StreamEvent) -> None:
+            """Map engine stream events to ordered frontend protocol events.
+
+            ``handle_line`` awaits this callback inline, so emitted messages keep
+            provider/tool ordering. Keep work bounded on the event loop and update
+            TypeScript reducers whenever a mapping or payload changes.
+            """
             if isinstance(event, AssistantTextDelta):
                 await self._emit(BackendEvent(type="assistant_delta", message=event.text))
                 return
@@ -366,6 +489,17 @@ class ReactBackendHost:
                 return
 
         async def _clear_output() -> None:
+            """Translate the shared clear-output callback into a transcript reset.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``_emit``, ``BackendEvent``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await self._emit(BackendEvent(type="clear_transcript"))
 
         handle_line_kwargs: dict[str, Any] = {
@@ -389,6 +523,21 @@ class ReactBackendHost:
         return should_continue
 
     async def _apply_select_command(self, command_name: str, value: str) -> bool:
+        """Convert a frontend selector choice into the canonical slash-command path.
+
+        Selection remains presentation-only; ``handle_line`` must execute the
+        resulting command so settings, persistence, and runtime refresh behavior
+        stay shared with typed input.
+
+        Integration: Called by ``ReactBackendHost.run`` and collaborates with ``lower``,
+        ``value.strip``, ``_build_select_command_line``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         command = command_name.strip().lstrip("/").lower()
         selected = value.strip()
         line = self._build_select_command_line(command, selected)
@@ -399,6 +548,20 @@ class ReactBackendHost:
         return await self._process_line(line, transcript_line=f"/{command}")
 
     def _build_select_command_line(self, command: str, value: str) -> str | None:
+        """Build a validated slash-command line for a supported selector.
+
+        Keep this allowlist synchronized with ``_handle_select_command`` and the
+        frontend command picker. Returning ``None`` prevents arbitrary command
+        construction from protocol values.
+
+        Integration: Called by ``ReactBackendHost._apply_select_command``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if command == "provider":
             return f"/provider {value}"
         if command == "resume":
@@ -426,6 +589,12 @@ class ReactBackendHost:
         return None
 
     def _status_snapshot(self) -> BackendEvent:
+        """Project current runtime, MCP, and bridge state into one UI event.
+
+        The host calls this after startup, tools, interruption, and line completion.
+        Keep conversion synchronous and side-effect-free because it runs inline on
+        the protocol event loop.
+        """
         assert self._bundle is not None
         return BackendEvent.status_snapshot(
             state=self._bundle.app_state.get(),
@@ -434,7 +603,22 @@ class ReactBackendHost:
         )
 
     async def _emit_todo_update_from_output(self, output: str) -> None:
-        """Emit a todo_update event by extracting markdown checklist from tool output."""
+        """Extract echoed checklist lines and emit a frontend todo update.
+
+        This compatibility fallback runs after a todo tool result when structured
+        input was unavailable. Keep parsing conservative so arbitrary tool output
+        is not misrepresented as authoritative task state.
+
+        Integration: Called by ``ReactBackendHost._process_line``,
+        ``ReactBackendHost._process_line._render_event`` and collaborates with
+        ``output.splitlines``, ``join``, ``startswith``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         # TodoWrite tools typically echo back the written content
         # We look for markdown checklist patterns in the output
         lines = output.splitlines()
@@ -444,7 +628,22 @@ class ReactBackendHost:
             await self._emit(BackendEvent(type="todo_update", todo_markdown=markdown))
 
     def _emit_swarm_status(self, teammates: list[dict], notifications: list[dict] | None = None) -> None:
-        """Emit a swarm_status event synchronously (schedule as coroutine)."""
+        """Schedule a swarm-status event from a synchronous observer callback.
+
+        Swarm integrations cannot await the protocol writer directly, so this
+        method creates a task on the host's current event loop. Call it only while
+        the host loop is running; ordering and task-error handling need review if
+        swarm callbacks become cross-thread or survive shutdown.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``asyncio.get_event_loop``, ``loop.create_task``, ``_emit``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         import asyncio
         loop = asyncio.get_event_loop()
         loop.create_task(
@@ -452,6 +651,22 @@ class ReactBackendHost:
         )
 
     async def _handle_list_sessions(self) -> None:
+        """Load recent backend snapshots and emit resume-selector options.
+
+        The session backend owns ordering and persistence. This adapter performs
+        bounded synchronous listing on the event loop and emits presentation-only
+        labels; offload it if a future backend can block on remote I/O.
+
+        Integration: Called by ``ReactBackendHost.run``,
+        ``ReactBackendHost._handle_select_command`` and collaborates with
+        ``_bundle.session_backend.list_snapshots``, ``_time.strftime``, ``options.append``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         import time as _time
 
         assert self._bundle is not None
@@ -473,6 +688,13 @@ class ReactBackendHost:
         )
 
     async def _handle_select_command(self, command_name: str) -> None:
+        """Build and emit options for frontend-interactive slash commands.
+
+        Values come from authoritative settings, app state, auth profiles, and
+        registries, while application still flows through ``_apply_select_command``.
+        Keep branches aligned with command handlers and TypeScript selectors; avoid
+        secret-bearing descriptions and blocking external work on the event loop.
+        """
         assert self._bundle is not None
         command = command_name.strip().lstrip("/").lower()
         if command == "resume":
@@ -680,6 +902,21 @@ class ReactBackendHost:
         await self._emit(BackendEvent(type="error", message=f"No selector available for /{command}"))
 
     def _model_select_options(self, current_model: str, provider: str, allowed_models: list[str] | None = None) -> list[dict[str, object]]:
+        """Return bounded model choices using profile restrictions before heuristics.
+
+        This is setup UX, not provider capability enforcement. Preserve explicit
+        ``allowed_models`` precedence and alias-aware active selection; provider
+        additions must be synchronized with profile/model resolution tests.
+
+        Integration: Called by ``ReactBackendHost._handle_select_command`` and collaborates with
+        ``provider.lower``, ``resolve_model_setting``, ``families.extend``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if allowed_models:
             return [
                 {
@@ -760,6 +997,13 @@ class ReactBackendHost:
         return options
 
     async def _ask_permission(self, tool_name: str, reason: str) -> bool:
+        """Serialize a tool confirmation modal and await its correlated response.
+
+        The permission lock prevents overlapping approval UIs while the request
+        reader resolves this future concurrently. Timeout defaults to denial and
+        cleanup removes the ID; preserve those safety and deadlock-avoidance
+        properties when changing modal behavior.
+        """
         async with self._permission_lock:
             request_id = uuid4().hex
             future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
@@ -784,11 +1028,30 @@ class ReactBackendHost:
                 self._permission_requests.pop(request_id, None)
 
     def _current_permission_mode(self) -> str:
+        """Read the live permission mode, falling back before runtime startup.
+
+        Edit approval uses this synchronous helper to honor mode changes made
+        during the session. Keep returned values aligned with permission policy.
+        """
         if self._bundle is None:
             return str(self._config.permission_mode or "")
         return str(self._bundle.app_state.get().permission_mode or "")
 
     async def _ask_edit_approval(self, path: str, diff: str, added: int, removed: int) -> str:
+        """Show a serialized edit preview and return once/always/reject.
+
+        Full-auto and prior session-wide approval bypass the modal. Otherwise the
+        request reader resolves a correlated future with a fail-closed timeout;
+        keep the diff bounded upstream and always clear modal state during cleanup.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``create_future``, ``_current_permission_mode``, ``uuid4``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if self._edit_always_approved or self._current_permission_mode() == "full_auto":
             return "always"
 
@@ -823,6 +1086,12 @@ class ReactBackendHost:
             return reply
 
     async def _ask_question(self, question: str) -> str:
+        """Emit a runtime question modal and await the matching frontend answer.
+
+        Unlike permission prompts this currently has no timeout, so shutdown or
+        cancellation must remain able to unwind the awaiting prompt. Preserve
+        request-ID cleanup and direct reader-to-future resolution.
+        """
         request_id = uuid4().hex
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._question_requests[request_id] = future
@@ -842,6 +1111,22 @@ class ReactBackendHost:
             self._question_requests.pop(request_id, None)
 
     async def _emit(self, event: BackendEvent) -> None:
+        """Write one atomic prefixed JSON event to backend stdout.
+
+        All producer tasks share ``_write_lock`` so event lines cannot interleave.
+        Stdout is the machine protocol while stderr carries diagnostics; preserve
+        the prefix, newline, UTF-8 encoding, flush, and event-loop serialization.
+
+        Integration: Called by ``ReactBackendHost.run``, ``ReactBackendHost._read_requests`` and
+        collaborates with ``log.debug``, ``sys.stdout.write``, ``sys.stdout.flush``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         log.debug("emit event: type=%s tool=%s", event.type, getattr(event, "tool_name", None))
         async with self._write_lock:
             payload = _PROTOCOL_PREFIX + event.model_dump_json() + "\n"
@@ -858,6 +1143,21 @@ def _build_user_message_with_images(
     line: str,
     images: list[FrontendImageAttachment],
 ) -> ConversationMessage | None:
+    """Construct multimodal user content when the frontend supplied images.
+
+    Returning ``None`` for text-only input lets ``handle_line`` retain slash-command
+    parsing. For image input, preserve validated order and a non-empty text block;
+    changes must remain compatible with image preprocessing and session replay.
+
+    Integration: Called by ``ReactBackendHost._process_line`` and collaborates with
+    ``content.extend``, ``ConversationMessage.from_user_content``, ``TextBlock``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not images:
         return None
     content = [TextBlock(text=line or "Please analyze the attached image.")]
@@ -873,6 +1173,19 @@ def _build_user_message_with_images(
 
 
 def _format_transcript_line(line: str, images: list[FrontendImageAttachment]) -> str:
+    """Render a compact user-facing attachment marker without embedding image data.
+
+    The transcript is presentation state, not the provider message. Keep base64
+    payloads and local paths out of this text.
+
+    Integration: Called by ``ReactBackendHost._process_line``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not images:
         return line
     noun = "image" if len(images) == 1 else "images"
@@ -902,7 +1215,13 @@ async def run_backend_host(
     memory_backend: MemoryCommandBackend | None = None,
     include_project_memory: bool = True,
 ) -> int:
-    """Run the structured React backend host."""
+    """Normalize entrypoint options and run one structured backend-host lifecycle.
+
+    ``run_repl(--backend-only)`` and ohmo adapters enter here. Working-directory
+    selection occurs before runtime composition; extra roots are resolved before
+    crossing the immutable config boundary. Preserve option forwarding and await
+    the host so its reader, active task, and runtime clean up on the same loop.
+    """
     if cwd:
         os.chdir(cwd)
     host = ReactBackendHost(
@@ -935,6 +1254,20 @@ __all__ = ["run_backend_host", "ReactBackendHost", "BackendHostConfig"]
 
 
 def _edit_approval_reply_from_request(request: FrontendRequest) -> str:
+    """Normalize modern and legacy permission replies into edit-decision values.
+
+    Explicit ``once``/``always``/``reject`` wins; the boolean fallback keeps older
+    frontends compatible and fails closed when not allowed.
+
+    Integration: Called by ``ReactBackendHost._read_requests`` and collaborates with ``lower``,
+    ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     reply = (request.permission_reply or "").strip().lower()
     if reply in {"once", "always", "reject"}:
         return reply

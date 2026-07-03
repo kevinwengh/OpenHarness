@@ -1,3 +1,16 @@
+/**
+ * Render and coordinate the `SwarmPanel` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React, {useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 
@@ -14,6 +27,17 @@ export type SwarmNotification = {
 	timestamp: number;
 };
 
+/**
+ * Derive status icon from the current frontend state and inputs.
+ *
+ * Integration: Owned by `SwarmPanel.tsx` and invoked through its surrounding React or module
+ * boundary.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function statusIcon(status: SwarmTeammate['status']): string {
 	switch (status) {
 		case 'running':
@@ -27,6 +51,16 @@ function statusIcon(status: SwarmTeammate['status']): string {
 	}
 }
 
+/**
+ * Format duration for presentation.
+ *
+ * Integration: Owned by `SwarmPanel.tsx` and collaborates with `floor`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function formatDuration(seconds: number): string {
 	if (seconds < 60) {
 		return `${seconds}s`;
@@ -36,6 +70,16 @@ function formatDuration(seconds: number): string {
 	return `${m}m${s}s`;
 }
 
+/**
+ * Render the SwarmPanelInner React component.
+ *
+ * Integration: Owned by `SwarmPanel.tsx` and collaborates with `useState`, `useInput`, `filter`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function SwarmPanelInner({
 	teammates,
 	notifications,
@@ -47,9 +91,15 @@ function SwarmPanelInner({
 }): React.JSX.Element | null {
 	const [collapsed, setCollapsed] = useState(initialCollapsed);
 
-	useInput((chunk, key) => {
+	useInput(/*
+	 * useInput callback: uses setCollapsed; keep event-loop work bounded and preserve the
+	 * callback's return contract.
+	 */ (chunk, key) => {
 		if (key.ctrl && chunk === 'w') {
-			setCollapsed((c) => !c);
+			setCollapsed(/*
+			 * Functional state update: computes its callback result from prior React state; keep the
+			 * calculation pure and immutable.
+			 */ (c) => !c);
 		}
 	});
 
@@ -57,7 +107,10 @@ function SwarmPanelInner({
 		return null;
 	}
 
-	const activeCount = teammates.filter((t) => t.status === 'running').length;
+	const activeCount = teammates.filter(/*
+	 * filter callback: computes its callback result; keep event-loop work bounded and preserve the
+	 * callback's return contract.
+	 */ (t) => t.status === 'running').length;
 
 	if (collapsed) {
 		return (
@@ -88,7 +141,10 @@ function SwarmPanelInner({
 
 			{teammates.length > 0 && (
 				<Box flexDirection="column" marginTop={1}>
-					{teammates.map((teammate) => (
+					{teammates.map(/*
+					 * map callback: uses statusIcon, formatDuration, slice; keep event-loop work bounded and
+					 * preserve the callback's return contract.
+					 */ (teammate) => (
 						<Box key={teammate.name} flexDirection="row" marginBottom={0}>
 							<Text>{statusIcon(teammate.status)} </Text>
 							<Box flexDirection="column">
@@ -112,7 +168,10 @@ function SwarmPanelInner({
 			{notifications.length > 0 && (
 				<Box flexDirection="column" marginTop={1}>
 					<Text dimColor bold>Recent notifications:</Text>
-					{notifications.slice(-3).map((n, i) => (
+					{notifications.slice(-3).map(/*
+					 * map callback: uses slice; keep event-loop work bounded and preserve the callback's
+					 * return contract.
+					 */ (n, i) => (
 						<Box key={i}>
 							<Text dimColor>[{n.from}] </Text>
 							<Text>{n.message.slice(0, 70)}{n.message.length > 70 ? '…' : ''}</Text>

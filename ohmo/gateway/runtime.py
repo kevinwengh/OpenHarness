@@ -1,4 +1,15 @@
-"""Session-aware runtime pool for ohmo gateway."""
+"""Session-aware runtime pool for ohmo gateway.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -86,7 +97,17 @@ _GROUP_METADATA_KEYS = (
 
 @dataclass(frozen=True)
 class GatewayStreamUpdate:
-    """One outbound update produced while processing a channel message."""
+    """One outbound update produced while processing a channel message.
+
+    Integration: Constructed or referenced by ``OhmoSessionRuntimePool._stream_command_result``,
+    ``OhmoSessionRuntimePool._stream_engine_message``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     kind: str
     text: str
@@ -95,7 +116,17 @@ class GatewayStreamUpdate:
 
 
 class OhmoSessionRuntimePool:
-    """Maintain one runtime bundle per chat/thread session."""
+    """Maintain one runtime bundle per chat/thread session.
+
+    Integration: Constructed or referenced by ``OhmoGatewayService.__init__``.
+
+    Event loop: Async methods ``get_bundle``, ``stream_message``, ``_stream_command_result``,
+    ``_stream_engine_message`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(
         self,
@@ -108,6 +139,17 @@ class OhmoSessionRuntimePool:
         create_feishu_group: CreateFeishuGroup | None = None,
         publish_group_welcome: PublishGroupWelcome | None = None,
     ) -> None:
+        """Initialize ``OhmoSessionRuntimePool`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``OhmoSessionRuntimePool`` and collaborates with
+        ``initialize_workspace``, ``load_gateway_config``, ``OhmoSessionBackend``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._cwd = str(Path(cwd).resolve())
         self._workspace = workspace
         self._provider_profile = provider_profile
@@ -122,9 +164,30 @@ class OhmoSessionRuntimePool:
 
     @property
     def active_sessions(self) -> int:
+        """Return the currently active gateway session identifiers.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return len(self._bundles)
 
     def _remote_admin_allowed(self, command) -> bool:
+        """Return whether the current gateway context permits remote administration.
+
+        Integration: Called by ``OhmoSessionRuntimePool.stream_message`` and collaborates with
+        ``lower``, ``command.name.lower``, ``strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not getattr(command, "remote_admin_opt_in", False):
             return False
         if not self._gateway_config.allow_remote_admin_commands:
@@ -137,6 +200,17 @@ class OhmoSessionRuntimePool:
         return command.name.lower() in allowed
 
     def _handle_gateway_scoped_command(self, command_name: str, args: str) -> tuple[str, bool] | None:
+        """Handle gateway scoped command for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool.stream_message`` and collaborates with
+        ``command_name.lower``, ``handle_gateway_provider_command``, ``load_gateway_config``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lowered = command_name.lower()
         if lowered == "provider":
             result = handle_gateway_provider_command(args, workspace=self._workspace)
@@ -155,7 +229,17 @@ class OhmoSessionRuntimePool:
         latest_user_prompt: str | None = None,
         cwd: str | Path | None = None,
     ) -> RuntimeBundle:
-        """Return an existing bundle or create a new one."""
+        """Return an existing bundle or create a new one.
+
+        Integration: Called by ``OhmoSessionRuntimePool.stream_message`` and collaborates with
+        ``_bundles.get``, ``_session_backend.load_latest_for_session_key``, ``logger.info``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         session_cwd = str(Path(cwd or self._cwd).expanduser().resolve())
         bundle = self._bundles.get(session_key)
         if bundle is not None:
@@ -222,7 +306,17 @@ class OhmoSessionRuntimePool:
         return bundle
 
     async def stream_message(self, message: InboundMessage, session_key: str):
-        """Submit an inbound channel message and yield progress + final reply updates."""
+        """Submit an inbound channel message and yield progress + final reply updates.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_build_inbound_user_message``, ``strip``, ``_cwd_for_message``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior expected by
+        callers.
+        """
         user_message = _build_inbound_user_message(message)
         user_prompt = user_message.text
         command_prompt = (message.content or "").strip()
@@ -240,6 +334,17 @@ class OhmoSessionRuntimePool:
         command_context: CommandContext | None = None
 
         def get_command_context() -> CommandContext:
+            """Return command context for the enclosing subsystem.
+
+            Integration: Called by ``OhmoSessionRuntimePool.stream_message`` and collaborates
+            with ``CommandContext``, ``create_memory_command_backend``.
+
+            Event loop: Async callers invoke this synchronous helper inline, so keep its work
+            bounded and non-blocking.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             nonlocal command_context
             if command_context is None:
                 command_context = CommandContext(
@@ -333,6 +438,17 @@ class OhmoSessionRuntimePool:
         user_prompt: str,
         result,
     ):
+        """Stream command result for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool.stream_message`` and collaborates with
+        ``bundle.current_settings``, ``bundle.engine.set_system_prompt``, ``strip``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+        """
         if result.refresh_runtime:
             bundle = await self._refresh_bundle(session_key, bundle, user_prompt)
 
@@ -408,6 +524,19 @@ class OhmoSessionRuntimePool:
         user_prompt: str,
         user_message: ConversationMessage | str,
     ):
+        """Stream engine message for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool.stream_message``,
+        ``OhmoSessionRuntimePool._stream_command_result`` and collaborates with
+        ``bundle.engine.set_system_prompt``, ``_set_group_request_context``,
+        ``_restore_group_request_context``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation; retain lock scope and release behavior.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+        """
         bundle.engine.set_system_prompt(self._runtime_system_prompt(bundle, user_prompt))
         reply_parts: list[str] = []
         emitted_media: set[str] = set()
@@ -512,6 +641,18 @@ class OhmoSessionRuntimePool:
         content: str,
         reply_parts: list[str],
     ):
+        """Convert stream event for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool._stream_command_result``,
+        ``OhmoSessionRuntimePool._stream_engine_message`` and collaborates with
+        ``reply_parts.append``, ``logger.info``, ``_format_channel_progress``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior expected by
+        callers.
+        """
         if isinstance(event, AssistantTextDelta):
             reply_parts.append(event.text)
             return
@@ -621,6 +762,20 @@ class OhmoSessionRuntimePool:
             reply_parts.append(event.message.text.strip())
 
     async def _save_snapshot(self, bundle: RuntimeBundle, session_key: str, user_prompt: str) -> None:
+        """Persist snapshot for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool._stream_command_result``,
+        ``OhmoSessionRuntimePool._stream_engine_message`` and collaborates with
+        ``_sanitize_group_command_metadata``, ``_sanitize_group_command_prompts``,
+        ``_session_backend.save_snapshot``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         tool_metadata = _sanitize_group_command_metadata(getattr(bundle.engine, "tool_metadata", {}) or {})
         if isinstance(getattr(bundle.engine, "tool_metadata", None), dict) and isinstance(tool_metadata, dict):
             bundle.engine.tool_metadata.update(tool_metadata)
@@ -653,6 +808,18 @@ class OhmoSessionRuntimePool:
         bundle: RuntimeBundle,
         latest_user_prompt: str | None,
     ) -> RuntimeBundle:
+        """Refresh bundle for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool._stream_command_result`` and
+        collaborates with ``sanitize_conversation_messages``, ``_register_gateway_tools``,
+        ``refreshed.engine.set_system_prompt``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         snapshot = sanitize_conversation_messages(list(bundle.engine.messages))
         prior_session_id = bundle.session_id
         bundle_cwd = str(Path(getattr(bundle, "cwd", self._cwd)).resolve())
@@ -692,6 +859,18 @@ class OhmoSessionRuntimePool:
         return refreshed
 
     def _runtime_system_prompt(self, bundle: RuntimeBundle, latest_user_prompt: str | None) -> str:
+        """Derive runtime system prompt from the current inputs and subsystem state.
+
+        Integration: Called by ``OhmoSessionRuntimePool.get_bundle``,
+        ``OhmoSessionRuntimePool._stream_command_result`` and collaborates with
+        ``bundle.current_settings``, ``build_runtime_system_prompt``, ``resolve``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         bundle_cwd = str(Path(getattr(bundle, "cwd", self._cwd)).resolve())
         if not hasattr(bundle, "current_settings"):
             return build_ohmo_system_prompt(bundle_cwd, workspace=self._workspace, extra_prompt=None)
@@ -708,6 +887,17 @@ class OhmoSessionRuntimePool:
         )
 
     def _cwd_for_message(self, message: InboundMessage) -> str:
+        """Derive working directory for message from the current inputs and subsystem state.
+
+        Integration: Called by ``OhmoSessionRuntimePool.stream_message`` and collaborates with
+        ``load_managed_group_record``, ``normalize_cwd``, ``record.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         record = load_managed_group_record(
             workspace=self._workspace,
             channel=message.channel,
@@ -728,9 +918,33 @@ class OhmoSessionRuntimePool:
         return normalized
 
     def _register_gateway_tools(self, bundle: RuntimeBundle) -> None:
+        """Register gateway tools for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool.get_bundle``,
+        ``OhmoSessionRuntimePool._refresh_bundle`` and collaborates with
+        ``_unregister_group_tool``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._unregister_group_tool(bundle)
 
     def _register_group_tool(self, bundle: RuntimeBundle) -> None:
+        """Register group tool for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool._set_group_request_context`` and
+        collaborates with ``bundle.tool_registry.register``, ``OhmoCreateFeishuGroupTool``,
+        ``bundle.tool_registry.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._create_feishu_group is None or not hasattr(bundle, "tool_registry"):
             return
         if bundle.tool_registry is None or bundle.tool_registry.get(_GROUP_TOOL_NAME) is not None:
@@ -745,6 +959,18 @@ class OhmoSessionRuntimePool:
 
     @staticmethod
     def _unregister_group_tool(bundle: RuntimeBundle) -> None:
+        """Unregister group tool for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool._register_gateway_tools``,
+        ``OhmoSessionRuntimePool._set_group_request_context`` and collaborates with
+        ``tools.pop``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         registry = getattr(bundle, "tool_registry", None)
         tools = getattr(registry, "_tools", None)
         if isinstance(tools, dict):
@@ -756,6 +982,17 @@ class OhmoSessionRuntimePool:
         message: InboundMessage,
         session_key: str,
     ) -> object:
+        """Set group request context for the enclosing subsystem.
+
+        Integration: Called by ``OhmoSessionRuntimePool._stream_engine_message`` and
+        collaborates with ``metadata.get``, ``_register_group_tool``, ``message.metadata.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         metadata = getattr(bundle.engine, "tool_metadata", {})
         previous = metadata.get("ohmo_group_request", _NO_GROUP_REQUEST)
         if not message.metadata.get("_ohmo_group_command"):
@@ -779,6 +1016,17 @@ class OhmoSessionRuntimePool:
 
     @staticmethod
     def _restore_group_request_context(bundle: RuntimeBundle, previous: object) -> None:
+        """Apply restore group request context to the enclosing subsystem state.
+
+        Integration: Called by ``OhmoSessionRuntimePool._stream_engine_message`` and
+        collaborates with ``metadata.pop``, ``OhmoSessionRuntimePool._unregister_group_tool``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         metadata = getattr(bundle.engine, "tool_metadata", {})
         del previous
         metadata.pop("ohmo_group_request", None)
@@ -787,7 +1035,16 @@ class OhmoSessionRuntimePool:
 
 
 def _content_snippet(text: str, *, limit: int = 160) -> str:
-    """Return a compact single-line preview for logs."""
+    """Return a compact single-line preview for logs.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``join``, ``text.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = " ".join(text.split())
     if len(normalized) <= limit:
         return normalized
@@ -795,7 +1052,16 @@ def _content_snippet(text: str, *, limit: int = 160) -> str:
 
 
 def _sanitize_snapshot_messages(raw_messages: object) -> list[dict[str, object]] | None:
-    """Validate and sanitize restored messages from persisted ohmo snapshots."""
+    """Validate and sanitize restored messages from persisted ohmo snapshots.
+
+    Integration: Called by ``OhmoSessionRuntimePool.get_bundle`` and collaborates with
+    ``message.model_dump``, ``messages.append``, ``_sanitize_group_command_prompts``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not raw_messages or not isinstance(raw_messages, list):
         return None
     messages: list[ConversationMessage] = []
@@ -808,7 +1074,17 @@ def _sanitize_snapshot_messages(raw_messages: object) -> list[dict[str, object]]
 
 
 def _extract_tool_media(event: ToolExecutionCompleted) -> list[str]:
-    """Return local media paths produced by a tool completion event."""
+    """Return local media paths produced by a tool completion event.
+
+    Integration: Called by ``OhmoSessionRuntimePool._convert_stream_event`` and collaborates
+    with ``event.metadata.get``, ``expanduser``, ``path.is_absolute``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if event.is_error or not isinstance(event.metadata, dict):
         return []
     raw_paths = event.metadata.get("paths") or event.metadata.get("media")
@@ -834,7 +1110,16 @@ def _extract_tool_media(event: ToolExecutionCompleted) -> list[str]:
 
 
 def _remember_update_media(seen: set[str], update: GatewayStreamUpdate) -> None:
-    """Track media already emitted during this gateway turn."""
+    """Track media already emitted during this gateway turn.
+
+    Integration: Called by ``OhmoSessionRuntimePool._stream_engine_message`` and collaborates
+    with ``get``, ``expanduser``, ``seen.add``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     raw_media = update.media or (update.metadata or {}).get("_media") or []
     if isinstance(raw_media, str):
         candidates = [raw_media]
@@ -853,7 +1138,17 @@ def _remember_update_media(seen: set[str], update: GatewayStreamUpdate) -> None:
 
 
 def _extract_final_reply_media(reply: str, emitted_media: set[str]) -> list[str]:
-    """Return local image paths mentioned in final text that were not already emitted."""
+    """Return local image paths mentioned in final text that were not already emitted.
+
+    Integration: Called by ``OhmoSessionRuntimePool._stream_engine_message`` and collaborates
+    with ``_FINAL_REPLY_IMAGE_PATH_RE.finditer``, ``strip``, ``expanduser``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     media: list[str] = []
     seen = set(emitted_media)
     for match in _FINAL_REPLY_IMAGE_PATH_RE.finditer(reply or ""):
@@ -874,7 +1169,17 @@ def _extract_final_reply_media(reply: str, emitted_media: set[str]) -> list[str]
 
 
 def _format_tool_media_caption(event: ToolExecutionCompleted, media: list[str]) -> str:
-    """Return a short caption for media generated by tools."""
+    """Return a short caption for media generated by tools.
+
+    Integration: Called by ``OhmoSessionRuntimePool._convert_stream_event`` and collaborates
+    with ``join``, ``strip``, ``Path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if event.tool_name == "image_generation":
         provider = ""
         if isinstance(event.metadata, dict):
@@ -887,11 +1192,33 @@ def _format_tool_media_caption(event: ToolExecutionCompleted, media: list[str]) 
 
 
 def _sanitize_group_command_prompts(messages: list[ConversationMessage]) -> list[ConversationMessage]:
-    """Replace internal /group tool-driving prompts with durable user-facing history."""
+    """Replace internal /group tool-driving prompts with durable user-facing history.
+
+    Integration: Called by ``OhmoSessionRuntimePool._save_snapshot``,
+    ``OhmoSessionRuntimePool._refresh_bundle`` and collaborates with
+    ``_sanitize_group_command_prompt``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return [_sanitize_group_command_prompt(message) for message in messages]
 
 
 def _sanitize_group_command_prompt(message: ConversationMessage) -> ConversationMessage:
+    """Sanitize group command prompt for the enclosing subsystem.
+
+    Integration: Called by ``_sanitize_group_command_prompts`` and collaborates with
+    ``message.model_copy``, ``content.append``, ``TextBlock``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     changed = False
     content: list[TextBlock | ImageBlock] = []
     for block in message.content:
@@ -906,6 +1233,17 @@ def _sanitize_group_command_prompt(message: ConversationMessage) -> Conversation
 
 
 def _format_group_command_history_note(prompt: str) -> str:
+    """Format group command history note for the enclosing subsystem.
+
+    Integration: Called by ``_sanitize_group_command_prompt``,
+    ``_sanitize_group_command_metadata_value`` and collaborates with ``strip``,
+    ``raw_request.strip``, ``prompt.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     raw_request = prompt
     if _GROUP_AGENT_PROMPT_REQUEST_MARKER in prompt:
         raw_request = prompt.split(_GROUP_AGENT_PROMPT_REQUEST_MARKER, 1)[1].strip()
@@ -914,7 +1252,18 @@ def _format_group_command_history_note(prompt: str) -> str:
 
 
 def _sanitize_group_command_metadata(raw_metadata: object) -> object:
-    """Remove internal /group tool-driving text from compact carry-over metadata."""
+    """Remove internal /group tool-driving text from compact carry-over metadata.
+
+    Integration: Called by ``OhmoSessionRuntimePool.get_bundle``,
+    ``OhmoSessionRuntimePool._save_snapshot`` and collaborates with
+    ``_sanitize_group_command_metadata_value``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(raw_metadata, dict):
         return raw_metadata
     sanitized = dict(raw_metadata)
@@ -925,6 +1274,16 @@ def _sanitize_group_command_metadata(raw_metadata: object) -> object:
 
 
 def _sanitize_group_command_metadata_value(value: object) -> object:
+    """Sanitize group command metadata value for the enclosing subsystem.
+
+    Integration: Called by ``_sanitize_group_command_metadata`` and collaborates with
+    ``_format_group_command_history_note``, ``value.items``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(value, str):
         if _GROUP_AGENT_PROMPT_PREFIX in value:
             return _format_group_command_history_note(value)
@@ -937,6 +1296,16 @@ def _sanitize_group_command_metadata_value(value: object) -> object:
 
 
 def _summarize_tool_input(tool_name: str, tool_input: dict[str, object]) -> str:
+    """Summarize tool input for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``json.dumps``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not tool_input:
         return ""
     for key in ("url", "query", "pattern", "path", "file_path", "command"):
@@ -962,6 +1331,18 @@ def _format_channel_progress(
     compact_trigger: str | None = None,
     attempt: int | None = None,
 ) -> str:
+    """Format channel progress for the enclosing subsystem.
+
+    Integration: Called by ``OhmoSessionRuntimePool._stream_engine_message``,
+    ``OhmoSessionRuntimePool._convert_stream_event`` and collaborates with
+    ``_prefers_chinese_progress``, ``encode``, ``text.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if channel not in {
         "feishu",
         "telegram",
@@ -1043,7 +1424,16 @@ def _format_channel_progress(
 
 
 def _build_inbound_user_message(message: InboundMessage) -> ConversationMessage:
-    """Convert an inbound channel message into user content blocks."""
+    """Convert an inbound channel message into user content blocks.
+
+    Integration: Called by ``OhmoSessionRuntimePool.stream_message`` and collaborates with
+    ``_build_speaker_context``, ``strip``, ``_build_attachment_notes``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     content: list[TextBlock | ImageBlock] = []
     speaker_context = _build_speaker_context(message)
     base = (message.content or "").strip()
@@ -1069,7 +1459,17 @@ def _build_inbound_user_message(message: InboundMessage) -> ConversationMessage:
 
 
 def _should_retry_without_image_input(error_message: str, messages: list[ConversationMessage]) -> bool:
-    """Return True when a provider rejects image input and history contains images."""
+    """Return True when a provider rejects image input and history contains images.
+
+    Integration: Called by ``OhmoSessionRuntimePool._stream_engine_message`` and collaborates
+    with ``error_message.lower``, ``any``, ``_history_has_image_blocks``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not _history_has_image_blocks(messages):
         return False
     normalized = error_message.lower()
@@ -1098,10 +1498,30 @@ def _should_retry_without_image_input(error_message: str, messages: list[Convers
 
 
 def _history_has_image_blocks(messages: list[ConversationMessage]) -> bool:
+    """Return whether history has image blocks.
+
+    Integration: Called by ``_should_retry_without_image_input`` and collaborates with ``any``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return any(any(isinstance(block, ImageBlock) for block in message.content) for message in messages)
 
 
 def _strip_image_blocks_from_engine_history(engine) -> None:
+    """Strip image blocks from engine history for the enclosing subsystem.
+
+    Integration: Called by ``OhmoSessionRuntimePool._stream_engine_message`` and collaborates
+    with ``_strip_image_blocks_from_messages``, ``engine.load_messages``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     messages = _strip_image_blocks_from_messages(list(engine.messages))
     if hasattr(engine, "load_messages"):
         engine.load_messages(messages)
@@ -1110,10 +1530,32 @@ def _strip_image_blocks_from_engine_history(engine) -> None:
 
 
 def _strip_image_blocks_from_messages(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    """Strip image blocks from messages for the enclosing subsystem.
+
+    Integration: Called by ``_strip_image_blocks_from_engine_history`` and collaborates with
+    ``_strip_image_blocks_from_message``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return [_strip_image_blocks_from_message(message) for message in messages]
 
 
 def _strip_image_blocks_from_message(message: ConversationMessage) -> ConversationMessage:
+    """Strip image blocks from message for the enclosing subsystem.
+
+    Integration: Called by ``_strip_image_blocks_from_messages`` and collaborates with
+    ``message.model_copy``, ``any``, ``content.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not any(isinstance(block, ImageBlock) for block in message.content):
         return message
     content = [block for block in message.content if not isinstance(block, ImageBlock)]
@@ -1123,7 +1565,16 @@ def _strip_image_blocks_from_message(message: ConversationMessage) -> Conversati
 
 
 def _build_speaker_context(message: InboundMessage) -> str:
-    """Return a lightweight speaker header for group-chat messages."""
+    """Return a lightweight speaker header for group-chat messages.
+
+    Integration: Called by ``_build_inbound_user_message`` and collaborates with ``lower``,
+    ``strip``, ``metadata.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     metadata = message.metadata or {}
     chat_type = str(metadata.get("chat_type") or "").strip().lower()
     sender_label = (
@@ -1143,7 +1594,16 @@ def _build_speaker_context(message: InboundMessage) -> str:
 
 
 def _build_attachment_notes(media_paths: list[str]) -> str:
-    """Build textual attachment notes for non-image context and persistence."""
+    """Build textual attachment notes for non-image context and persistence.
+
+    Integration: Called by ``_build_inbound_user_message`` and collaborates with ``strip``,
+    ``lines.append``, ``_summarize_attachment``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not media_paths:
         return ""
     lines = [
@@ -1161,7 +1621,16 @@ def _build_attachment_notes(media_paths: list[str]) -> str:
 
 
 def _describe_media_path(media_path: str) -> str:
-    """Return a short type + path description for an inbound attachment."""
+    """Return a short type + path description for an inbound attachment.
+
+    Integration: Called by ``_build_attachment_notes`` and collaborates with ``suffix.lower``,
+    ``_is_image_attachment``, ``os.path.basename``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     suffix = Path(media_path).suffix.lower()
     if _is_image_attachment(media_path):
         kind = "image"
@@ -1176,12 +1645,30 @@ def _describe_media_path(media_path: str) -> str:
 
 
 def _is_image_attachment(media_path: str) -> bool:
+    """Return whether image attachment for the enclosing subsystem.
+
+    Integration: Called by ``_build_inbound_user_message``, ``_describe_media_path`` and
+    collaborates with ``mimetypes.guess_type``, ``mime.startswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     mime, _ = mimetypes.guess_type(media_path)
     return bool(mime and mime.startswith("image/"))
 
 
 def _summarize_attachment(media_path: str) -> str:
-    """Return a compact summary/header for a downloaded attachment."""
+    """Return a compact summary/header for a downloaded attachment.
+
+    Integration: Called by ``_build_attachment_notes`` and collaborates with ``Path``,
+    ``mimetypes.guess_type``, ``_is_image_attachment``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     path = Path(media_path)
     if not path.exists() or not path.is_file():
         return "summary: attachment is unavailable on disk"
@@ -1212,7 +1699,15 @@ def _summarize_attachment(media_path: str) -> str:
 
 
 def _decode_text_preview(data: bytes) -> str | None:
-    """Return a compact text preview when a file looks text-like."""
+    """Return a compact text preview when a file looks text-like.
+
+    Integration: Called by ``_summarize_attachment`` and collaborates with ``join``,
+    ``data.decode``, ``decoded.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not data:
         return ""
     try:
@@ -1231,6 +1726,15 @@ def _decode_text_preview(data: bytes) -> str | None:
 
 
 def _prefers_chinese_progress(content: str) -> bool:
+    """Return whether prefers chinese progress.
+
+    Integration: Called by ``_format_channel_progress`` and collaborates with ``ord``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     cjk_count = 0
     latin_count = 0
     for char in content:

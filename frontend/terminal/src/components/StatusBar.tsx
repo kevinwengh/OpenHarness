@@ -1,3 +1,16 @@
+/**
+ * Render and coordinate the `StatusBar` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React, {useEffect, useState} from 'react';
 import {Box, Text} from 'ink';
 
@@ -11,6 +24,16 @@ const WRITE_TOOLS = new Set([
 	'Bash', 'computer', 'str_replace_editor',
 ]);
 
+/**
+ * Render the PlanModeIndicator React component.
+ *
+ * Integration: Owned by `StatusBar.tsx` and collaborates with `useState`, `useEffect`, `has`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function PlanModeIndicator({
 	mode,
 	activeToolName,
@@ -21,12 +44,21 @@ function PlanModeIndicator({
 	const [flash, setFlash] = useState(false);
 	const [prevMode, setPrevMode] = useState(mode);
 
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses setFlash, setTimeout, setPrevMode after render; keep dependencies,
+	 * asynchronous work, and returned cleanup synchronized.
+	 */ () => {
 		if (prevMode === 'plan' && mode !== 'plan' && prevMode !== mode) {
 			setFlash(true);
-			const timer = setTimeout(() => setFlash(false), 800);
+			const timer = setTimeout(/*
+			 * Timer callback: uses setFlash on Node's event loop; keep work bounded and preserve
+			 * matching cleanup.
+			 */ () => setFlash(false), 800);
 			setPrevMode(mode);
-			return () => clearTimeout(timer);
+			return /*
+			 * Effect cleanup: uses clearTimeout; keep it paired with every resource acquired by the
+			 * effect.
+			 */ () => clearTimeout(timer);
 		}
 		setPrevMode(mode);
 	}, [mode]);
@@ -54,6 +86,16 @@ function PlanModeIndicator({
 	);
 }
 
+/**
+ * Render the StatusBarInner React component.
+ *
+ * Integration: Owned by `StatusBar.tsx` and collaborates with `useTheme`, `String`, `Number`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function StatusBarInner({
 	status,
 	tasks,
@@ -111,6 +153,16 @@ function StatusBarInner({
 
 export const StatusBar = React.memo(StatusBarInner);
 
+/**
+ * Format num for presentation.
+ *
+ * Integration: Owned by `StatusBar.tsx` and collaborates with `toFixed`, `String`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function formatNum(n: number): string {
 	if (n >= 1000) {
 		return `${(n / 1000).toFixed(1)}k`;

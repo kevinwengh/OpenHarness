@@ -1,4 +1,15 @@
-"""Workspace helpers for the ohmo personal-agent app."""
+"""Workspace helpers for the ohmo personal-agent app.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -167,6 +178,14 @@ def get_workspace_root(workspace: str | Path | None = None) -> Path:
     1. Explicit ``workspace`` argument
     2. ``OHMO_WORKSPACE`` environment variable
     3. ``~/.ohmo``
+
+    Integration: Called by ``init_cmd``, ``OhmoGatewayService.pid_file`` and collaborates with
+    ``resolve``, ``os.environ.get``, ``expanduser``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     explicit = workspace or os.environ.get("OHMO_WORKSPACE")
     if explicit:
@@ -176,67 +195,232 @@ def get_workspace_root(workspace: str | Path | None = None) -> Path:
 
 
 def get_soul_path(workspace: str | Path | None = None) -> Path:
+    """Return soul path for the enclosing subsystem.
+
+    Integration: Called by ``soul_show_cmd``, ``soul_edit_cmd`` and collaborates with
+    ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "soul.md"
 
 
 def get_user_path(workspace: str | Path | None = None) -> Path:
+    """Return user path for the enclosing subsystem.
+
+    Integration: Called by ``user_show_cmd``, ``user_edit_cmd`` and collaborates with
+    ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "user.md"
 
 
 def get_identity_path(workspace: str | Path | None = None) -> Path:
+    """Return identity path for the enclosing subsystem.
+
+    Integration: Called by ``build_ohmo_system_prompt``, ``initialize_workspace`` and
+    collaborates with ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "identity.md"
 
 
 def get_bootstrap_path(workspace: str | Path | None = None) -> Path:
+    """Return bootstrap path for the enclosing subsystem.
+
+    Integration: Called by ``build_ohmo_system_prompt``, ``initialize_workspace`` and
+    collaborates with ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "BOOTSTRAP.md"
 
 
 def get_memory_dir(workspace: str | Path | None = None) -> Path:
+    """Return memory directory for the enclosing subsystem.
+
+    Integration: Called by ``OhmoSessionRuntimePool.get_bundle``,
+    ``OhmoSessionRuntimePool._refresh_bundle`` and collaborates with ``get_workspace_root``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "memory"
 
 
 def get_skills_dir(workspace: str | Path | None = None) -> Path:
+    """Return skills directory for the enclosing subsystem.
+
+    Integration: Called by ``OhmoSessionRuntimePool.get_bundle``,
+    ``OhmoSessionRuntimePool._refresh_bundle`` and collaborates with ``get_workspace_root``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "skills"
 
 
 def get_plugins_dir(workspace: str | Path | None = None) -> Path:
+    """Return plugins directory for the enclosing subsystem.
+
+    Integration: Called by ``OhmoSessionRuntimePool.get_bundle``,
+    ``OhmoSessionRuntimePool._refresh_bundle`` and collaborates with ``get_workspace_root``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "plugins"
 
 
 def get_groups_dir(workspace: str | Path | None = None) -> Path:
+    """Return groups directory for the enclosing subsystem.
+
+    Integration: Called by ``group_record_path``, ``ensure_workspace`` and collaborates with
+    ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "groups"
 
 
 def get_memory_index_path(workspace: str | Path | None = None) -> Path:
+    """Return memory index path for the enclosing subsystem.
+
+    Integration: Called by ``add_memory_entry``, ``remove_memory_entry`` and collaborates with
+    ``get_memory_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_memory_dir(workspace) / "MEMORY.md"
 
 
 def get_sessions_dir(workspace: str | Path | None = None) -> Path:
+    """Return sessions directory for the enclosing subsystem.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_workspace_root``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "sessions"
 
 
 def get_logs_dir(workspace: str | Path | None = None) -> Path:
+    """Return logs directory for the enclosing subsystem.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "logs"
 
 
 def get_attachments_dir(workspace: str | Path | None = None) -> Path:
+    """Return attachments directory for the enclosing subsystem.
+
+    Integration: Called by ``ensure_workspace``, ``resolve_channel_media_dir`` and collaborates
+    with ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "attachments"
 
 
 def get_state_path(workspace: str | Path | None = None) -> Path:
+    """Return state path for the enclosing subsystem.
+
+    Integration: Called by ``doctor_cmd``, ``OhmoGatewayService.state_file`` and collaborates
+    with ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "state.json"
 
 
 def get_gateway_config_path(workspace: str | Path | None = None) -> Path:
+    """Return gateway config path for the enclosing subsystem.
+
+    Integration: Called by ``init_cmd``, ``config_cmd`` and collaborates with
+    ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "gateway.json"
 
 
 def get_gateway_restart_notice_path(workspace: str | Path | None = None) -> Path:
+    """Return gateway restart notice path for the enclosing subsystem.
+
+    Integration: Called by ``OhmoGatewayService.request_restart``,
+    ``OhmoGatewayService._publish_pending_restart_notice`` and collaborates with
+    ``get_workspace_root``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_workspace_root(workspace) / "gateway-restart-notice.json"
 
 
 def ensure_workspace(workspace: str | Path | None = None) -> Path:
-    """Create the workspace if needed and return its root."""
+    """Create the workspace if needed and return its root.
+
+    Integration: Called by ``initialize_workspace`` and collaborates with
+    ``get_workspace_root``, ``root.mkdir``, ``mkdir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     root = get_workspace_root(workspace)
     root.mkdir(parents=True, exist_ok=True)
     get_memory_dir(root).mkdir(parents=True, exist_ok=True)
@@ -250,7 +434,17 @@ def ensure_workspace(workspace: str | Path | None = None) -> Path:
 
 
 def initialize_workspace(workspace: str | Path | None = None) -> Path:
-    """Create the workspace and seed template files when missing."""
+    """Create the workspace and seed template files when missing.
+
+    Integration: Called by ``main``, ``init_cmd`` and collaborates with ``ensure_workspace``,
+    ``templates.items``, ``get_state_path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     root = ensure_workspace(workspace)
     templates = {
         get_soul_path(root): SOUL_TEMPLATE,
@@ -302,7 +496,16 @@ def initialize_workspace(workspace: str | Path | None = None) -> Path:
 
 
 def workspace_health(workspace: str | Path | None = None) -> dict[str, bool]:
-    """Return presence checks for the key workspace assets."""
+    """Return presence checks for the key workspace assets.
+
+    Integration: Called by ``doctor_cmd`` and collaborates with ``get_workspace_root``,
+    ``root.exists``, ``exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     root = get_workspace_root(workspace)
     return {
         "workspace": root.exists(),

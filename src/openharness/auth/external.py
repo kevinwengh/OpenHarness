@@ -1,4 +1,15 @@
-"""Integration with external CLI-managed subscription credentials."""
+"""Integration with external CLI-managed subscription credentials.
+
+Integration: This module participates in credential discovery, subscription login, and provider
+authentication.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve credential-store permissions, token refresh, source precedence,
+redaction, and noninteractive failure guidance.
+"""
 
 from __future__ import annotations
 
@@ -51,7 +62,17 @@ _claude_code_session_id: str | None = None
 
 @dataclass(frozen=True)
 class ExternalAuthCredential:
-    """Normalized external credential used at runtime."""
+    """Normalized external credential used at runtime.
+
+    Integration: Constructed or referenced by ``_load_codex_credential``,
+    ``_load_claude_credential``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     provider: str
     value: str
@@ -65,7 +86,16 @@ class ExternalAuthCredential:
 
 @dataclass(frozen=True)
 class ExternalAuthState:
-    """Human-readable state for an external auth source."""
+    """Human-readable state for an external auth source.
+
+    Integration: Constructed or referenced by ``describe_external_binding``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     configured: bool
     state: str
@@ -74,7 +104,15 @@ class ExternalAuthState:
 
 
 def default_binding_for_provider(provider: str) -> ExternalAuthBinding:
-    """Return the default external auth source for *provider*."""
+    """Return the default external auth source for *provider*.
+
+    Integration: Called by ``_bind_external_provider`` and collaborates with ``ValueError``,
+    ``expanduser``, ``ExternalAuthBinding``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if provider == CODEX_PROVIDER:
         codex_home = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser()
         return ExternalAuthBinding(
@@ -118,7 +156,16 @@ def load_external_credential(
     *,
     refresh_if_needed: bool = False,
 ) -> ExternalAuthCredential:
-    """Read a runtime credential from an external auth binding."""
+    """Read a runtime credential from an external auth binding.
+
+    Integration: Called by ``describe_external_binding``, ``_bind_external_provider`` and
+    collaborates with ``ValueError``, ``expanduser``, ``_load_codex_credential``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if binding.provider == CODEX_PROVIDER:
         source_path = Path(binding.source_path).expanduser()
         if not source_path.exists():
@@ -146,6 +193,15 @@ def _load_codex_credential(
     source_path: Path,
     binding: ExternalAuthBinding,
 ) -> ExternalAuthCredential:
+    """Load codex credential for the enclosing subsystem.
+
+    Integration: Called by ``load_external_credential`` and collaborates with ``payload.get``,
+    ``_decode_json_web_token_claim``, ``_decode_jwt_expiry``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     tokens = payload.get("tokens")
     access_token = ""
     refresh_token = ""
@@ -180,6 +236,15 @@ def _load_claude_credential(
     keychain_service: str | None = None,
     keychain_account: str | None = None,
 ) -> ExternalAuthCredential:
+    """Load claude credential for the enclosing subsystem.
+
+    Integration: Called by ``load_external_credential`` and collaborates with ``payload.get``,
+    ``claude_oauth.get``, ``_coerce_int``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     claude_oauth = payload.get("claudeAiOauth")
     if not isinstance(claude_oauth, dict):
         raise ValueError("Claude auth source does not contain claudeAiOauth.")
@@ -239,6 +304,16 @@ def _load_claude_credential(
 def _load_claude_payload(
     binding: ExternalAuthBinding,
 ) -> tuple[dict[str, Any], Path, str | None, str | None]:
+    """Load claude payload for the enclosing subsystem.
+
+    Integration: Called by ``load_external_credential`` and collaborates with ``expanduser``,
+    ``_read_claude_credentials_from_keychain``, ``source_path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if binding.source_kind == "claude_credentials_keychain":
         return _read_claude_credentials_from_keychain(binding)
 
@@ -255,6 +330,16 @@ def _load_claude_payload(
 def _read_claude_credentials_from_keychain(
     binding: ExternalAuthBinding,
 ) -> tuple[dict[str, Any], Path, str, str | None]:
+    """Read claude credentials from keychain for the enclosing subsystem.
+
+    Integration: Called by ``_load_claude_payload`` and collaborates with
+    ``_extract_keychain_attr``, ``strip``, ``subprocess.check_output``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     service = binding.source_path.removeprefix(_KEYCHAIN_BINDING_PREFIX).strip() or CLAUDE_KEYCHAIN_SERVICE
     try:
         raw_payload = subprocess.check_output(
@@ -279,6 +364,16 @@ def _read_claude_credentials_from_keychain(
 
 
 def _extract_keychain_path(metadata: str) -> Path | None:
+    """Extract keychain path for the enclosing subsystem.
+
+    Integration: Called by ``_read_claude_credentials_from_keychain`` and collaborates with
+    ``re.search``, ``Path``, ``match.group``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     match = re.search(r'^keychain:\s+"([^"]+)"$', metadata, re.MULTILINE)
     if not match:
         return None
@@ -286,6 +381,16 @@ def _extract_keychain_path(metadata: str) -> Path | None:
 
 
 def _extract_keychain_attr(metadata: str, attr_name: str) -> str | None:
+    """Extract keychain attr for the enclosing subsystem.
+
+    Integration: Called by ``_read_claude_credentials_from_keychain`` and collaborates with
+    ``re.search``, ``match.group``, ``re.escape``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     match = re.search(rf'"{re.escape(attr_name)}"<blob>="([^"]*)"', metadata)
     if not match:
         return None
@@ -293,7 +398,15 @@ def _extract_keychain_attr(metadata: str, attr_name: str) -> str | None:
 
 
 def describe_external_binding(binding: ExternalAuthBinding) -> ExternalAuthState:
-    """Return a human-readable state for an external auth binding."""
+    """Return a human-readable state for an external auth binding.
+
+    Integration: Called by ``auth_status``, ``AuthManager.get_auth_source_statuses`` and
+    collaborates with ``expanduser``, ``ExternalAuthState``, ``load_external_credential``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     source_path = Path(binding.source_path).expanduser()
     if binding.source_kind != "claude_credentials_keychain" and not source_path.exists():
         return ExternalAuthState(
@@ -343,7 +456,16 @@ def describe_external_binding(binding: ExternalAuthBinding) -> ExternalAuthState
 
 
 def is_credential_expired(credential: ExternalAuthCredential, *, now_ms: int | None = None) -> bool:
-    """Return True when the external credential is definitely expired."""
+    """Return True when the external credential is definitely expired.
+
+    Integration: Called by ``_load_claude_credential``, ``describe_external_binding`` and
+    collaborates with ``time.time``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if credential.expires_at_ms is None:
         return False
     if now_ms is None:
@@ -354,7 +476,16 @@ def is_credential_expired(credential: ExternalAuthCredential, *, now_ms: int | N
 
 
 def get_claude_code_version() -> str:
-    """Return the locally installed Claude Code version or a fallback."""
+    """Return the locally installed Claude Code version or a fallback.
+
+    Integration: Called by ``claude_attribution_header``, ``claude_oauth_headers`` and
+    collaborates with ``subprocess.run``, ``split``, ``isdigit``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     global _claude_code_version_cache
     if _claude_code_version_cache is not None:
         return _claude_code_version_cache
@@ -378,7 +509,16 @@ def get_claude_code_version() -> str:
 
 
 def get_claude_code_session_id() -> str:
-    """Return a stable Claude Code-style session identifier for this process."""
+    """Return a stable Claude Code-style session identifier for this process.
+
+    Integration: Called by ``AnthropicApiClient.__init__``, ``claude_oauth_headers`` and
+    collaborates with ``uuid.uuid4``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     global _claude_code_session_id
     if _claude_code_session_id is None:
         _claude_code_session_id = str(uuid.uuid4())
@@ -386,12 +526,31 @@ def get_claude_code_session_id() -> str:
 
 
 def claude_oauth_betas() -> list[str]:
-    """Return Claude OAuth betas as a list for SDK beta endpoints."""
+    """Return Claude OAuth betas as a list for SDK beta endpoints.
+
+    Integration: Called by ``AnthropicApiClient._stream_once``, ``claude_oauth_headers``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return list(CLAUDE_COMMON_BETAS + CLAUDE_OAUTH_ONLY_BETAS)
 
 
 def claude_attribution_header() -> str:
-    """Return the Claude Code billing attribution prefix used in system prompts."""
+    """Return the Claude Code billing attribution prefix used in system prompts.
+
+    Integration: Called by ``AnthropicApiClient._stream_once`` and collaborates with
+    ``get_claude_code_version``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     version = get_claude_code_version()
     return (
         "x-anthropic-billing-header: "
@@ -400,7 +559,16 @@ def claude_attribution_header() -> str:
 
 
 def claude_oauth_headers() -> dict[str, str]:
-    """Return Claude Code-style headers for subscription OAuth traffic."""
+    """Return Claude Code-style headers for subscription OAuth traffic.
+
+    Integration: Called by ``AnthropicApiClient._create_client`` and collaborates with ``join``,
+    ``claude_oauth_betas``, ``get_claude_code_session_id``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     all_betas = ",".join(claude_oauth_betas())
     return {
         "anthropic-beta": all_betas,
@@ -415,7 +583,15 @@ def refresh_claude_oauth_credential(
     *,
     scopes: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Refresh a Claude OAuth token without mutating local files."""
+    """Refresh a Claude OAuth token without mutating local files.
+
+    Integration: Called by ``_load_claude_credential`` and collaborates with ``encode``,
+    ``ValueError``, ``urllib.request.Request``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not refresh_token:
         raise ValueError("refresh_token is required")
 
@@ -482,7 +658,16 @@ def write_claude_credentials(
     refresh_token: str,
     expires_at_ms: int,
 ) -> None:
-    """Write refreshed Claude credentials back to the upstream credentials file."""
+    """Write refreshed Claude credentials back to the upstream credentials file.
+
+    Integration: Called by ``_load_claude_credential`` and collaborates with
+    ``source_path.exists``, ``_merge_claude_oauth_payload``, ``atomic_write_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     existing: dict[str, Any] = {}
     if source_path.exists():
         try:
@@ -511,6 +696,15 @@ def _write_claude_credentials_to_keychain(
     refresh_token: str,
     expires_at_ms: int,
 ) -> None:
+    """Write claude credentials to keychain for the enclosing subsystem.
+
+    Integration: Called by ``_load_claude_credential`` and collaborates with
+    ``_merge_claude_oauth_payload``, ``subprocess.run``, ``payload.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     next_payload = dict(payload)
     next_payload["claudeAiOauth"] = _merge_claude_oauth_payload(
         payload.get("claudeAiOauth"),
@@ -543,6 +737,16 @@ def _merge_claude_oauth_payload(
     refresh_token: str,
     expires_at_ms: int,
 ) -> dict[str, Any]:
+    """Merge claude oauth payload for the enclosing subsystem.
+
+    Integration: Called by ``write_claude_credentials``,
+    ``_write_claude_credentials_to_keychain``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     next_oauth: dict[str, Any] = {
         "accessToken": access_token,
         "refreshToken": refresh_token,
@@ -556,7 +760,16 @@ def _merge_claude_oauth_payload(
 
 
 def is_third_party_anthropic_endpoint(base_url: str | None) -> bool:
-    """Return True for non-Anthropic endpoints using Anthropic-compatible APIs."""
+    """Return True for non-Anthropic endpoints using Anthropic-compatible APIs.
+
+    Integration: Called by ``Settings.resolve_auth`` and collaborates with ``lower``,
+    ``base_url.rstrip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not base_url:
         return False
     normalized = base_url.rstrip("/").lower()
@@ -564,6 +777,16 @@ def is_third_party_anthropic_endpoint(base_url: str | None) -> bool:
 
 
 def _coerce_int(value: Any) -> int | None:
+    """Coerce int for the enclosing subsystem.
+
+    Integration: Called by ``_load_claude_credential`` and collaborates with ``value.strip``,
+    ``trimmed.isdigit``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
@@ -578,6 +801,16 @@ def _coerce_int(value: Any) -> int | None:
 
 
 def _decode_jwt_expiry(token: str) -> int | None:
+    """Decode jwt expiry for the enclosing subsystem.
+
+    Integration: Called by ``_load_codex_credential`` and collaborates with
+    ``_decode_json_web_token_claim``, ``isdigit``, ``exp.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     exp = _decode_json_web_token_claim(token, ["exp"])
     if exp is None:
         return None
@@ -591,6 +824,15 @@ def _decode_jwt_expiry(token: str) -> int | None:
 
 
 def _decode_json_web_token_claim(token: str, path: list[str]) -> Any | None:
+    """Decode JSON web token claim for the enclosing subsystem.
+
+    Integration: Called by ``_load_codex_credential``, ``_decode_jwt_expiry`` and collaborates
+    with ``token.split``, ``json.loads``, ``decode``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     parts = token.split(".")
     if len(parts) != 3:
         return None

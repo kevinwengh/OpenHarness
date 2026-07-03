@@ -1,4 +1,15 @@
-"""Plugin exports."""
+"""Plugin exports.
+
+Integration: This module participates in manifest-driven discovery of optional skills, commands,
+agents, tools, hooks, and MCP servers.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project-plugin opt-in trust, import isolation, precedence, namespacing,
+and actionable load failures.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +32,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    """Resolve a lazily exported attribute from ``this module``.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``AttributeError``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if name in {"discover_plugin_paths", "get_project_plugins_dir", "get_user_plugins_dir", "load_plugins"}:
         from openharness.plugins.loader import (
             discover_plugin_paths,

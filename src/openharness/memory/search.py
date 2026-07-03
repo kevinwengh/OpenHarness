@@ -1,4 +1,15 @@
-"""Simple heuristic memory search."""
+"""Simple heuristic memory search.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +33,14 @@ def find_relevant_memories(
 
     Scoring weights frontmatter fields higher than body content so that
     well-annotated memories surface first.
+
+    Integration: Called by ``select_relevant_memories`` and collaborates with ``_tokenize``,
+    ``scan_memory_files``, ``scored.sort``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     tokens = _tokenize(query)
     if not tokens:
@@ -51,7 +70,16 @@ def find_relevant_memories(
 
 
 def _tokenize(text: str) -> set[str]:
-    """Extract search tokens from *text*, handling ASCII and Han ideographs."""
+    """Extract search tokens from *text*, handling ASCII and Han ideographs.
+
+    Integration: Called by ``find_relevant_memories`` and collaborates with ``re.findall``,
+    ``text.lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     # ASCII word tokens (3+ chars)
     ascii_tokens = {t for t in re.findall(r"[A-Za-z0-9_]+", text.lower()) if len(t) >= 3}
     # Han ideographs (each character carries independent meaning)
@@ -60,6 +88,16 @@ def _tokenize(text: str) -> set[str]:
 
 
 def _recency_boost(header: MemoryHeader) -> float:
+    """Derive recency boost from the current inputs and subsystem state.
+
+    Integration: Called by ``find_relevant_memories`` and collaborates with ``parse_datetime``,
+    ``utc_now``, ``timedelta``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     timestamp = parse_datetime(header.updated_at) or parse_datetime(header.created_at)
     if timestamp is None:
         return 0.0

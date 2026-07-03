@@ -1,4 +1,13 @@
-"""Slash command registry."""
+"""Slash command registry.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -101,7 +110,17 @@ if TYPE_CHECKING:
 
 @dataclass
 class CommandResult:
-    """Result returned by a slash command."""
+    """Result returned by a slash command.
+
+    Integration: Constructed or referenced by ``OhmoSessionRuntimePool.stream_message``,
+    ``_skill_command_handler``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     message: str | None = None
     should_exit: bool = False
@@ -116,7 +135,17 @@ class CommandResult:
 
 @dataclass(frozen=True)
 class MemoryCommandBackend:
-    """Storage backend used by the generic ``/memory`` slash command."""
+    """Storage backend used by the generic ``/memory`` slash command.
+
+    Integration: Constructed or referenced by ``create_memory_command_backend``,
+    ``_memory_backend_for_context``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     label: str
     default_type: str
@@ -130,7 +159,17 @@ class MemoryCommandBackend:
 
 @dataclass
 class CommandContext:
-    """Context available to command handlers."""
+    """Context available to command handlers.
+
+    Integration: Constructed or referenced by ``OhmoSessionRuntimePool.stream_message``,
+    ``OhmoSessionRuntimePool.stream_message.get_command_context``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     engine: QueryEngine
     hooks_summary: str = ""
@@ -152,7 +191,17 @@ CommandHandler = Callable[[str, CommandContext], Awaitable[CommandResult]]
 
 @dataclass
 class SlashCommand:
-    """Definition of a slash command."""
+    """Definition of a slash command.
+
+    Integration: Constructed or referenced by ``_make_skill_slash_command``,
+    ``create_default_command_registry``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     description: str
@@ -163,17 +212,46 @@ class SlashCommand:
 
 
 class CommandRegistry:
-    """Map slash commands to handlers."""
+    """Map slash commands to handlers.
+
+    Integration: Constructed or referenced by ``create_default_command_registry``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self) -> None:
         # Primary commands keyed by canonical name, plus aliases pointing at
         # the same SlashCommand instance. We keep a separate set of canonical
         # names so help/listing output doesn't duplicate aliased entries.
+        """Initialize ``CommandRegistry`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``CommandRegistry``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._commands: dict[str, SlashCommand] = {}
         self._canonical_names: list[str] = []
 
     def register(self, command: SlashCommand) -> None:
-        """Register a command, plus any aliases pointing at the same handler."""
+        """Register a command, plus any aliases pointing at the same handler.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_canonical_names.append``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if command.name not in self._commands:
             self._canonical_names.append(command.name)
         self._commands[command.name] = command
@@ -181,7 +259,18 @@ class CommandRegistry:
             self._commands[alias] = command
 
     def lookup(self, raw_input: str) -> tuple[SlashCommand, str] | None:
-        """Parse a slash command and return its handler plus raw args."""
+        """Parse a slash command and return its handler plus raw args.
+
+        Integration: Called by ``OhmoSessionRuntimePool.stream_message``,
+        ``_run_plugin_command_flow`` and collaborates with ``partition``, ``_commands.get``,
+        ``raw_input.startswith``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not raw_input.startswith("/"):
             return None
         name, _, args = raw_input[1:].partition(" ")
@@ -191,7 +280,18 @@ class CommandRegistry:
         return command, args.strip()
 
     def help_text(self) -> str:
-        """Return a formatted summary of all registered commands."""
+        """Return a formatted summary of all registered commands.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._help_handler`` and collaborates with ``join``,
+        ``lines.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lines = ["Available commands:"]
         commands = [self._commands[name] for name in self._canonical_names]
         for command in sorted(commands, key=lambda item: item.name):
@@ -199,11 +299,32 @@ class CommandRegistry:
         return "\n".join(lines)
 
     def list_commands(self) -> list[SlashCommand]:
-        """Return canonical commands in registration order (aliases omitted)."""
+        """Return canonical commands in registration order (aliases omitted).
+
+        Integration: Called by ``_build_dry_run_preview``, ``ReactBackendHost.run``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return [self._commands[name] for name in self._canonical_names]
 
 
 def _run_git_command(cwd: str, *args: str) -> tuple[bool, str]:
+    """Run git command for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._diff_handler`` and collaborates with ``strip``,
+    ``subprocess.run``, ``join``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     try:
         completed = subprocess.run(
             ["git", *args],
@@ -221,6 +342,19 @@ def _run_git_command(cwd: str, *args: str) -> tuple[bool, str]:
 
 
 def _copy_to_clipboard(text: str) -> tuple[bool, str]:
+    """Derive copy to clipboard from the current inputs and subsystem state.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._copy_handler`` and collaborates with
+    ``fallback.write_text``, ``pyperclip.copy``, ``get_data_dir``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    argv boundaries, timeouts, and child cleanup; preserve exception and fallback behavior
+    expected by callers.
+    """
     try:
         pyperclip.copy(text)
         return True, "clipboard"
@@ -237,6 +371,18 @@ def _copy_to_clipboard(text: str) -> tuple[bool, str]:
 
 
 def _last_message_text(messages: list[ConversationMessage]) -> str:
+    """Derive last message text from the current inputs and subsystem state.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._copy_handler`` and collaborates with ``reversed``,
+    ``message.text.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for message in reversed(messages):
         if message.text.strip():
             return message.text.strip()
@@ -244,6 +390,18 @@ def _last_message_text(messages: list[ConversationMessage]) -> str:
 
 
 def _shorten_text(text: str, *, limit: int = 160) -> str:
+    """Derive shorten text from the current inputs and subsystem state.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._autopilot_handler`` and collaborates with ``join``,
+    ``text.split``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = " ".join(text.split())
     if len(normalized) <= limit:
         return normalized
@@ -251,6 +409,18 @@ def _shorten_text(text: str, *, limit: int = 160) -> str:
 
 
 def _rewind_turns(messages: list[ConversationMessage], turns: int) -> list[ConversationMessage]:
+    """Derive rewind turns from the current inputs and subsystem state.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._rewind_handler`` and collaborates with ``updated.pop``,
+    ``popped.text.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     updated = list(messages)
     for _ in range(max(0, turns)):
         if not updated:
@@ -281,11 +451,31 @@ _REDACTED = "[REDACTED]"
 
 
 def _is_secret_key(key: object) -> bool:
+    """Return whether secret key for the enclosing subsystem.
+
+    Integration: Called by ``_redact_config_value`` and collaborates with ``replace``, ``any``,
+    ``lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = str(key).lower().replace("-", "_")
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
 
 def _redact_config_value(value: object, *, key: object | None = None) -> object:
+    """Derive redact config value from the current inputs and subsystem state.
+
+    Integration: Called by ``_settings_json_for_display`` and collaborates with
+    ``_is_secret_key``, ``startswith``, ``value.items``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if key is not None and _is_secret_key(key):
         return _REDACTED
     if isinstance(value, dict):
@@ -300,10 +490,32 @@ def _redact_config_value(value: object, *, key: object | None = None) -> object:
 
 
 def _settings_json_for_display(settings: Settings) -> str:
+    """Derive settings JSON for display from the current inputs and subsystem state.
+
+    Integration: Called by ``config_show``, ``create_default_command_registry`` and collaborates
+    with ``json.dumps``, ``_redact_config_value``, ``settings.model_dump``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return json.dumps(_redact_config_value(settings.model_dump()), indent=2, default=str)
 
 
 def _coerce_setting_value(settings: Settings, key: str, raw: str):
+    """Coerce setting value for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._config_handler`` and collaborates with
+    ``Settings.model_fields.get``, ``KeyError``, ``raw.lower``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     field = Settings.model_fields.get(key)
     if field is None:
         raise KeyError(key)
@@ -328,6 +540,18 @@ def _coerce_setting_value(settings: Settings, key: str, raw: str):
 
 
 def _render_plugin_command_prompt(command: PluginCommandDefinition, args: str, session_id: str | None = None) -> str:
+    """Render plugin command prompt for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._plugin_command_handler`` and collaborates with
+    ``args.strip``, ``replace``, ``prompt.replace``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     prompt = command.content
     raw_args = args.strip()
     if command.is_skill and command.base_dir:
@@ -342,6 +566,17 @@ def _render_plugin_command_prompt(command: PluginCommandDefinition, args: str, s
 
 
 def _render_skill_command_prompt(skill: SkillDefinition, args: str, session_id: str | None = None) -> str:
+    """Render skill command prompt for the enclosing subsystem.
+
+    Integration: Called by ``_skill_command_handler`` and collaborates with ``args.strip``,
+    ``replace``, ``prompt.replace``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     prompt = skill.content
     raw_args = args.strip()
     if skill.base_dir:
@@ -356,14 +591,48 @@ def _render_skill_command_prompt(skill: SkillDefinition, args: str, session_id: 
 
 
 def _skill_command_name(skill: SkillDefinition) -> str:
+    """Derive skill command name from the current inputs and subsystem state.
+
+    Integration: Called by ``lookup_skill_slash_command``,
+    ``_register_user_invocable_skill_commands``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return skill.command_name or skill.name
 
 
 def _is_valid_skill_command_name(name: str) -> bool:
+    """Return whether valid skill command name for the enclosing subsystem.
+
+    Integration: Called by ``lookup_skill_slash_command``,
+    ``_register_user_invocable_skill_commands`` and collaborates with ``any``, ``char.isspace``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return bool(name) and not any(char.isspace() for char in name)
 
 
 async def _skill_command_handler(args: str, context: CommandContext, *, skill_name: str) -> CommandResult:
+    """Run the skill command handler workflow through its asynchronous collaborators.
+
+    Integration: Called by ``_make_skill_slash_command`` and collaborates with
+    ``load_skill_registry``, ``skill_registry.get``, ``_render_skill_command_prompt``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     skill_registry = load_skill_registry(
         context.cwd,
         extra_skill_dirs=context.extra_skill_dirs,
@@ -384,6 +653,17 @@ async def _skill_command_handler(args: str, context: CommandContext, *, skill_na
 
 
 def _make_skill_slash_command(skill_name: str, description: str) -> SlashCommand:
+    """Create skill slash command for the enclosing subsystem.
+
+    Integration: Called by ``lookup_skill_slash_command``,
+    ``_register_user_invocable_skill_commands`` and collaborates with ``SlashCommand``,
+    ``_skill_command_handler``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return SlashCommand(
         skill_name,
         description,
@@ -401,6 +681,15 @@ def lookup_skill_slash_command(raw_input: str, context: CommandContext) -> tuple
     This is a runtime fallback for skills that are only visible after the
     active cwd, ohmo workspace, or plugin roots are known. Unknown slash
     commands still fall through to the normal agent prompt path.
+
+    Integration: Called by ``OhmoSessionRuntimePool.stream_message``, ``handle_line`` and
+    collaborates with ``partition``, ``name.strip``, ``load_skill_registry``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if not raw_input.startswith("/"):
         return None
@@ -427,6 +716,14 @@ def _register_user_invocable_skill_commands(registry: CommandRegistry) -> None:
 
     Skills are loaded at command execution time because the active command
     context supplies cwd, ohmo extra skill dirs, and plugin roots.
+
+    Integration: Called by ``create_default_command_registry`` and collaborates with
+    ``list_skills``, ``_skill_command_name``, ``registry.register``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     for skill in load_skill_registry().list_skills():
@@ -445,22 +742,81 @@ def _register_user_invocable_skill_commands(registry: CommandRegistry) -> None:
 def create_default_command_registry(
     plugin_commands: Iterable[PluginCommandDefinition] | None = None,
 ) -> CommandRegistry:
-    """Create the built-in command registry."""
+    """Create the built-in command registry.
+
+    Integration: Called by ``_run_plugin_command_flow``, ``_run_command_flow`` and collaborates
+    with ``CommandRegistry``, ``registry.register``,
+    ``_register_user_invocable_skill_commands``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     registry = CommandRegistry()
 
     async def _help_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the help handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``, ``registry.help_text``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         del context
         return CommandResult(message=registry.help_text())
 
     async def _exit_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the exit handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         del context
         return CommandResult(should_exit=True)
 
     async def _clear_handler(_: str, context: CommandContext) -> CommandResult:
+        """Clear handler for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``context.engine.clear``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         context.engine.clear()
         return CommandResult(message="Conversation cleared.", clear_screen=True)
 
     async def _status_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the status handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``AuthManager``, ``CommandResult``, ``context.app_state.get``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         usage = context.engine.total_usage
         state = context.app_state.get() if context.app_state is not None else None
         manager = AuthManager()
@@ -475,6 +831,17 @@ def create_default_command_registry(
         )
 
     async def _version_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the version handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``, ``importlib.metadata.version``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         del context
         try:
             version = importlib.metadata.version("openharness")
@@ -483,6 +850,18 @@ def create_default_command_registry(
         return CommandResult(message=f"OpenHarness {version}")
 
     async def _context_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the context handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``build_runtime_system_prompt``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         prompt = build_runtime_system_prompt(
             settings,
@@ -492,6 +871,17 @@ def create_default_command_registry(
         return CommandResult(message=prompt)
 
     async def _summary_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the summary handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``summarize_messages``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         max_messages = 8
         if args:
             try:
@@ -502,6 +892,17 @@ def create_default_command_registry(
         return CommandResult(message=summary or "No conversation content to summarize.")
 
     async def _compact_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the compact handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``context.engine.load_messages``, ``CommandResult``,
+        ``build_post_compact_messages``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         preserve_recent = 6
         if args:
             try:
@@ -527,6 +928,18 @@ def create_default_command_registry(
         )
 
     async def _usage_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the usage handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``estimate_conversation_tokens``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         usage = context.engine.total_usage
         estimated = estimate_conversation_tokens(context.engine.messages)
         return CommandResult(
@@ -538,6 +951,18 @@ def create_default_command_registry(
         )
 
     async def _cost_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the cost handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``model.startswith``, ``CommandResult``, ``context.app_state.get``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         usage = context.engine.total_usage
         model = context.app_state.get().model if context.app_state is not None else load_settings().model
         estimated_cost = "unavailable"
@@ -561,6 +986,18 @@ def create_default_command_registry(
         )
 
     async def _stats_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the stats handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``_memory_backend_for_context``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         memory_backend = _memory_backend_for_context(context)
         memory_count = len(memory_backend.list_files())
@@ -583,6 +1020,18 @@ def create_default_command_registry(
         )
 
     async def _dream_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the dream handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.split``, ``context.session_backend.get_session_dir``,
+        ``CommandResult``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = getattr(context.engine, "_settings", None) or load_settings().materialize_active_profile()
         parts = args.split()
         action = parts[0] if parts else "run"
@@ -674,6 +1123,17 @@ def create_default_command_registry(
         )
 
     async def _memory_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the memory handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_memory_backend_for_context``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         backend = _memory_backend_for_context(context)
         tokens = args.split(maxsplit=1)
         if not tokens:
@@ -794,9 +1254,34 @@ def create_default_command_registry(
         )
 
     async def _hooks_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the hooks handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return CommandResult(message=context.hooks_summary or "No hooks configured.")
 
     async def _resume_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the resume handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``split``, ``context.session_backend.list_snapshots``,
+        ``lines.append``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         tokens = args.strip().split()
 
         # /resume <session_id> — load a specific session
@@ -844,14 +1329,50 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _export_handler(_: str, context: CommandContext) -> CommandResult:
+        """Export handler for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``context.session_backend.export_markdown``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         path = context.session_backend.export_markdown(cwd=context.cwd, messages=context.engine.messages)
         return CommandResult(message=f"Exported transcript to {path}")
 
     async def _share_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the share handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``context.session_backend.export_markdown``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         path = context.session_backend.export_markdown(cwd=context.cwd, messages=context.engine.messages)
         return CommandResult(message=f"Created shareable transcript snapshot at {path}")
 
     async def _copy_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the copy handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_copy_to_clipboard``, ``CommandResult``, ``args.strip``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         text = args.strip() or _last_message_text(context.engine.messages)
         if not text:
             return CommandResult(message="Nothing to copy.")
@@ -861,6 +1382,19 @@ def create_default_command_registry(
         return CommandResult(message=f"Clipboard unavailable. Saved copied text to {target}")
 
     async def _session_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the session handler workflow through its asynchronous collaborators.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._tag_handler`` and collaborates with
+        ``context.session_backend.get_session_dir``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         session_dir = context.session_backend.get_session_dir(context.cwd)
         tokens = args.split()
         if not tokens or tokens[0] == "show":
@@ -908,6 +1442,17 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /session [show|ls|path|tag NAME|clear]")
 
     async def _rewind_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the rewind handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.strip``, ``_rewind_turns``, ``context.engine.load_messages``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         turns = 1
         if args.strip():
             try:
@@ -921,12 +1466,35 @@ def create_default_command_registry(
         return CommandResult(message=f"Rewound {turns} turn(s); removed {removed} message(s).")
 
     async def _tag_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the tag handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.strip``, ``CommandResult``, ``_session_handler``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         name = args.strip()
         if not name:
             return CommandResult(message="Usage: /tag NAME")
         return await _session_handler(f"tag {name}", context)
 
     async def _files_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the files handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.strip``, ``Path``, ``raw.split``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         raw = args.strip()
         root = Path(context.cwd)
         max_items = 30
@@ -960,6 +1528,18 @@ def create_default_command_registry(
         )
 
     async def _agents_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the agents handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.split``, ``CommandResult``, ``get_task``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         tokens = args.split(maxsplit=1)
         guide = (
             "Subagent guide:\n"
@@ -1002,6 +1582,18 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _init_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the init handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``get_project_config_dir``, ``CommandResult``, ``Path``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         del args
         project_dir = get_project_config_dir(context.cwd)
         created: list[str] = []
@@ -1044,6 +1636,16 @@ def create_default_command_registry(
         return CommandResult(message="Initialized project files:\n" + "\n".join(f"- {item}" for item in created))
 
     async def _bridge_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the bridge handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.split``, ``CommandResult``, ``list_sessions``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         tokens = args.split()
         if not tokens or tokens[0] == "show":
             sessions = get_bridge_manager().list_sessions()
@@ -1098,6 +1700,18 @@ def create_default_command_registry(
         )
 
     async def _reload_plugins_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the reload plugins handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``load_plugins``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         plugins = load_plugins(settings, context.cwd, extra_roots=context.extra_plugin_roots)
         if not plugins:
@@ -1109,6 +1723,19 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _skills_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the skills handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_skill_registry``, ``skill_registry.list_skills``,
+        ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         skill_registry = load_skill_registry(
             context.cwd,
             extra_skill_dirs=context.extra_skill_dirs,
@@ -1133,6 +1760,17 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _config_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the config handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         del context
         settings = load_settings()
         tokens = args.split(maxsplit=2)
@@ -1152,6 +1790,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /config [show|set KEY VALUE]")
 
     async def _login_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the login handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``AuthManager``, ``settings.resolve_profile``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         del context
         settings = load_settings()
         manager = AuthManager(settings)
@@ -1181,6 +1831,18 @@ def create_default_command_registry(
         return CommandResult(message="Stored API key in ~/.openharness/settings.json")
 
     async def _logout_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the logout handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``clear_profile_credential``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         del context
         settings = load_settings()
         profile_name = settings.resolve_profile()[0]
@@ -1188,6 +1850,18 @@ def create_default_command_registry(
         return CommandResult(message="Cleared stored API key.")
 
     async def _feedback_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the feedback handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``get_feedback_log_path``, ``isoformat``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         del context
         path = get_feedback_log_path()
         if not args.strip():
@@ -1198,6 +1872,18 @@ def create_default_command_registry(
         return CommandResult(message=f"Saved feedback to {path}")
 
     async def _onboarding_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the onboarding handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         del context
         return CommandResult(
             message=(
@@ -1211,6 +1897,18 @@ def create_default_command_registry(
         )
 
     async def _fast_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the fast handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``get``, ``save_settings``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         current = (
             context.app_state.get().fast_mode
@@ -1230,6 +1928,18 @@ def create_default_command_registry(
         return CommandResult(message=f"Fast mode {'enabled' if enabled else 'disabled'}.")
 
     async def _effort_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the effort handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``save_settings``, ``context.engine.set_effort``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         current = context.app_state.get().effort if context.app_state is not None else settings.effort
         value = args.strip() or "show"
@@ -1254,6 +1964,18 @@ def create_default_command_registry(
         return CommandResult(message=f"Reasoning effort set to {value}.")
 
     async def _passes_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the passes handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``save_settings``,
+        ``context.engine.set_system_prompt``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         settings = load_settings()
         current = context.app_state.get().passes if context.app_state is not None else settings.passes
         value = args.strip() or "show"
@@ -1277,6 +1999,17 @@ def create_default_command_registry(
         return CommandResult(message=f"Pass count set to {passes}.")
 
     async def _turns_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the turns handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``args.split``, ``save_settings``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         settings = load_settings()
         engine_turns = "unlimited" if context.engine.max_turns is None else str(context.engine.max_turns)
         tokens = args.split()
@@ -1313,6 +2046,18 @@ def create_default_command_registry(
         return CommandResult(message=f"Max turns set to {turns}.")
 
     async def _continue_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the continue handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.strip``, ``CommandResult``,
+        ``context.engine.has_pending_continuation``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         raw = args.strip()
         if not context.engine.has_pending_continuation():
             return CommandResult(message="Nothing to continue (no pending tool results).")
@@ -1335,6 +2080,18 @@ def create_default_command_registry(
         )
 
     async def _stop_handler(_: str, _context: CommandContext) -> CommandResult:
+        """Stop handler for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return CommandResult(
             message=(
                 "No active turn is running in this command handler. "
@@ -1344,6 +2101,18 @@ def create_default_command_registry(
         )
 
     async def _issue_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the issue handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``get_project_issue_file``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         path = get_project_issue_file(context.cwd)
         tokens = args.split(maxsplit=1)
         action = tokens[0] if tokens else "show"
@@ -1368,6 +2137,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /issue [show|set TITLE :: BODY|clear]")
 
     async def _pr_comments_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the pr comments handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``get_project_pr_comments_file``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         path = get_project_pr_comments_file(context.cwd)
         tokens = args.split(maxsplit=1)
         action = tokens[0] if tokens else "show"
@@ -1395,6 +2176,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /pr_comments [show|add FILE[:LINE] :: COMMENT|clear]")
 
     async def _mcp_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the MCP handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         tokens = args.split()
         if tokens and tokens[0] == "auth" and len(tokens) >= 3:
@@ -1445,6 +2238,17 @@ def create_default_command_registry(
         return CommandResult(message=context.mcp_summary or "No MCP servers configured.")
 
     async def _plugin_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the plugin handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``args.split``, ``load_plugins``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         settings = load_settings()
         tokens = args.split()
         if not tokens or tokens[0] == "list":
@@ -1476,6 +2280,18 @@ def create_default_command_registry(
     _MODE_LABELS = {"default": "Default", "plan": "Plan Mode", "full_auto": "Auto"}
 
     async def _permissions_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the permissions handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         tokens = args.split()
         if not tokens or tokens[0] == "show":
@@ -1504,6 +2320,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /permissions [show|default|full_auto|plan]")
 
     async def _plan_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the plan handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``CommandResult``, ``args.strip``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         mode = args.strip() or "on"
         if mode in {"on", "enter"}:
@@ -1523,6 +2351,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /plan [on|off]")
 
     def _dedupe_model_values(values: Iterable[str]) -> list[str]:
+        """Derive dedupe model values from the current inputs and subsystem state.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._seed_model_values`` and collaborates with
+        ``value.strip``, ``models.append``, ``seen.add``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         models: list[str] = []
         seen: set[str] = set()
         for value in values:
@@ -1534,12 +2374,35 @@ def create_default_command_registry(
         return models
 
     def _seed_model_values(profile: "ProviderProfile") -> list[str]:
+        """Seed model values for the enclosing subsystem.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._model_handler`` and collaborates with
+        ``_dedupe_model_values``, ``display_model_setting``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         existing = _dedupe_model_values(profile.allowed_models)
         if existing:
             return existing
         return _dedupe_model_values([display_model_setting(profile)])
 
     def _format_model_status(active_profile: str, profile: "ProviderProfile") -> str:
+        """Format model status for the enclosing subsystem.
+
+        Integration: Exposed through ``create_default_command_registry`` and collaborates with
+        ``display_model_setting``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lines = [
             f"Model: {display_model_setting(profile)}",
             f"Profile: {active_profile}",
@@ -1553,6 +2416,18 @@ def create_default_command_registry(
         return "\n".join(lines)
 
     async def _model_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the model handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``AuthManager``, ``manager.get_active_profile``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         manager = AuthManager(settings)
         active_profile = manager.get_active_profile()
@@ -1640,6 +2515,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /model [show|list|add MODEL|remove MODEL|clear|MODEL]")
 
     async def _provider_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the provider handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``AuthManager``, ``manager.get_profile_statuses``, ``args.split``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         manager = AuthManager()
         profiles = manager.get_profile_statuses()
         tokens = args.split()
@@ -1683,6 +2570,17 @@ def create_default_command_registry(
         )
 
     async def _theme_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the theme handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         from openharness.themes import list_themes, load_theme
 
         settings = load_settings()
@@ -1767,6 +2665,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /theme [list|show|NAME|preview NAME]")
 
     async def _output_style_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the output style handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``args.split``, ``load_output_styles``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         tokens = args.split(maxsplit=1)
         styles = load_output_styles()
@@ -1799,6 +2709,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /output-style [show|list|NAME]")
 
     async def _keybindings_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the keybindings handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``lines.extend``, ``CommandResult``, ``load_keybindings``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         from openharness.keybindings import get_keybindings_path, load_keybindings
 
         bindings = (
@@ -1811,6 +2733,18 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _vim_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the vim handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``get``, ``save_settings``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         current = (
             context.app_state.get().vim_enabled
@@ -1830,6 +2764,18 @@ def create_default_command_registry(
         return CommandResult(message=f"Vim mode {'enabled' if enabled else 'disabled'}.")
 
     async def _voice_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the voice handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``inspect_voice_capabilities``, ``args.split``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         from openharness.voice import extract_keyterms, inspect_voice_capabilities
 
         settings = load_settings()
@@ -1866,6 +2812,18 @@ def create_default_command_registry(
         return CommandResult(message=f"Voice mode {'enabled' if enabled else 'disabled'}.")
 
     async def _doctor_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the doctor handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``AuthManager``, ``settings.resolve_profile``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         manager = AuthManager(settings)
         active_profile_name, active_profile = settings.resolve_profile()
@@ -1893,6 +2851,19 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _privacy_settings_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the privacy settings handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``context.session_backend.get_session_dir``,
+        ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         session_dir = context.session_backend.get_session_dir(context.cwd)
         lines = [
@@ -1908,6 +2879,18 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _rate_limit_options_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the rate limit options handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``load_settings``, ``CommandResult``, ``join``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = load_settings()
         provider = "moonshot-compatible" if (settings.base_url and "moonshot" in settings.base_url) else "anthropic-compatible"
         lines = [
@@ -1921,6 +2904,18 @@ def create_default_command_registry(
         return CommandResult(message="\n".join(lines))
 
     async def _release_notes_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the release notes handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``path.exists``, ``CommandResult``, ``Path``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         path = Path(context.cwd) / "RELEASE_NOTES.md"
         if path.exists():
             return CommandResult(message=path.read_text(encoding="utf-8"))
@@ -1934,6 +2929,17 @@ def create_default_command_registry(
         )
 
     async def _upgrade_handler(_: str, context: CommandContext) -> CommandResult:
+        """Run the upgrade handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``, ``importlib.metadata.version``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         del context
         try:
             version = importlib.metadata.version("openharness")
@@ -1950,6 +2956,18 @@ def create_default_command_registry(
         )
 
     async def _diff_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the diff handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_run_git_command``, ``CommandResult``, ``args.strip``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if args.strip() == "full":
             ok, output = _run_git_command(context.cwd, "diff", "HEAD")
             return CommandResult(message=output or "(no diff)")
@@ -1959,6 +2977,18 @@ def create_default_command_registry(
         return CommandResult(message=output or "(no diff)")
 
     async def _branch_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the branch handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``CommandResult``, ``args.strip``, ``_run_git_command``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         action = args.strip() or "show"
         if action == "show":
             ok, current = _run_git_command(context.cwd, "branch", "--show-current")
@@ -1971,6 +3001,18 @@ def create_default_command_registry(
         return CommandResult(message="Usage: /branch [show|list]")
 
     async def _commit_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the commit handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.strip``, ``_run_git_command``, ``CommandResult``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         message = args.strip()
         if not message:
             ok, status = _run_git_command(context.cwd, "status", "--short")
@@ -1987,6 +3029,16 @@ def create_default_command_registry(
         return CommandResult(message=output if ok else output)
 
     async def _tasks_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the tasks handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``get_task_manager``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         manager = get_task_manager()
         tokens = args.split(maxsplit=2)
         if not tokens or tokens[0] == "list":
@@ -2049,11 +3101,33 @@ def create_default_command_registry(
         )
 
     async def _autopilot_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the autopilot handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``RepoAutopilotStore``, ``args.split``, ``CommandResult``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         store = RepoAutopilotStore(context.cwd)
         tokens = args.split()
         action = tokens[0].lower() if tokens else "status"
 
         def _render_card(card) -> str:
+            """Render card for the enclosing subsystem.
+
+            Integration: Called by ``create_default_command_registry``,
+            ``create_default_command_registry._autopilot_handler`` and collaborates with
+            ``join``, ``lines.append``, ``_shorten_text``.
+
+            Event loop: Async callers invoke this synchronous helper inline, so keep its work
+            bounded and non-blocking.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             lines = [
                 f"{card.id} [{card.status}] score={card.score} {card.title}",
                 f"source={card.source_kind} ref={card.source_ref or '-'}",
@@ -2294,6 +3368,16 @@ def create_default_command_registry(
         )
 
     async def _ship_handler(args: str, context: CommandContext) -> CommandResult:
+        """Run the ship handler workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``args.strip``, ``raw.partition``, ``RepoAutopilotStore``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         raw = args.strip()
         if not raw:
             return CommandResult(message="Usage: /ship TITLE :: DETAILS")
@@ -2555,6 +3639,18 @@ def create_default_command_registry(
             *,
             command: PluginCommandDefinition = plugin_command,
         ) -> CommandResult:
+            """Run the plugin command handler workflow through its asynchronous collaborators.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``_render_plugin_command_prompt``, ``CommandResult``.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             prompt = _render_plugin_command_prompt(
                 command,
                 args,
@@ -2582,6 +3678,18 @@ def _handle_memory_edit_command(
     context: CommandContext,
     backend: MemoryCommandBackend,
 ) -> CommandResult:
+    """Handle memory edit command for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with
+    ``backend.get_memory_dir``, ``backend.get_entrypoint``, ``args.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     memory_dir = backend.get_memory_dir()
     target = backend.get_entrypoint()
     if args.strip():
@@ -2603,7 +3711,18 @@ def _handle_memory_edit_command(
 
 
 def _parse_memory_add_flags(args: str):
-    """Parse optional ``/memory add`` type/scope flags."""
+    """Parse optional ``/memory add`` type/scope flags.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with ``args.strip``,
+    ``rest.startswith``, ``rest.partition``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     memory_type = DEFAULT_MEMORY_TYPE
     scope = DEFAULT_MEMORY_SCOPE
@@ -2629,6 +3748,18 @@ def _parse_memory_add_flags(args: str):
 
 
 def _handle_memory_validate_command(context: CommandContext) -> CommandResult:
+    """Handle memory validate command for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with
+    ``get_project_memory_dir``, ``scan_memory_files``, ``CommandResult``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     memory_dir = get_project_memory_dir(context.cwd)
     headers = scan_memory_files(context.cwd, max_files=500)
     issues: list[str] = []
@@ -2658,6 +3789,18 @@ def _handle_memory_validate_command(context: CommandContext) -> CommandResult:
 
 
 def _handle_memory_session_command(args: str, context: CommandContext) -> CommandResult:
+    """Handle memory session command for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with
+    ``get_session_memory_path``, ``CommandResult``, ``args.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     action = args.split(maxsplit=1)[0] if args.strip() else "status"
     path = get_session_memory_path(context.cwd, context.session_id or "default")
     if action == "update":
@@ -2682,6 +3825,18 @@ def _handle_memory_session_command(args: str, context: CommandContext) -> Comman
 
 
 def _handle_memory_team_command(args: str, context: CommandContext) -> CommandResult:
+    """Handle memory team command for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with
+    ``ensure_team_memory_vault``, ``CommandResult``, ``args.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     action = args.split(maxsplit=1)[0] if args.strip() else "status"
     team_dir = ensure_team_memory_vault(context.cwd)
     if action == "list":
@@ -2708,6 +3863,18 @@ def _handle_memory_team_command(args: str, context: CommandContext) -> CommandRe
 
 
 def _handle_memory_agent_command(args: str, context: CommandContext) -> CommandResult:
+    """Handle memory agent command for the enclosing subsystem.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with ``args.split``,
+    ``ensure_agent_memory_vault``, ``CommandResult``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parts = args.split()
     action = parts[0] if parts else "status"
     agent_type = parts[1] if len(parts) > 1 else "default"
@@ -2730,7 +3897,18 @@ def _handle_memory_agent_command(args: str, context: CommandContext) -> CommandR
 
 
 def _resolve_memory_entry_path(memory_dir: Path, candidate: str) -> tuple[Path | None, bool]:
-    """Resolve a memory entry path while enforcing containment under ``memory_dir``."""
+    """Resolve a memory entry path while enforcing containment under ``memory_dir``.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with
+    ``memory_dir.resolve``, ``_resolve_memory_candidate``, ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     base = memory_dir.resolve()
     resolved, invalid = _resolve_memory_candidate(base, candidate)
@@ -2754,7 +3932,18 @@ def _resolve_memory_entry_path(memory_dir: Path, candidate: str) -> tuple[Path |
 
 
 def _memory_backend_for_context(context: CommandContext) -> MemoryCommandBackend:
-    """Return the active slash-command memory backend for this command context."""
+    """Return the active slash-command memory backend for this command context.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._stats_handler`` and collaborates with
+    ``MemoryCommandBackend``, ``get_project_memory_dir``, ``get_memory_entrypoint``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if context.memory_backend is not None:
         return context.memory_backend
@@ -2772,6 +3961,15 @@ def _memory_backend_for_context(context: CommandContext) -> MemoryCommandBackend
 
 
 def _resolve_memory_candidate(memory_dir: Path, candidate: str) -> tuple[Path | None, bool]:
+    """Resolve memory candidate for the enclosing subsystem.
+
+    Integration: Called by ``_resolve_memory_entry_path`` and collaborates with ``expanduser``,
+    ``path.resolve``, ``path.is_absolute``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     path = Path(candidate).expanduser()
     if not path.is_absolute():
         path = memory_dir / path

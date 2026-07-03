@@ -1,4 +1,15 @@
-"""Migration utilities for schema-v1 memory frontmatter."""
+"""Migration utilities for schema-v1 memory frontmatter.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +31,16 @@ from openharness.utils.fs import atomic_write_text
 
 @dataclass(frozen=True)
 class MigrationSummary:
-    """Summary returned by a memory schema migration run."""
+    """Summary returned by a memory schema migration run.
+
+    Integration: Constructed or referenced by ``migrate_memory``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     scanned: int
     changed: int
@@ -32,6 +52,16 @@ class MigrationSummary:
     failed_files: tuple[str, ...]
 
     def as_dict(self) -> dict[str, object]:
+        """Serialize this value into its external dictionary shape.
+
+        Integration: Called by ``main`` and collaborates with ``asdict``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return asdict(self)
 
 
@@ -43,7 +73,18 @@ def migrate_memory(
     default_category: str = "knowledge",
     apply: bool = False,
 ) -> MigrationSummary:
-    """Backfill schema-v1 frontmatter for top-level memory markdown files."""
+    """Backfill schema-v1 frontmatter for top-level memory markdown files.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with ``root.mkdir``,
+    ``utc_now``, ``MigrationSummary``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     root = Path(memory_dir).expanduser().resolve() if memory_dir is not None else get_project_memory_dir(cwd)
     root.mkdir(parents=True, exist_ok=True)
@@ -94,7 +135,16 @@ def migrate_memory(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Command-line entrypoint for one-off memory migrations."""
+    """Command-line entrypoint for one-off memory migrations.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``argparse.ArgumentParser``, ``parser.add_argument``, ``parser.parse_args``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     parser = argparse.ArgumentParser(description="Backfill OpenHarness memory schema metadata.")
     parser.add_argument("--cwd", default=".", help="Project cwd whose memory store should be migrated.")
@@ -118,6 +168,16 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _create_migration_backup(memory_dir: Path) -> Path:
+    """Create migration backup for the enclosing subsystem.
+
+    Integration: Called by ``migrate_memory`` and collaborates with ``strftime``,
+    ``backup_dir.exists``, ``backup_dir.mkdir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     timestamp = utc_now().strftime("%Y%m%d-%H%M%S")
     backup_dir = memory_dir / "backups" / f"migration-{timestamp}"
     suffix = 2

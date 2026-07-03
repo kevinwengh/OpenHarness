@@ -1,4 +1,15 @@
-"""Generate or edit raster images with configurable image generation providers."""
+"""Generate or edit raster images with configurable image generation providers.
+
+Integration: This module participates in model-callable tools registered with the shared engine
+governance path.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve Pydantic schemas, async ToolResult behavior, read-only policy,
+context.cwd, hooks, sandboxing, output bounds, and registration.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +39,17 @@ ImageGenerationProvider = Literal["auto", "openai", "codex"]
 
 
 class ImageGenerationToolInput(BaseModel):
-    """Arguments for image generation or editing."""
+    """Arguments for image generation or editing.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     prompt: str = Field(default=_DEFAULT_PROMPT, description="Image generation or edit prompt.")
     provider: ImageGenerationProvider = Field(
@@ -72,7 +93,17 @@ class ImageGenerationToolInput(BaseModel):
 
 
 class ImageGenerationTool(BaseTool):
-    """Generate or edit raster images and save them to local files."""
+    """Generate or edit raster images and save them to local files.
+
+    Integration: Constructed or referenced by ``create_default_tool_registry``.
+
+    Event loop: Async methods ``execute``, ``_generate_with_openai``, ``_generate_with_codex``,
+    ``_generate_images`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Keep the input schema, read-only classification, async ``ToolResult``
+    contract, permission metadata, hooks, sandbox behavior, and registration synchronized.
+    """
 
     name = "image_generation"
     description = (
@@ -85,6 +116,24 @@ class ImageGenerationTool(BaseTool):
     input_model = ImageGenerationToolInput
 
     async def execute(self, arguments: ImageGenerationToolInput, context: ToolExecutionContext) -> ToolResult:
+        """Execute one model-requested ``ImageGenerationTool`` invocation.
+
+        Integration: Exposed through ``ImageGenerationTool`` and collaborates with
+        ``_resolve_provider``, ``ToolResult``, ``_resolve_output_paths``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the asynchronous ``ToolResult`` contract, ``context.cwd``, and
+        normalized operational failures; preserve permission, hook, sandbox, metadata, and
+        output-size assumptions; preserve exception and fallback behavior expected by callers.
+
+        Tool contract: The engine validates the Pydantic input and applies hooks and permission
+        policy before awaiting this method. Return ``ToolResult`` for expected operational
+        failures, resolve paths from ``context.cwd``, keep output and metadata serializable and
+        bounded, and do not block the event loop. Revisit sandbox routing, secret redaction,
+        tool-result replay, and registration whenever execution behavior changes.
+        """
         config = context.metadata.get("image_generation_config", {})
         if not isinstance(config, dict):
             config = {}
@@ -126,6 +175,16 @@ class ImageGenerationTool(BaseTool):
         )
 
     async def _generate_with_openai(self, arguments: ImageGenerationToolInput, config: dict[str, object]) -> list[str]:
+        """Generate with openai for the enclosing subsystem.
+
+        Integration: Called by ``ImageGenerationTool.execute`` and collaborates with ``strip``,
+        ``RuntimeError``, ``_generate_images``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         model = (arguments.model or str(config.get("model") or _DEFAULT_MODEL)).strip()
         api_key = str(config.get("api_key") or "").strip()
         base_url = str(config.get("base_url") or "").strip()
@@ -143,6 +202,16 @@ class ImageGenerationTool(BaseTool):
         arguments: ImageGenerationToolInput,
         config: dict[str, object],
     ) -> tuple[list[str], str | None]:
+        """Generate with codex for the enclosing subsystem.
+
+        Integration: Called by ``ImageGenerationTool.execute`` and collaborates with ``strip``,
+        ``_codex_prompt``, ``_build_codex_headers``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         auth_token = str(config.get("codex_auth_token") or "").strip()
         if not auth_token:
             raise RuntimeError(
@@ -195,6 +264,17 @@ class ImageGenerationTool(BaseTool):
 
     @staticmethod
     async def _generate_images(arguments: ImageGenerationToolInput, model: str, api_key: str, base_url: str) -> list[str]:
+        """Generate images for the enclosing subsystem.
+
+        Integration: Called by ``ImageGenerationTool._generate_with_openai`` and collaborates
+        with ``AsyncOpenAI``, ``_extract_b64_images``, ``client.images.generate``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         client = AsyncOpenAI(
             api_key=api_key,
             base_url=_normalize_openai_base_url(base_url),
@@ -205,6 +285,17 @@ class ImageGenerationTool(BaseTool):
 
     @staticmethod
     async def _edit_images(arguments: ImageGenerationToolInput, model: str, api_key: str, base_url: str) -> list[str]:
+        """Edit images for the enclosing subsystem.
+
+        Integration: Called by ``ImageGenerationTool._generate_with_openai`` and collaborates
+        with ``AsyncOpenAI``, ``_extract_b64_images``, ``open``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         client = AsyncOpenAI(
             api_key=api_key,
             base_url=_normalize_openai_base_url(base_url),
@@ -227,6 +318,17 @@ class ImageGenerationTool(BaseTool):
 
     @staticmethod
     def _resolve_output_paths(arguments: ImageGenerationToolInput, cwd: Path) -> list[Path]:
+        """Resolve output paths for the enclosing subsystem.
+
+        Integration: Called by ``ImageGenerationTool.execute`` and collaborates with ``Path``,
+        ``resolve``, ``base.suffix.lower``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         suffix = f".{arguments.output_format}"
         if arguments.output_path:
             base = Path(arguments.output_path)
@@ -247,6 +349,17 @@ class ImageGenerationTool(BaseTool):
 
     @staticmethod
     def _write_images(images: list[str], output_paths: list[Path], *, overwrite: bool) -> list[Path]:
+        """Write images for the enclosing subsystem.
+
+        Integration: Called by ``ImageGenerationTool.execute`` and collaborates with
+        ``output_path.parent.mkdir``, ``output_path.write_bytes``, ``written.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         written: list[Path] = []
         for image_b64, output_path in zip(images, output_paths, strict=False):
             if output_path.exists() and not overwrite:
@@ -260,6 +373,17 @@ class ImageGenerationTool(BaseTool):
 
 
 def _resolve_provider(requested: str, config: dict[str, object]) -> Literal["openai", "codex"]:
+    """Resolve provider for the enclosing subsystem.
+
+    Integration: Called by ``ImageGenerationTool.execute`` and collaborates with ``lower``,
+    ``strip``, ``config.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if requested in {"openai", "codex"}:
         return requested  # type: ignore[return-value]
     configured = str(config.get("provider") or "auto").strip().lower()
@@ -271,6 +395,17 @@ def _resolve_provider(requested: str, config: dict[str, object]) -> Literal["ope
 
 
 def _image_payload(arguments: ImageGenerationToolInput, model: str) -> dict[str, Any]:
+    """Build the serialized payload for image.
+
+    Integration: Called by ``ImageGenerationTool._generate_images``,
+    ``ImageGenerationTool._edit_images`` and collaborates with ``payload.items``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     payload: dict[str, Any] = {
         "model": model,
         "prompt": arguments.prompt,
@@ -287,6 +422,17 @@ def _image_payload(arguments: ImageGenerationToolInput, model: str) -> dict[str,
 
 
 def _codex_prompt(arguments: ImageGenerationToolInput) -> str:
+    """Derive codex prompt from the current inputs and subsystem state.
+
+    Integration: Called by ``ImageGenerationTool._generate_with_codex`` and collaborates with
+    ``join``, ``lines.append``, ``line.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lines = [arguments.prompt]
     if arguments.n > 1:
         lines.append(f"Generate {arguments.n} distinct variants.")
@@ -296,6 +442,17 @@ def _codex_prompt(arguments: ImageGenerationToolInput) -> str:
 
 
 def _codex_user_content(arguments: ImageGenerationToolInput, prompt: str) -> list[dict[str, str]]:
+    """Derive codex user content from the current inputs and subsystem state.
+
+    Integration: Called by ``ImageGenerationTool._generate_with_codex`` and collaborates with
+    ``resolve``, ``_media_type_for_path``, ``decode``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     content = [{"type": "input_text", "text": prompt}]
     for path_str in arguments.image_paths:
         path = Path(path_str).expanduser().resolve()
@@ -306,6 +463,16 @@ def _codex_user_content(arguments: ImageGenerationToolInput, prompt: str) -> lis
 
 
 def _media_type_for_path(path: Path) -> str:
+    """Return the filesystem path for media type for.
+
+    Integration: Called by ``_codex_user_content`` and collaborates with ``get``,
+    ``path.suffix.lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         ".png": "image/png",
         ".jpg": "image/jpeg",
@@ -316,6 +483,16 @@ def _media_type_for_path(path: Path) -> str:
 
 
 async def _iter_sse_events(response: httpx.Response):
+    """Iterate over normalized server-sent events from the response stream.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``response.aiter_lines``, ``json.loads``.
+
+    Event loop: This async generator preserves streamed ordering and caller-driven cancellation.
+
+    Change safety: Preserve yield ordering and partial-consumption behavior; preserve exception
+    and fallback behavior expected by callers.
+    """
     data_lines: list[str] = []
     async for line in response.aiter_lines():
         if line == "":
@@ -344,6 +521,18 @@ async def _iter_sse_events(response: httpx.Response):
 
 
 def _extract_b64_images(result: Any) -> list[str]:
+    """Extract b64 images for the enclosing subsystem.
+
+    Integration: Called by ``ImageGenerationTool._generate_images``,
+    ``ImageGenerationTool._edit_images`` and collaborates with ``images.append``,
+    ``url.startswith``, ``url.split``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     images: list[str] = []
     for item in getattr(result, "data", []) or []:
         b64 = getattr(item, "b64_json", None)

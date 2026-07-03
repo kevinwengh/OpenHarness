@@ -1,4 +1,15 @@
-"""Default Textual terminal UI for OpenHarness."""
+"""Default Textual terminal UI for OpenHarness.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -34,7 +45,16 @@ from openharness.ui.runtime import build_runtime, close_runtime, handle_line, st
 
 @dataclass(frozen=True)
 class AppConfig:
-    """Configuration for a terminal app session."""
+    """Configuration for a terminal app session.
+
+    Integration: Constructed or referenced by ``OpenHarnessTerminalApp.__init__``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     prompt: str | None = None
     model: str | None = None
@@ -45,7 +65,16 @@ class AppConfig:
 
 
 class PermissionScreen(ModalScreen[bool]):
-    """Simple approval modal for mutating tools."""
+    """Simple approval modal for mutating tools.
+
+    Integration: Constructed or referenced by ``OpenHarnessTerminalApp._ask_permission``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     BINDINGS = [
         Binding("escape", "deny", "Deny"),
@@ -54,11 +83,32 @@ class PermissionScreen(ModalScreen[bool]):
     ]
 
     def __init__(self, tool_name: str, reason: str) -> None:
+        """Initialize ``PermissionScreen`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``PermissionScreen``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__()
         self._tool_name = tool_name
         self._reason = reason
 
     def compose(self) -> ComposeResult:
+        """Compose the child widgets exposed by this Textual component.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``Container``, ``Static``, ``Horizontal``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior expected by
+        callers.
+        """
         yield Container(
             Static(
                 Panel.fit(
@@ -76,17 +126,59 @@ class PermissionScreen(ModalScreen[bool]):
 
     @on(Button.Pressed)
     def handle_button_press(self, event: Button.Pressed) -> None:
+        """Handle button press for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``on``, ``dismiss``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.dismiss(event.button.id == "allow")
 
     def action_allow(self) -> None:
+        """Handle the allow Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``dismiss``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.dismiss(True)
 
     def action_deny(self) -> None:
+        """Handle the deny Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``dismiss``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.dismiss(False)
 
 
 class QuestionScreen(ModalScreen[str]):
-    """Prompt the user for a short answer during tool execution."""
+    """Prompt the user for a short answer during tool execution.
+
+    Integration: Constructed or referenced by ``OpenHarnessTerminalApp._ask_question``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -94,10 +186,31 @@ class QuestionScreen(ModalScreen[str]):
     ]
 
     def __init__(self, question: str) -> None:
+        """Initialize ``QuestionScreen`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``QuestionScreen``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__()
         self._question = question
 
     def compose(self) -> ComposeResult:
+        """Compose the child widgets exposed by this Textual component.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``Container``, ``Static``, ``Input``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior expected by
+        callers.
+        """
         yield Container(
             Static(
                 Panel.fit(
@@ -115,10 +228,32 @@ class QuestionScreen(ModalScreen[str]):
         )
 
     def on_mount(self) -> None:
+        """Handle the mount lifecycle event.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``focus``, ``query_one``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.query_one("#question-input", Input).focus()
 
     @on(Button.Pressed)
     def handle_button_press(self, event: Button.Pressed) -> None:
+        """Handle button press for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``on``, ``dismiss``, ``value.strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if event.button.id == "submit":
             self.dismiss(self.query_one("#question-input", Input).value.strip())
             return
@@ -126,17 +261,60 @@ class QuestionScreen(ModalScreen[str]):
 
     @on(Input.Submitted, "#question-input")
     def handle_submit(self, event: Input.Submitted) -> None:
+        """Handle submit for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``on``, ``dismiss``, ``event.value.strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.dismiss(event.value.strip())
 
     def action_submit(self) -> None:
+        """Handle the submit Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``dismiss``, ``value.strip``, ``query_one``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.dismiss(self.query_one("#question-input", Input).value.strip())
 
     def action_cancel(self) -> None:
+        """Handle the cancel Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``dismiss``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.dismiss("")
 
 
 class OpenHarnessTerminalApp(App[None]):
-    """Terminal-first Textual UI."""
+    """Terminal-first Textual UI.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Event loop: Async methods ``on_mount``, ``on_unmount``, ``_ask_permission``,
+    ``_ask_question`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     CSS = """
     Screen {
@@ -214,6 +392,17 @@ class OpenHarnessTerminalApp(App[None]):
         api_key: str | None = None,
         api_client: SupportsStreamingMessages | None = None,
     ) -> None:
+        """Initialize ``OpenHarnessTerminalApp`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``OpenHarnessTerminalApp`` and collaborates with
+        ``AppConfig``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__()
         self._config = AppConfig(
             prompt=prompt,
@@ -233,6 +422,17 @@ class OpenHarnessTerminalApp(App[None]):
         self._last_current_response: str | None = None
 
     def compose(self) -> ComposeResult:
+        """Compose the child widgets exposed by this Textual component.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``Header``, ``Horizontal``, ``Footer``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior expected by
+        callers.
+        """
         yield Header(show_clock=True)
         with Horizontal(id="main-row"):
             with Vertical(id="transcript-column"):
@@ -246,6 +446,17 @@ class OpenHarnessTerminalApp(App[None]):
         yield Footer()
 
     async def on_mount(self) -> None:
+        """Handle the mount lifecycle event.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``focus``, ``_refresh_sidebars``, ``build_runtime``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._bundle = await build_runtime(
             prompt=self._config.prompt,
             cwd=str(self.app.cwd) if getattr(self.app, 'cwd', None) else None,
@@ -264,20 +475,76 @@ class OpenHarnessTerminalApp(App[None]):
             self.call_later(lambda: asyncio.create_task(self._process_line(self._config.prompt or "")))
 
     async def on_unmount(self) -> None:
+        """Handle the unmount lifecycle event.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``close_runtime``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._bundle is not None:
             await close_runtime(self._bundle)
 
     async def _ask_permission(self, tool_name: str, reason: str) -> bool:
+        """Ask for permission for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_open_modal``, ``PermissionScreen``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return bool(await self._open_modal(PermissionScreen(tool_name, reason)))
 
     async def _ask_question(self, question: str) -> str:
+        """Ask for question for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_open_modal``, ``QuestionScreen``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return str(await self._open_modal(QuestionScreen(question)) or "")
 
     async def _open_modal(self, screen: ModalScreen) -> object:
+        """Open modal for the enclosing subsystem.
+
+        Integration: Called by ``OpenHarnessTerminalApp._ask_permission``,
+        ``OpenHarnessTerminalApp._ask_question`` and collaborates with
+        ``asyncio.get_running_loop``, ``loop.create_future``, ``push_screen``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         loop = asyncio.get_running_loop()
         future: asyncio.Future[object] = loop.create_future()
 
         def _done(result: object) -> None:
+            """Resolve the pending UI interaction with its selected result.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``future.done``, ``future.set_result``.
+
+            Concurrency: This is synchronous; preserve deterministic behavior for its direct
+            callers.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             if not future.done():
                 future.set_result(result)
 
@@ -286,10 +553,32 @@ class OpenHarnessTerminalApp(App[None]):
 
     @on(Input.Submitted, "#composer")
     async def handle_submit(self, event: Input.Submitted) -> None:
+        """Handle submit for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``on``, ``_process_line``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         event.input.value = ""
         await self._process_line(event.value)
 
     async def _process_line(self, line: str) -> None:
+        """Process line for the enclosing subsystem.
+
+        Integration: Exposed through ``OpenHarnessTerminalApp`` and collaborates with
+        ``query_one``, ``_append_line``, ``_set_current_response``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not line.strip() or self._bundle is None or self._busy:
             return
         self._busy = True
@@ -321,10 +610,34 @@ class OpenHarnessTerminalApp(App[None]):
             composer.focus()
 
     async def _print_system(self, message: str) -> None:
+        """Render one system message through the active output adapter.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_append_line``, ``_set_current_response``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._append_line(f"system> {message}")
         self._set_current_response("Ready.")
 
     async def _render_event(self, event: StreamEvent) -> None:
+        """Render event for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_set_current_response``, ``_append_line``, ``json.dumps``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if isinstance(event, AssistantTextDelta):
             self._assistant_buffer += event.text
             self._set_current_response(f"[bold]assistant>[/bold] {self._assistant_buffer}")
@@ -385,6 +698,17 @@ class OpenHarnessTerminalApp(App[None]):
             self._append_line(f"system> {event.message}")
 
     def action_clear_conversation(self) -> None:
+        """Handle the clear conversation Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_bundle.engine.clear``, ``clear``, ``transcript_lines.clear``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._bundle is None:
             return
         self._bundle.engine.clear()
@@ -394,9 +718,31 @@ class OpenHarnessTerminalApp(App[None]):
         self._refresh_sidebars()
 
     def action_refresh_sidebars(self) -> None:
+        """Handle the refresh sidebars Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_refresh_sidebars``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._refresh_sidebars(force=True)
 
     def action_toggle_vim(self) -> None:
+        """Handle the toggle vim Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``load_settings``, ``save_settings``, ``_refresh_sidebars``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._bundle is None:
             return
         current = self._bundle.app_state.get().vim_enabled
@@ -407,6 +753,17 @@ class OpenHarnessTerminalApp(App[None]):
         self._refresh_sidebars()
 
     def action_toggle_voice(self) -> None:
+        """Handle the toggle voice Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``load_settings``, ``save_settings``, ``_refresh_sidebars``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._bundle is None:
             return
         current = self._bundle.app_state.get().voice_enabled
@@ -417,23 +774,82 @@ class OpenHarnessTerminalApp(App[None]):
         self._refresh_sidebars()
 
     def action_quit_session(self) -> None:
+        """Handle the quit session Textual action.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``exit``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.exit()
 
     def _append_line(self, message: str) -> None:
+        """Append line for the enclosing subsystem.
+
+        Integration: Called by ``OpenHarnessTerminalApp._process_line``,
+        ``OpenHarnessTerminalApp._print_system`` and collaborates with
+        ``transcript_lines.append``, ``write``, ``query_one``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.transcript_lines.append(message)
         self.query_one("#transcript", RichLog).write(message)
 
     async def _clear_transcript(self) -> None:
+        """Clear transcript for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``clear``, ``transcript_lines.clear``, ``query_one``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.query_one("#transcript", RichLog).clear()
         self.transcript_lines.clear()
 
     def _set_current_response(self, message: str) -> None:
+        """Set current response for the enclosing subsystem.
+
+        Integration: Called by ``OpenHarnessTerminalApp._process_line``,
+        ``OpenHarnessTerminalApp._print_system`` and collaborates with ``update``,
+        ``query_one``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if message == self._last_current_response:
             return
         self.query_one("#current-response", Static).update(message)
         self._last_current_response = message
 
     def _refresh_sidebars(self, *, force: bool = False) -> None:
+        """Refresh sidebars for the enclosing subsystem.
+
+        Integration: Called by ``OpenHarnessTerminalApp.on_mount``,
+        ``OpenHarnessTerminalApp._process_line`` and collaborates with
+        ``_bundle.app_state.get``, ``list_tasks``, ``_bundle.mcp_summary``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._bundle is None:
             return
         state = self._bundle.app_state.get()

@@ -1,4 +1,15 @@
-"""Usage index for recalled memory entries."""
+"""Usage index for recalled memory entries.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +31,16 @@ STALE_MAX_IMPORTANCE = 1
 
 
 def get_usage_index_path(cwd: str | Path, *, memory_dir: str | Path | None = None) -> Path:
-    """Return the usage index path for a memory store."""
+    """Return the usage index path for a memory store.
+
+    Integration: Called by ``load_usage_index``, ``save_usage_index`` and collaborates with
+    ``root.mkdir``, ``Path``, ``get_project_memory_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
 
     root = Path(memory_dir) if memory_dir is not None else get_project_memory_dir(cwd)
     root.mkdir(parents=True, exist_ok=True)
@@ -28,7 +48,16 @@ def get_usage_index_path(cwd: str | Path, *, memory_dir: str | Path | None = Non
 
 
 def load_usage_index(cwd: str | Path, *, memory_dir: str | Path | None = None) -> dict[str, Any]:
-    """Load usage index data, returning an empty index for invalid files."""
+    """Load usage index data, returning an empty index for invalid files.
+
+    Integration: Called by ``get_memory_usage``, ``mark_memory_used`` and collaborates with
+    ``get_usage_index_path``, ``data.get``, ``_empty_index``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     path = get_usage_index_path(cwd, memory_dir=memory_dir)
     if not path.exists():
@@ -57,7 +86,16 @@ def save_usage_index(
     *,
     memory_dir: str | Path | None = None,
 ) -> None:
-    """Persist usage index data atomically."""
+    """Persist usage index data atomically.
+
+    Integration: Called by ``mark_memory_used`` and collaborates with ``get_usage_index_path``,
+    ``atomic_write_text``, ``json.dumps``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     path = get_usage_index_path(cwd, memory_dir=memory_dir)
     payload = json.dumps(index, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
@@ -70,7 +108,16 @@ def get_memory_usage(
     *,
     memory_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Return usage data for a memory id."""
+    """Return usage data for a memory id.
+
+    Integration: Called by ``find_relevant_memories``, ``find_stale_memory_candidates`` and
+    collaborates with ``load_usage_index``, ``get``, ``_normalize_usage_record``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if not memory_id:
         return _normalize_usage_record({})
@@ -85,7 +132,17 @@ def mark_memory_used(
     *,
     memory_dir: str | Path | None = None,
 ) -> None:
-    """Record that memory entries were recalled into a runtime prompt."""
+    """Record that memory entries were recalled into a runtime prompt.
+
+    Integration: Called by ``build_runtime_system_prompt`` and collaborates with ``Path``,
+    ``exclusive_file_lock``, ``load_usage_index``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     usable = [header for header in memories if header.id]
     if not usable:
@@ -109,7 +166,17 @@ def find_stale_memory_candidates(
     *,
     memory_dir: str | Path | None = None,
 ) -> list[MemoryHeader]:
-    """Return low-value unused memories that auto-dream should review for pruning."""
+    """Return low-value unused memories that auto-dream should review for pruning.
+
+    Integration: Called by ``start_dream_now`` and collaborates with ``scan_memory_files``,
+    ``utc_now``, ``candidates.sort``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     resolved_memory_dir = Path(memory_dir) if memory_dir is not None else None
     headers = scan_memory_files(
@@ -137,10 +204,28 @@ def find_stale_memory_candidates(
 
 
 def _empty_index() -> dict[str, Any]:
+    """Derive empty index from the current inputs and subsystem state.
+
+    Integration: Called by ``load_usage_index``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {"version": 1, "memories": {}}
 
 
 def _normalize_usage_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Normalize usage record for the enclosing subsystem.
+
+    Integration: Called by ``load_usage_index``, ``get_memory_usage`` and collaborates with
+    ``record.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     use_count = record.get("use_count", 0)
     try:
         use_count = max(0, int(use_count))

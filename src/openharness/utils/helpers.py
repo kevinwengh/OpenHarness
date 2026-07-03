@@ -3,6 +3,14 @@
 Historically several channel adapters imported small utility functions from
 ``openharness.utils.helpers``.  Keep this module narrow and dependency-free so
 optional channel imports do not fail in installed packages.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
 """
 
 from __future__ import annotations
@@ -20,6 +28,13 @@ def get_data_path() -> Path:
     """Return OpenHarness' data directory.
 
     This is a backwards-compatible alias used by older channel code.
+
+    Integration: Called by ``MochatChannel.__init__`` and collaborates with ``get_data_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     return get_data_dir()
@@ -30,6 +45,14 @@ def split_message(text: str, max_length: int) -> list[str]:
 
     The splitter prefers newline and whitespace boundaries, but will hard-split
     long unbroken text. Empty input produces no chunks.
+
+    Integration: Called by ``DiscordChannel.send``, ``TelegramChannel.send`` and collaborates
+    with ``ValueError``, ``remaining.rfind``, ``rstrip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
 
     if max_length <= 0:
@@ -65,6 +88,16 @@ def safe_filename(value: object, *, max_length: int = 128) -> str:
 
     Path separators, control characters, shell metacharacters, and whitespace
     collapse to underscores. The result is a single basename, not a path.
+
+    Integration: Called by ``FeishuChannel._download_and_save_media``,
+    ``MatrixChannel._upload_and_send_attachment`` and collaborates with
+    ``unicodedata.normalize``, ``strip``, ``Path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     if value is None:

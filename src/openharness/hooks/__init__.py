@@ -1,4 +1,15 @@
-"""Hooks exports."""
+"""Hooks exports.
+
+Integration: This module participates in extension callbacks around sessions, prompts,
+compaction, tools, notifications, and stopping.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve priority/order, blocking semantics, timeouts, untrusted arguments,
+failure policy, and async lifecycle.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +33,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    """Resolve a lazily exported attribute from ``this module``.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``AttributeError``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if name == "HookEvent":
         from openharness.hooks.events import HookEvent
 

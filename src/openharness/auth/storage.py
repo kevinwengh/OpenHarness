@@ -11,6 +11,16 @@ credentials are stored as **plain-text JSON** protected only by POSIX file
 permissions (mode 600).  The ``_obfuscate`` / ``_deobfuscate`` helpers in
 this module are a lightweight XOR round-trip used elsewhere for non-secret
 data; they are **not** encryption and must not be used to protect secrets.
+
+Integration: This module participates in credential discovery, subscription login, and provider
+authentication.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve credential-store permissions, token refresh, source precedence,
+redaction, and noninteractive failure guidance.
 """
 
 from __future__ import annotations
@@ -32,12 +42,32 @@ _KEYRING_SERVICE = "openharness"
 
 
 def _creds_lock_path() -> Path:
+    """Return the filesystem path for creds lock.
+
+    Integration: Called by ``store_credential``, ``clear_provider_credentials`` and collaborates
+    with ``with_suffix``, ``_creds_path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _creds_path().with_suffix(".json.lock")
 
 
 @dataclass(frozen=True)
 class ExternalAuthBinding:
-    """Pointer to credentials managed by an external CLI."""
+    """Pointer to credentials managed by an external CLI.
+
+    Integration: Constructed or referenced by ``default_binding_for_provider``,
+    ``load_external_binding``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     provider: str
     source_path: str
@@ -52,10 +82,30 @@ class ExternalAuthBinding:
 
 
 def _creds_path() -> Path:
+    """Return the filesystem path for creds.
+
+    Integration: Called by ``_creds_lock_path``, ``_load_creds_file`` and collaborates with
+    ``get_config_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_config_dir() / _CREDS_FILE_NAME
 
 
 def _load_creds_file() -> dict[str, Any]:
+    """Load creds file for the enclosing subsystem.
+
+    Integration: Called by ``store_credential``, ``load_credential`` and collaborates with
+    ``_creds_path``, ``path.exists``, ``json.loads``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     path = _creds_path()
     if not path.exists():
         return {}
@@ -67,6 +117,16 @@ def _load_creds_file() -> dict[str, Any]:
 
 
 def _save_creds_file(data: dict[str, Any]) -> None:
+    """Persist creds file for the enclosing subsystem.
+
+    Integration: Called by ``store_credential``, ``clear_provider_credentials`` and collaborates
+    with ``_creds_path``, ``atomic_write_text``, ``json.dumps``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     path = _creds_path()
     atomic_write_text(
         path,
@@ -89,6 +149,13 @@ def _keyring_available() -> bool:
 
     The check is cached after the first call so the "Keyring load failed"
     warning is emitted at most once per process.
+
+    Integration: Called by ``store_credential``, ``load_credential`` and collaborates with
+    ``keyring.get_password``, ``log.info``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     global _keyring_checked, _keyring_usable  # noqa: PLW0603
     if _keyring_checked:
@@ -111,6 +178,15 @@ def _keyring_available() -> bool:
 
 
 def _keyring_key(provider: str, key: str) -> str:
+    """Derive keyring key from the current inputs and subsystem state.
+
+    Integration: Called by ``store_credential``, ``load_credential``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return f"{provider}:{key}"
 
 
@@ -123,6 +199,14 @@ def store_credential(provider: str, key: str, value: str, *, use_keyring: bool |
     """Persist a credential for *provider* under *key*.
 
     If *use_keyring* is not set, keyring is used when available.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``log.debug``, ``_keyring_available``, ``exclusive_file_lock``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     if use_keyring is None:
         use_keyring = _keyring_available()
@@ -145,7 +229,16 @@ def store_credential(provider: str, key: str, value: str, *, use_keyring: bool |
 
 
 def load_credential(provider: str, key: str, *, use_keyring: bool | None = None) -> str | None:
-    """Return the stored credential, or None if not found."""
+    """Return the stored credential, or None if not found.
+
+    Integration: Called by ``AuthManager.get_auth_source_statuses``,
+    ``AuthManager.get_auth_status`` and collaborates with ``_load_creds_file``, ``get``,
+    ``_keyring_available``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if use_keyring is None:
         use_keyring = _keyring_available()
 
@@ -164,7 +257,17 @@ def load_credential(provider: str, key: str, *, use_keyring: bool | None = None)
 
 
 def clear_provider_credentials(provider: str, *, use_keyring: bool | None = None) -> None:
-    """Remove all stored credentials for *provider*."""
+    """Remove all stored credentials for *provider*.
+
+    Integration: Called by ``AuthManager.clear_credential``,
+    ``AuthManager.clear_profile_credential`` and collaborates with ``log.debug``,
+    ``_keyring_available``, ``exclusive_file_lock``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if use_keyring is None:
         use_keyring = _keyring_available()
 
@@ -191,12 +294,31 @@ def clear_provider_credentials(provider: str, *, use_keyring: bool | None = None
 
 
 def list_stored_providers() -> list[str]:
-    """Return the list of providers that have credentials in the file store."""
+    """Return the list of providers that have credentials in the file store.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``keys``, ``_load_creds_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return list(_load_creds_file().keys())
 
 
 def store_external_binding(binding: ExternalAuthBinding) -> None:
-    """Persist metadata describing an external auth source for *provider*."""
+    """Persist metadata describing an external auth source for *provider*.
+
+    Integration: Called by ``_bind_external_provider`` and collaborates with ``log.debug``,
+    ``exclusive_file_lock``, ``_load_creds_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     with exclusive_file_lock(_creds_lock_path()):
         data = _load_creds_file()
         entry = data.setdefault(binding.provider, {})
@@ -206,7 +328,15 @@ def store_external_binding(binding: ExternalAuthBinding) -> None:
 
 
 def load_external_binding(provider: str) -> ExternalAuthBinding | None:
-    """Load external auth binding metadata for *provider* if present."""
+    """Load external auth binding metadata for *provider* if present.
+
+    Integration: Called by ``auth_status``, ``AuthManager.get_auth_source_statuses`` and
+    collaborates with ``get``, ``entry.get``, ``ExternalAuthBinding``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     entry = _load_creds_file().get(provider, {})
     if not isinstance(entry, dict):
         return None
@@ -237,7 +367,16 @@ def load_external_binding(provider: str) -> ExternalAuthBinding | None:
 
 
 def _obfuscation_key() -> bytes:
-    """Return a per-user obfuscation key derived from the home directory path."""
+    """Return a per-user obfuscation key derived from the home directory path.
+
+    Integration: Called by ``_obfuscate``, ``_deobfuscate`` and collaborates with ``digest``,
+    ``encode``, ``hashlib.sha256``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     seed = str(Path.home()).encode() + b"openharness-v1"
     import hashlib
 
@@ -245,7 +384,16 @@ def _obfuscation_key() -> bytes:
 
 
 def _obfuscate(plaintext: str) -> str:
-    """Lightly obfuscate *plaintext* (base64-encoded XOR).  **Not cryptographic.**"""
+    """Lightly obfuscate *plaintext* (base64-encoded XOR).  **Not cryptographic.**
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_obfuscation_key``, ``plaintext.encode``, ``decode``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     import base64
 
     key = _obfuscation_key()
@@ -255,7 +403,16 @@ def _obfuscate(plaintext: str) -> str:
 
 
 def _deobfuscate(ciphertext: str) -> str:
-    """Reverse of :func:`_obfuscate`."""
+    """Reverse of :func:`_obfuscate`.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_obfuscation_key``, ``base64.urlsafe_b64decode``, ``xored.decode``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     import base64
 
     key = _obfuscation_key()

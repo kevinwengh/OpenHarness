@@ -1,4 +1,15 @@
-"""Runtime helpers for ohmo."""
+"""Runtime helpers for ohmo.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +32,17 @@ from ohmo.workspace import get_memory_dir, get_plugins_dir, get_sessions_dir, ge
 
 
 def _ohmo_extra_roots(workspace: str | Path | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Derive ohmo extra roots from the current inputs and subsystem state.
+
+    Integration: Called by ``run_ohmo_backend``, ``run_ohmo_print_mode`` and collaborates with
+    ``initialize_workspace``, ``get_skills_dir``, ``get_plugins_dir``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     root = initialize_workspace(workspace)
     return ((str(get_skills_dir(root)),), (str(get_plugins_dir(root)),))
 
@@ -37,7 +59,17 @@ async def run_ohmo_backend(
     restore_tool_metadata: dict[str, object] | None = None,
     backend_only: bool = True,
 ) -> int:
-    """Run the shared React backend host with ohmo workspace semantics."""
+    """Run the shared React backend host with ohmo workspace semantics.
+
+    Integration: Called by ``main`` and collaborates with ``initialize_workspace``,
+    ``_ohmo_extra_roots``, ``resolve``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del backend_only
     cwd_path = str(Path(cwd or Path.cwd()).resolve())
     workspace_root = initialize_workspace(workspace)
@@ -74,7 +106,16 @@ def build_ohmo_backend_command(
     max_turns: int | None = None,
     provider_profile: str | None = None,
 ) -> list[str]:
-    """Return the backend command for the React terminal UI."""
+    """Return the backend command for the React terminal UI.
+
+    Integration: Called by ``launch_ohmo_react_tui`` and collaborates with ``command.extend``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     command = [sys.executable, "-m", "ohmo", "--backend-only"]
     if cwd:
         command.extend(["--cwd", cwd])
@@ -97,7 +138,17 @@ async def launch_ohmo_react_tui(
     max_turns: int | None = None,
     provider_profile: str | None = None,
 ) -> int:
-    """Launch the shared React terminal UI with an ohmo backend."""
+    """Launch the shared React terminal UI with an ohmo backend.
+
+    Integration: Called by ``main`` and collaborates with ``get_frontend_dir``,
+    ``_resolve_npm``, ``initialize_workspace``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     frontend_dir = get_frontend_dir()
     package_json = frontend_dir / "package.json"
     if not package_json.exists():
@@ -153,7 +204,17 @@ async def run_ohmo_print_mode(
     max_turns: int | None = None,
     provider_profile: str | None = None,
 ) -> int:
-    """Run a single ohmo prompt and print the assistant output."""
+    """Run a single ohmo prompt and print the assistant output.
+
+    Integration: Called by ``main`` and collaborates with ``initialize_workspace``,
+    ``_ohmo_extra_roots``, ``Path.cwd``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     cwd_path = str(Path(cwd or Path.cwd()).resolve())
     workspace_root = initialize_workspace(workspace)
     extra_skill_dirs, extra_plugin_roots = _ohmo_extra_roots(workspace_root)
@@ -181,11 +242,34 @@ async def run_ohmo_print_mode(
         await start_runtime(bundle)
 
         async def _print_system(message: str) -> None:
+            """Render one system message through the active output adapter.
+
+            Integration: Used as an internal helper or callback at this module boundary.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             print(message, file=sys.stderr)
 
         saw_error = False
 
         async def _render_event(event) -> None:
+            """Render event for the enclosing subsystem.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``sys.stdout.write``, ``sys.stdout.flush``.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             nonlocal saw_error
             if isinstance(event, AssistantTextDelta):
                 sys.stdout.write(event.text)
@@ -203,6 +287,17 @@ async def run_ohmo_print_mode(
                 print(event.message, file=sys.stderr)
 
         async def _clear_output() -> None:
+            """Clear output for the enclosing subsystem.
+
+            Integration: Used as an internal helper or callback at this module boundary.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             return None
 
         await handle_line(

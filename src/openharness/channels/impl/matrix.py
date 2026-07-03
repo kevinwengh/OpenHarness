@@ -1,4 +1,15 @@
-"""Matrix (Element) channel — inbound sync + outbound message/media delivery."""
+"""Matrix (Element) channel — inbound sync + outbound message/media delivery.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 import asyncio
 import logging
@@ -75,7 +86,16 @@ MATRIX_ALLOWED_URL_SCHEMES = {"https", "http", "matrix", "mailto", "mxc"}
 
 
 def _filter_matrix_html_attribute(tag: str, attr: str, value: str) -> str | None:
-    """Filter attribute values to a safe Matrix-compatible subset."""
+    """Filter attribute values to a safe Matrix-compatible subset.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``startswith``, ``join``, ``value.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if tag == "a" and attr == "href":
         return value if value.lower().startswith(("https://", "http://", "matrix:", "mailto:")) else None
     if tag == "img" and attr == "src":
@@ -97,7 +117,15 @@ MATRIX_HTML_CLEANER = nh3.Cleaner(
 
 
 def _render_markdown_html(text: str) -> str | None:
-    """Render markdown to sanitized HTML; returns None for plain text."""
+    """Render markdown to sanitized HTML; returns None for plain text.
+
+    Integration: Called by ``_build_matrix_text_content`` and collaborates with ``strip``,
+    ``formatted.startswith``, ``formatted.endswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         formatted = MATRIX_HTML_CLEANER.clean(MATRIX_MARKDOWN(text)).strip()
     except Exception:
@@ -113,7 +141,17 @@ def _render_markdown_html(text: str) -> str | None:
 
 
 def _build_matrix_text_content(text: str) -> dict[str, object]:
-    """Build Matrix m.text payload with optional HTML formatted_body."""
+    """Build Matrix m.text payload with optional HTML formatted_body.
+
+    Integration: Called by ``MatrixChannel.send`` and collaborates with
+    ``_render_markdown_html``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     content: dict[str, object] = {"msgtype": "m.text", "body": text, "m.mentions": {}}
     if html := _render_markdown_html(text):
         content["format"] = MATRIX_HTML_FORMAT
@@ -122,9 +160,28 @@ def _build_matrix_text_content(text: str) -> dict[str, object]:
 
 
 class _NioLoguruHandler(logging.Handler):
-    """Route matrix-nio stdlib logs into Loguru."""
+    """Route matrix-nio stdlib logs into Loguru.
+
+    Integration: Constructed or referenced by ``_configure_nio_logging_bridge``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def emit(self, record: logging.LogRecord) -> None:
+        """Emit one event through the active channel boundary.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``log``, ``logging.currentframe``, ``record.getMessage``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             level = logger.level(record.levelname).name
         except ValueError:
@@ -136,7 +193,17 @@ class _NioLoguruHandler(logging.Handler):
 
 
 def _configure_nio_logging_bridge() -> None:
-    """Bridge matrix-nio logs to Loguru (idempotent)."""
+    """Bridge matrix-nio logs to Loguru (idempotent).
+
+    Integration: Called by ``MatrixChannel.start`` and collaborates with ``logging.getLogger``,
+    ``any``, ``_NioLoguruHandler``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     nio_logger = logging.getLogger("nio")
     if not any(isinstance(h, _NioLoguruHandler) for h in nio_logger.handlers):
         nio_logger.handlers = [_NioLoguruHandler()]
@@ -144,12 +211,33 @@ def _configure_nio_logging_bridge() -> None:
 
 
 class MatrixChannel(BaseChannel):
-    """Matrix (Element) channel using long-polling sync."""
+    """Matrix (Element) channel using long-polling sync.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``_send_room_content``,
+    ``_resolve_server_upload_limit_bytes`` run on their caller's loop; instances must retain
+    clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name = "matrix"
 
     def __init__(self, config: Any, bus, *, restrict_to_workspace: bool = False,
                  workspace: Path | None = None):
+        """Initialize ``MatrixChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``MatrixChannel`` and collaborates with ``resolve``,
+        ``workspace.expanduser``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.client: AsyncClient | None = None
         self._sync_task: asyncio.Task | None = None
@@ -160,7 +248,17 @@ class MatrixChannel(BaseChannel):
         self._server_upload_limit_checked = False
 
     async def start(self) -> None:
-        """Start Matrix client and begin sync loop."""
+        """Start Matrix client and begin sync loop.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_configure_nio_logging_bridge``, ``store_path.mkdir``, ``AsyncClient``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         self._running = True
         _configure_nio_logging_bridge()
 
@@ -193,7 +291,16 @@ class MatrixChannel(BaseChannel):
         self._sync_task = asyncio.create_task(self._sync_loop())
 
     async def stop(self) -> None:
-        """Stop the Matrix channel with graceful sync shutdown."""
+        """Stop the Matrix channel with graceful sync shutdown.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``client.stop_sync_forever``, ``_stop_typing_keepalive``, ``client.close``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         self._running = False
         for room_id in list(self._typing_tasks):
             await self._stop_typing_keepalive(room_id, clear_typing=False)
@@ -213,7 +320,16 @@ class MatrixChannel(BaseChannel):
             await self.client.close()
 
     def _is_workspace_path_allowed(self, path: Path) -> bool:
-        """Check path is inside workspace (when restriction enabled)."""
+        """Check path is inside workspace (when restriction enabled).
+
+        Integration: Called by ``MatrixChannel._upload_and_send_attachment`` and collaborates
+        with ``relative_to``, ``path.resolve``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._restrict_to_workspace or not self._workspace:
             return True
         try:
@@ -223,7 +339,16 @@ class MatrixChannel(BaseChannel):
             return False
 
     def _collect_outbound_media_candidates(self, media: list[str]) -> list[Path]:
-        """Deduplicate and resolve outbound attachment paths."""
+        """Deduplicate and resolve outbound attachment paths.
+
+        Integration: Called by ``MatrixChannel.send`` and collaborates with ``expanduser``,
+        ``seen.add``, ``candidates.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         seen: set[str] = set()
         candidates: list[Path] = []
         for raw in media:
@@ -244,7 +369,17 @@ class MatrixChannel(BaseChannel):
         *, filename: str, mime: str, size_bytes: int,
         mxc_url: str, encryption_info: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Build Matrix content payload for an uploaded file/image/audio/video."""
+        """Build Matrix content payload for an uploaded file/image/audio/video.
+
+        Integration: Called by ``MatrixChannel._upload_and_send_attachment`` and collaborates
+        with ``get``, ``mime.split``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         prefix = mime.split("/")[0]
         msgtype = {"image": "m.image", "audio": "m.audio", "video": "m.video"}.get(prefix, "m.file")
         content: dict[str, Any] = {
@@ -258,13 +393,34 @@ class MatrixChannel(BaseChannel):
         return content
 
     def _is_encrypted_room(self, room_id: str) -> bool:
+        """Return whether encrypted room for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel._upload_and_send_attachment`` and collaborates
+        with ``get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self.client:
             return False
         room = getattr(self.client, "rooms", {}).get(room_id)
         return bool(getattr(room, "encrypted", False))
 
     async def _send_room_content(self, room_id: str, content: dict[str, Any]) -> None:
-        """Send m.room.message with E2EE options."""
+        """Send m.room.message with E2EE options.
+
+        Integration: Called by ``MatrixChannel._upload_and_send_attachment``,
+        ``MatrixChannel.send`` and collaborates with ``client.room_send``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self.client:
             return
         kwargs: dict[str, Any] = {"room_id": room_id, "message_type": "m.room.message", "content": content}
@@ -273,7 +429,16 @@ class MatrixChannel(BaseChannel):
         await self.client.room_send(**kwargs)
 
     async def _resolve_server_upload_limit_bytes(self) -> int | None:
-        """Query homeserver upload limit once per channel lifecycle."""
+        """Query homeserver upload limit once per channel lifecycle.
+
+        Integration: Called by ``MatrixChannel._effective_media_limit_bytes`` and collaborates
+        with ``client.content_repository_config``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if self._server_upload_limit_checked:
             return self._server_upload_limit_bytes
         self._server_upload_limit_checked = True
@@ -290,7 +455,17 @@ class MatrixChannel(BaseChannel):
         return None
 
     async def _effective_media_limit_bytes(self) -> int:
-        """min(local config, server advertised) — 0 blocks all uploads."""
+        """min(local config, server advertised) — 0 blocks all uploads.
+
+        Integration: Called by ``MatrixChannel.send``, ``MatrixChannel._fetch_media_attachment``
+        and collaborates with ``_resolve_server_upload_limit_bytes``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         local_limit = max(int(self.config.max_media_bytes), 0)
         server_limit = await self._resolve_server_upload_limit_bytes()
         if server_limit is None:
@@ -301,7 +476,17 @@ class MatrixChannel(BaseChannel):
         self, room_id: str, path: Path, limit_bytes: int,
         relates_to: dict[str, Any] | None = None,
     ) -> str | None:
-        """Upload one local file to Matrix and send it as a media message. Returns failure marker or None."""
+        """Upload one local file to Matrix and send it as a media message. Returns failure marker or None.
+
+        Integration: Called by ``MatrixChannel.send`` and collaborates with ``resolve``,
+        ``_ATTACH_UPLOAD_FAILED.format``, ``_build_outbound_attachment_content``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         if not self.client:
             return _ATTACH_UPLOAD_FAILED.format(path.name or _DEFAULT_ATTACH_NAME)
 
@@ -350,7 +535,17 @@ class MatrixChannel(BaseChannel):
         return None
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send outbound content; clear typing for non-progress messages."""
+        """Send outbound content; clear typing for non-progress messages.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_collect_outbound_media_candidates``, ``_build_thread_relates_to``, ``get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self.client:
             return
         text = msg.content or ""
@@ -381,33 +576,111 @@ class MatrixChannel(BaseChannel):
                 await self._stop_typing_keepalive(msg.chat_id, clear_typing=True)
 
     def _register_event_callbacks(self) -> None:
+        """Register event callbacks for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel.start`` and collaborates with
+        ``client.add_event_callback``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.client.add_event_callback(self._on_message, RoomMessageText)
         self.client.add_event_callback(self._on_media_message, MATRIX_MEDIA_EVENT_FILTER)
         self.client.add_event_callback(self._on_room_invite, InviteEvent)
 
     def _register_response_callbacks(self) -> None:
+        """Register response callbacks for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel.start`` and collaborates with
+        ``client.add_response_callback``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.client.add_response_callback(self._on_sync_error, SyncError)
         self.client.add_response_callback(self._on_join_error, JoinError)
         self.client.add_response_callback(self._on_send_error, RoomSendError)
 
     def _log_response_error(self, label: str, response: Any) -> None:
-        """Log Matrix response errors — auth errors at ERROR level, rest at WARNING."""
+        """Log Matrix response errors — auth errors at ERROR level, rest at WARNING.
+
+        Integration: Called by ``MatrixChannel._on_sync_error``,
+        ``MatrixChannel._on_join_error``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         code = getattr(response, "status_code", None)
         is_auth = code in {"M_UNKNOWN_TOKEN", "M_FORBIDDEN", "M_UNAUTHORIZED"}
         is_fatal = is_auth or getattr(response, "soft_logout", False)
         (logger.error if is_fatal else logger.warning)("Matrix %s failed: %s", label, response)
 
     async def _on_sync_error(self, response: SyncError) -> None:
+        """Handle the sync error lifecycle event.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_log_response_error``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._log_response_error("sync", response)
 
     async def _on_join_error(self, response: JoinError) -> None:
+        """Handle the join error lifecycle event.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_log_response_error``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._log_response_error("join", response)
 
     async def _on_send_error(self, response: RoomSendError) -> None:
+        """Handle the send error lifecycle event.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_log_response_error``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._log_response_error("send", response)
 
     async def _set_typing(self, room_id: str, typing: bool) -> None:
-        """Best-effort typing indicator update."""
+        """Best-effort typing indicator update.
+
+        Integration: Called by ``MatrixChannel._start_typing_keepalive``,
+        ``MatrixChannel._start_typing_keepalive.loop`` and collaborates with
+        ``client.room_typing``, ``logger.debug``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.client:
             return
         try:
@@ -419,13 +692,33 @@ class MatrixChannel(BaseChannel):
             pass
 
     async def _start_typing_keepalive(self, room_id: str) -> None:
-        """Start periodic typing refresh (spec-recommended keepalive)."""
+        """Start periodic typing refresh (spec-recommended keepalive).
+
+        Integration: Called by ``MatrixChannel._on_message``,
+        ``MatrixChannel._on_media_message`` and collaborates with ``asyncio.create_task``,
+        ``_stop_typing_keepalive``, ``_set_typing``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         await self._stop_typing_keepalive(room_id, clear_typing=False)
         await self._set_typing(room_id, True)
         if not self._running:
             return
 
         async def loop() -> None:
+            """Run the long-lived event-processing loop until cancellation.
+
+            Integration: Called by ``MatrixChannel._start_typing_keepalive`` and collaborates
+            with ``asyncio.sleep``, ``_set_typing``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve exception and fallback behavior expected by callers.
+            """
             try:
                 while self._running:
                     await asyncio.sleep(TYPING_KEEPALIVE_INTERVAL_MS / 1000)
@@ -436,6 +729,16 @@ class MatrixChannel(BaseChannel):
         self._typing_tasks[room_id] = asyncio.create_task(loop())
 
     async def _stop_typing_keepalive(self, room_id: str, *, clear_typing: bool) -> None:
+        """Stop typing keepalive for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel.stop``, ``MatrixChannel.send`` and collaborates
+        with ``_typing_tasks.pop``, ``task.cancel``, ``_set_typing``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if task := self._typing_tasks.pop(room_id, None):
             task.cancel()
             try:
@@ -446,6 +749,16 @@ class MatrixChannel(BaseChannel):
             await self._set_typing(room_id, False)
 
     async def _sync_loop(self) -> None:
+        """Run the sync loop workflow through its asynchronous collaborators.
+
+        Integration: Called by ``MatrixChannel.start`` and collaborates with
+        ``client.sync_forever``, ``asyncio.sleep``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         while self._running:
             try:
                 await self.client.sync_forever(timeout=30000, full_state=True)
@@ -455,15 +768,46 @@ class MatrixChannel(BaseChannel):
                 await asyncio.sleep(2)
 
     async def _on_room_invite(self, room: MatrixRoom, event: InviteEvent) -> None:
+        """Handle the room invite lifecycle event.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``is_allowed``, ``client.join``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self.is_allowed(event.sender):
             await self.client.join(room.room_id)
 
     def _is_direct_room(self, room: MatrixRoom) -> bool:
+        """Return whether direct room for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel._should_process_message``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         count = getattr(room, "member_count", None)
         return isinstance(count, int) and count <= 2
 
     def _is_bot_mentioned(self, event: RoomMessage) -> bool:
-        """Check m.mentions payload for bot mention."""
+        """Check m.mentions payload for bot mention.
+
+        Integration: Called by ``MatrixChannel._should_process_message`` and collaborates with
+        ``get``, ``mentions.get``, ``source.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         source = getattr(event, "source", None)
         if not isinstance(source, dict):
             return False
@@ -476,7 +820,17 @@ class MatrixChannel(BaseChannel):
         return bool(self.config.allow_room_mentions and mentions.get("room") is True)
 
     def _should_process_message(self, room: MatrixRoom, event: RoomMessage) -> bool:
-        """Apply sender and room policy checks."""
+        """Apply sender and room policy checks.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_is_direct_room``, ``is_allowed``, ``_is_bot_mentioned``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self.is_allowed(event.sender):
             return False
         if self._is_direct_room(room):
@@ -491,12 +845,34 @@ class MatrixChannel(BaseChannel):
         return False
 
     def _media_dir(self) -> Path:
+        """Derive media directory from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._build_attachment_path`` and collaborates with
+        ``d.mkdir``, ``get_data_dir``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         d = get_data_dir() / "media" / "matrix"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
     @staticmethod
     def _event_source_content(event: RoomMessage) -> dict[str, Any]:
+        """Derive event source content from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._event_thread_root_id``,
+        ``MatrixChannel._event_attachment_type`` and collaborates with ``source.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         source = getattr(event, "source", None)
         if not isinstance(source, dict):
             return {}
@@ -504,6 +880,17 @@ class MatrixChannel(BaseChannel):
         return content if isinstance(content, dict) else {}
 
     def _event_thread_root_id(self, event: RoomMessage) -> str | None:
+        """Derive event thread root identifier from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._thread_metadata`` and collaborates with ``get``,
+        ``relates_to.get``, ``_event_source_content``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         relates_to = self._event_source_content(event).get("m.relates_to")
         if not isinstance(relates_to, dict) or relates_to.get("rel_type") != "m.thread":
             return None
@@ -511,6 +898,17 @@ class MatrixChannel(BaseChannel):
         return root_id if isinstance(root_id, str) and root_id else None
 
     def _thread_metadata(self, event: RoomMessage) -> dict[str, str] | None:
+        """Derive thread metadata from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._base_metadata`` and collaborates with
+        ``_event_thread_root_id``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not (root_id := self._event_thread_root_id(event)):
             return None
         meta: dict[str, str] = {"thread_root_event_id": root_id}
@@ -520,6 +918,16 @@ class MatrixChannel(BaseChannel):
 
     @staticmethod
     def _build_thread_relates_to(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Build thread relates to for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel.send`` and collaborates with ``metadata.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not metadata:
             return None
         root_id = metadata.get("thread_root_event_id")
@@ -532,21 +940,64 @@ class MatrixChannel(BaseChannel):
                 "m.in_reply_to": {"event_id": reply_to}, "is_falling_back": True}
 
     def _event_attachment_type(self, event: MatrixMediaEvent) -> str:
+        """Derive event attachment type from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment`` and collaborates with
+        ``get``, ``_MSGTYPE_MAP.get``, ``_event_source_content``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         msgtype = self._event_source_content(event).get("msgtype")
         return _MSGTYPE_MAP.get(msgtype, "file")
 
     @staticmethod
     def _is_encrypted_media_event(event: MatrixMediaEvent) -> bool:
+        """Return whether encrypted media event for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return (isinstance(getattr(event, "key", None), dict)
                 and isinstance(getattr(event, "hashes", None), dict)
                 and isinstance(getattr(event, "iv", None), str))
 
     def _event_declared_size_bytes(self, event: MatrixMediaEvent) -> int | None:
+        """Derive event declared size bytes from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment`` and collaborates with
+        ``get``, ``info.get``, ``_event_source_content``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         info = self._event_source_content(event).get("info")
         size = info.get("size") if isinstance(info, dict) else None
         return size if isinstance(size, int) and size >= 0 else None
 
     def _event_mime(self, event: MatrixMediaEvent) -> str | None:
+        """Derive event mime from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment`` and collaborates with
+        ``get``, ``_event_source_content``, ``info.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         info = self._event_source_content(event).get("info")
         if isinstance(info, dict) and isinstance(m := info.get("mimetype"), str) and m:
             return m
@@ -554,6 +1005,17 @@ class MatrixChannel(BaseChannel):
         return m if isinstance(m, str) and m else None
 
     def _event_filename(self, event: MatrixMediaEvent, attachment_type: str) -> str:
+        """Derive event filename from the current inputs and subsystem state.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment`` and collaborates with
+        ``body.strip``, ``safe_filename``, ``Path``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         body = getattr(event, "body", None)
         if isinstance(body, str) and body.strip():
             if candidate := safe_filename(Path(body).name):
@@ -562,6 +1024,17 @@ class MatrixChannel(BaseChannel):
 
     def _build_attachment_path(self, event: MatrixMediaEvent, attachment_type: str,
                                filename: str, mime: str | None) -> Path:
+        """Build attachment path for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment`` and collaborates with
+        ``safe_filename``, ``strip``, ``Path``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         safe_name = safe_filename(Path(filename).name) or _DEFAULT_ATTACH_NAME
         suffix = Path(safe_name).suffix
         if not suffix and mime:
@@ -574,6 +1047,16 @@ class MatrixChannel(BaseChannel):
         return self._media_dir() / f"{event_prefix}_{stem}{suffix}"
 
     async def _download_media_bytes(self, mxc_url: str) -> bytes | None:
+        """Download media bytes for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment`` and collaborates with
+        ``client.download``, ``logger.warning``, ``Path``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.client:
             return None
         response = await self.client.download(mxc=mxc_url)
@@ -595,6 +1078,16 @@ class MatrixChannel(BaseChannel):
         return None
 
     def _decrypt_media_bytes(self, event: MatrixMediaEvent, ciphertext: bytes) -> bytes | None:
+        """Decrypt media bytes for the enclosing subsystem.
+
+        Integration: Called by ``MatrixChannel._fetch_media_attachment`` and collaborates with
+        ``key_obj.get``, ``hashes.get``, ``all``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         key_obj, hashes, iv = getattr(event, "key", None), getattr(event, "hashes", None), getattr(event, "iv", None)
         key = key_obj.get("k") if isinstance(key_obj, dict) else None
         sha256 = hashes.get("sha256") if isinstance(hashes, dict) else None
@@ -609,7 +1102,16 @@ class MatrixChannel(BaseChannel):
     async def _fetch_media_attachment(
         self, room: MatrixRoom, event: MatrixMediaEvent,
     ) -> tuple[dict[str, Any] | None, str]:
-        """Download, decrypt if needed, and persist a Matrix attachment."""
+        """Download, decrypt if needed, and persist a Matrix attachment.
+
+        Integration: Called by ``MatrixChannel._on_media_message`` and collaborates with
+        ``_event_attachment_type``, ``_event_mime``, ``_event_filename``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         atype = self._event_attachment_type(event)
         mime = self._event_mime(event)
         filename = self._event_filename(event, atype)
@@ -652,7 +1154,18 @@ class MatrixChannel(BaseChannel):
         return attachment, _ATTACH_MARKER.format(path)
 
     def _base_metadata(self, room: MatrixRoom, event: RoomMessage) -> dict[str, Any]:
-        """Build common metadata for text and media handlers."""
+        """Build common metadata for text and media handlers.
+
+        Integration: Called by ``MatrixChannel._on_message``,
+        ``MatrixChannel._on_media_message`` and collaborates with ``_thread_metadata``,
+        ``meta.update``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         meta: dict[str, Any] = {"room": getattr(room, "display_name", room.room_id)}
         if isinstance(eid := getattr(event, "event_id", None), str) and eid:
             meta["event_id"] = eid
@@ -661,6 +1174,16 @@ class MatrixChannel(BaseChannel):
         return meta
 
     async def _on_message(self, room: MatrixRoom, event: RoomMessageText) -> None:
+        """Handle the message lifecycle event.
+
+        Integration: Exposed through ``MatrixChannel`` and collaborates with
+        ``_start_typing_keepalive``, ``_should_process_message``, ``_handle_message``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if event.sender == self.config.user_id or not self._should_process_message(room, event):
             return
         await self._start_typing_keepalive(room.room_id)
@@ -674,6 +1197,16 @@ class MatrixChannel(BaseChannel):
             raise
 
     async def _on_media_message(self, room: MatrixRoom, event: MatrixMediaEvent) -> None:
+        """Handle the media message lifecycle event.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_fetch_media_attachment``, ``body.strip``, ``parts.append``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if event.sender == self.config.user_id or not self._should_process_message(room, event):
             return
         attachment, marker = await self._fetch_media_attachment(room, event)

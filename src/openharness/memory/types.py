@@ -1,4 +1,15 @@
-"""Memory-related data models."""
+"""Memory-related data models.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +20,16 @@ from typing import Any
 
 @dataclass(frozen=True)
 class MemoryHeader:
-    """Metadata for one memory file."""
+    """Metadata for one memory file.
+
+    Integration: Constructed or referenced by ``_parse_memory_file``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     path: Path
     title: str

@@ -4,6 +4,16 @@ This is intentionally smaller than a full language-server integration. It
 provides stable read-only operations for Python source files so the model can
 perform definition, reference, hover, and symbol queries in a Claude
 Code-like workflow.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
 """
 
 from __future__ import annotations
@@ -20,7 +30,16 @@ _SKIP_PARTS = {".git", ".hg", ".svn", ".venv", "venv", "__pycache__", "node_modu
 
 @dataclass(frozen=True)
 class SymbolLocation:
-    """Resolved symbol location inside the workspace."""
+    """Resolved symbol location inside the workspace.
+
+    Integration: Constructed or referenced by ``_collect_symbols``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     kind: str
@@ -32,7 +51,17 @@ class SymbolLocation:
 
 
 def list_document_symbols(path: Path) -> list[SymbolLocation]:
-    """Return top-level and nested symbols from one Python source file."""
+    """Return top-level and nested symbols from one Python source file.
+
+    Integration: Called by ``workspace_symbol_search``, ``go_to_definition`` and collaborates
+    with ``ast.parse``, ``_collect_symbols``, ``path.read_text``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     symbols: list[SymbolLocation] = []
     _collect_symbols(tree, path, symbols, parent=None)
@@ -40,7 +69,17 @@ def list_document_symbols(path: Path) -> list[SymbolLocation]:
 
 
 def workspace_symbol_search(root: Path, query: str) -> list[SymbolLocation]:
-    """Return symbols whose name contains ``query``."""
+    """Return symbols whose name contains ``query``.
+
+    Integration: Called by ``LspTool.execute`` and collaborates with ``strip``,
+    ``iter_python_files``, ``list_document_symbols``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     needle = query.lower().strip()
     if not needle:
         return []
@@ -60,7 +99,17 @@ def go_to_definition(
     line: int | None = None,
     character: int | None = None,
 ) -> list[SymbolLocation]:
-    """Resolve candidate definitions for a symbol."""
+    """Resolve candidate definitions for a symbol.
+
+    Integration: Called by ``hover``, ``LspTool.execute`` and collaborates with
+    ``iter_python_files``, ``extract_symbol_at_position``, ``list_document_symbols``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     target = symbol or extract_symbol_at_position(file_path, line=line, character=character)
     if not target:
         return []
@@ -80,7 +129,17 @@ def find_references(
     line: int | None = None,
     character: int | None = None,
 ) -> list[tuple[Path, int, str]]:
-    """Return line-oriented references for a symbol."""
+    """Return line-oriented references for a symbol.
+
+    Integration: Called by ``LspTool.execute`` and collaborates with ``re.compile``,
+    ``iter_python_files``, ``extract_symbol_at_position``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     target = symbol or extract_symbol_at_position(file_path, line=line, character=character)
     if not target:
         return []
@@ -101,7 +160,16 @@ def hover(
     line: int | None = None,
     character: int | None = None,
 ) -> SymbolLocation | None:
-    """Return the best hover target for a symbol."""
+    """Return the best hover target for a symbol.
+
+    Integration: Called by ``LspTool.execute`` and collaborates with ``go_to_definition``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     matches = go_to_definition(
         root=root,
         file_path=file_path,
@@ -118,7 +186,16 @@ def extract_symbol_at_position(
     line: int | None,
     character: int | None,
 ) -> str | None:
-    """Extract a probable identifier from a 1-based line/character position."""
+    """Extract a probable identifier from a 1-based line/character position.
+
+    Integration: Called by ``go_to_definition``, ``find_references`` and collaborates with
+    ``splitlines``, ``re.finditer``, ``match.group``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     if line is None:
         return None
     lines = file_path.read_text(encoding="utf-8").splitlines()
@@ -137,7 +214,16 @@ def extract_symbol_at_position(
 
 
 def iter_python_files(root: Path) -> list[Path]:
-    """Return Python source files in a stable order."""
+    """Return Python source files in a stable order.
+
+    Integration: Called by ``workspace_symbol_search``, ``go_to_definition`` and collaborates
+    with ``root.rglob``, ``files.sort``, ``any``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     files: list[Path] = []
     for path in root.rglob(_PYTHON_GLOB):
         if any(part in _SKIP_PARTS for part in path.parts):
@@ -155,6 +241,16 @@ def _collect_symbols(
     *,
     parent: str | None,
 ) -> None:
+    """Apply collect symbols to the enclosing subsystem state.
+
+    Integration: Called by ``list_document_symbols`` and collaborates with
+    ``ast.iter_child_nodes``, ``bucket.append``, ``SymbolLocation``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for child in ast.iter_child_nodes(node):
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
             name = f"{parent}.{child.name}" if parent else child.name

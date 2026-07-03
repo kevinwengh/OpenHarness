@@ -1,4 +1,13 @@
-"""Session-end hook to extract and persist local environment rules."""
+"""Session-end hook to extract and persist local environment rules.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +38,15 @@ def update_rules_from_session(messages: list[ConversationMessage]) -> int:
 
     Returns:
         Number of new facts found and persisted.
+
+    Integration: Called by ``close_runtime`` and collaborates with ``join``,
+    ``extract_facts_from_text``, ``load_facts``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     # Collect all text from messages
     all_text = []

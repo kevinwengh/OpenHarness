@@ -1,4 +1,15 @@
-"""Mochat channel implementation using Socket.IO with HTTP polling fallback."""
+"""Mochat channel implementation using Socket.IO with HTTP polling fallback.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 from __future__ import annotations
 
@@ -43,7 +54,16 @@ CURSOR_SAVE_DEBOUNCE_S = 0.5
 
 @dataclass
 class MochatBufferedEntry:
-    """Buffered inbound entry for delayed dispatch."""
+    """Buffered inbound entry for delayed dispatch.
+
+    Integration: Constructed or referenced by ``MochatChannel._process_inbound_event``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     raw_body: str
     author: str
     sender_name: str = ""
@@ -55,7 +75,17 @@ class MochatBufferedEntry:
 
 @dataclass
 class DelayState:
-    """Per-target delayed message state."""
+    """Per-target delayed message state.
+
+    Integration: Constructed or referenced by ``MochatChannel._enqueue_delayed_entry``,
+    ``MochatChannel._flush_delayed_entries``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     entries: list[MochatBufferedEntry] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     timer: asyncio.Task | None = None
@@ -63,7 +93,16 @@ class DelayState:
 
 @dataclass
 class MochatTarget:
-    """Outbound target resolution result."""
+    """Outbound target resolution result.
+
+    Integration: Constructed or referenced by ``resolve_mochat_target``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     id: str
     is_panel: bool
 
@@ -73,12 +112,31 @@ class MochatTarget:
 # ---------------------------------------------------------------------------
 
 def _safe_dict(value: Any) -> dict:
-    """Return *value* if it's a dict, else empty dict."""
+    """Return *value* if it's a dict, else empty dict.
+
+    Integration: Called by ``_make_synthetic_event``, ``MochatChannel._process_inbound_event``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return value if isinstance(value, dict) else {}
 
 
 def _str_field(src: dict, *keys: str) -> str:
-    """Return the first non-empty str value found for *keys*, stripped."""
+    """Return the first non-empty str value found for *keys*, stripped.
+
+    Integration: Called by ``MochatChannel._refresh_sessions_directory``,
+    ``MochatChannel._refresh_panels`` and collaborates with ``src.get``, ``v.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for k in keys:
         v = src.get(k)
         if isinstance(v, str) and v.strip():
@@ -91,7 +149,18 @@ def _make_synthetic_event(
     meta: Any, group_id: str, converse_id: str,
     timestamp: Any = None, *, author_info: Any = None,
 ) -> dict[str, Any]:
-    """Build a synthetic ``message.add`` event dict."""
+    """Build a synthetic ``message.add`` event dict.
+
+    Integration: Called by ``MochatChannel._panel_poll_worker``,
+    ``MochatChannel._handle_notify_chat_message`` and collaborates with ``_safe_dict``,
+    ``isoformat``, ``datetime.utcnow``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     payload: dict[str, Any] = {
         "messageId": message_id, "author": author,
         "content": content, "meta": _safe_dict(meta),
@@ -107,7 +176,16 @@ def _make_synthetic_event(
 
 
 def normalize_mochat_content(content: Any) -> str:
-    """Normalize content payload to text."""
+    """Normalize content payload to text.
+
+    Integration: Called by ``MochatChannel._process_inbound_event`` and collaborates with
+    ``content.strip``, ``json.dumps``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if isinstance(content, str):
         return content.strip()
     if content is None:
@@ -119,7 +197,17 @@ def normalize_mochat_content(content: Any) -> str:
 
 
 def resolve_mochat_target(raw: str) -> MochatTarget:
-    """Resolve id and target kind from user-provided target string."""
+    """Resolve id and target kind from user-provided target string.
+
+    Integration: Called by ``MochatChannel.send`` and collaborates with ``strip``,
+    ``trimmed.lower``, ``MochatTarget``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     trimmed = (raw or "").strip()
     if not trimmed:
         return MochatTarget(id="", is_panel=False)
@@ -138,7 +226,16 @@ def resolve_mochat_target(raw: str) -> MochatTarget:
 
 
 def extract_mention_ids(value: Any) -> list[str]:
-    """Extract mention ids from heterogeneous mention payload."""
+    """Extract mention ids from heterogeneous mention payload.
+
+    Integration: Called by ``resolve_was_mentioned`` and collaborates with ``item.strip``,
+    ``ids.append``, ``item.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(value, list):
         return []
     ids: list[str] = []
@@ -156,7 +253,17 @@ def extract_mention_ids(value: Any) -> list[str]:
 
 
 def resolve_was_mentioned(payload: dict[str, Any], agent_user_id: str) -> bool:
-    """Resolve mention state from payload metadata and text fallback."""
+    """Resolve mention state from payload metadata and text fallback.
+
+    Integration: Called by ``MochatChannel._process_inbound_event`` and collaborates with
+    ``payload.get``, ``meta.get``, ``extract_mention_ids``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     meta = payload.get("meta")
     if isinstance(meta, dict):
         if meta.get("mentioned") is True or meta.get("wasMentioned") is True:
@@ -173,7 +280,16 @@ def resolve_was_mentioned(payload: dict[str, Any], agent_user_id: str) -> bool:
 
 
 def resolve_require_mention(config: MochatConfig, session_id: str, group_id: str) -> bool:
-    """Resolve mention requirement for group/panel conversations."""
+    """Resolve mention requirement for group/panel conversations.
+
+    Integration: Called by ``MochatChannel._process_inbound_event``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     groups = config.groups or {}
     for key in (group_id, session_id, "*"):
         if key and key in groups:
@@ -182,7 +298,17 @@ def resolve_require_mention(config: MochatConfig, session_id: str, group_id: str
 
 
 def build_buffered_body(entries: list[MochatBufferedEntry], is_group: bool) -> str:
-    """Build text body from one or more buffered entries."""
+    """Build text body from one or more buffered entries.
+
+    Integration: Called by ``MochatChannel._dispatch_entries`` and collaborates with ``strip``,
+    ``lines.append``, ``join``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not entries:
         return ""
     if len(entries) == 1:
@@ -201,7 +327,17 @@ def build_buffered_body(entries: list[MochatBufferedEntry], is_group: bool) -> s
 
 
 def parse_timestamp(value: Any) -> int | None:
-    """Parse event timestamp to epoch milliseconds."""
+    """Parse event timestamp to epoch milliseconds.
+
+    Integration: Called by ``MochatChannel._process_inbound_event`` and collaborates with
+    ``value.strip``, ``timestamp``, ``datetime.fromisoformat``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract; preserve
+    exception and fallback behavior expected by callers.
+    """
     if not isinstance(value, str) or not value.strip():
         return None
     try:
@@ -215,11 +351,30 @@ def parse_timestamp(value: Any) -> int | None:
 # ---------------------------------------------------------------------------
 
 class MochatChannel(BaseChannel):
-    """Mochat channel using socket.io with fallback polling workers."""
+    """Mochat channel using socket.io with fallback polling workers.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``send``, ``_start_socket_client`` run on
+    their caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name = "mochat"
 
     def __init__(self, config: MochatConfig, bus: MessageBus):
+        """Initialize ``MochatChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``MochatChannel`` and collaborates with ``get_data_path``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: MochatConfig = config
         self._http: httpx.AsyncClient | None = None
@@ -251,7 +406,17 @@ class MochatChannel(BaseChannel):
     # ---- lifecycle ---------------------------------------------------------
 
     async def start(self) -> None:
-        """Start Mochat channel workers and websocket connection."""
+        """Start Mochat channel workers and websocket connection.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``httpx.AsyncClient``, ``_state_dir.mkdir``, ``_seed_targets_from_config``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         if not self.config.claw_token:
             logger.error("Mochat claw_token not configured")
             return
@@ -271,7 +436,16 @@ class MochatChannel(BaseChannel):
             await asyncio.sleep(1)
 
     async def stop(self) -> None:
-        """Stop all workers and clean up resources."""
+        """Stop all workers and clean up resources.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_refresh_task.cancel``, ``_stop_fallback_workers``, ``_cancel_delay_timers``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         self._running = False
         if self._refresh_task:
             self._refresh_task.cancel()
@@ -298,7 +472,16 @@ class MochatChannel(BaseChannel):
         self._ws_connected = self._ws_ready = False
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send outbound message to session or panel."""
+        """Send outbound message to session or panel.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``strip``, ``resolve_mochat_target``, ``logger.warning``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.config.claw_token:
             logger.warning("Mochat claw_token missing, skip send")
             return
@@ -329,6 +512,17 @@ class MochatChannel(BaseChannel):
     # ---- config / init helpers ---------------------------------------------
 
     def _seed_targets_from_config(self) -> None:
+        """Seed targets from config for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.start`` and collaborates with
+        ``_normalize_id_list``, ``_session_set.update``, ``_panel_set.update``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         sessions, self._auto_discover_sessions = self._normalize_id_list(self.config.sessions)
         panels, self._auto_discover_panels = self._normalize_id_list(self.config.panels)
         self._session_set.update(sessions)
@@ -339,12 +533,33 @@ class MochatChannel(BaseChannel):
 
     @staticmethod
     def _normalize_id_list(values: list[str]) -> tuple[list[str], bool]:
+        """Normalize identifier list for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._seed_targets_from_config`` and collaborates with
+        ``strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         cleaned = [str(v).strip() for v in values if str(v).strip()]
         return sorted({v for v in cleaned if v != "*"}), "*" in cleaned
 
     # ---- websocket ---------------------------------------------------------
 
     async def _start_socket_client(self) -> bool:
+        """Start socket client for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.start`` and collaborates with
+        ``socketio.AsyncClient``, ``client.on``, ``rstrip``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not SOCKETIO_AVAILABLE:
             logger.warning("python-socketio not installed, Mochat using polling fallback")
             return False
@@ -366,6 +581,17 @@ class MochatChannel(BaseChannel):
 
         @client.event
         async def connect() -> None:
+            """Establish the underlying transport connection.
+
+            Integration: Exposed through ``MochatChannel._start_socket_client`` and collaborates
+            with ``logger.info``, ``_subscribe_all``, ``_stop_fallback_workers``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             self._ws_connected, self._ws_ready = True, False
             logger.info("Mochat websocket connected")
             subscribed = await self._subscribe_all()
@@ -374,6 +600,17 @@ class MochatChannel(BaseChannel):
 
         @client.event
         async def disconnect() -> None:
+            """Close the underlying transport connection.
+
+            Integration: Exposed through ``MochatChannel._start_socket_client`` and collaborates
+            with ``logger.warning``, ``_ensure_fallback_workers``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             if not self._running:
                 return
             self._ws_connected = self._ws_ready = False
@@ -382,14 +619,48 @@ class MochatChannel(BaseChannel):
 
         @client.event
         async def connect_error(data: Any) -> None:
+            """Connect error for the enclosing subsystem.
+
+            Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+            ``logger.error``.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             logger.error("Mochat websocket connect error: %s", data)
 
         @client.on("claw.session.events")
         async def on_session_events(payload: dict[str, Any]) -> None:
+            """Handle the session events lifecycle event.
+
+            Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+            ``client.on``, ``_handle_watch_payload``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await self._handle_watch_payload(payload, "session")
 
         @client.on("claw.panel.events")
         async def on_panel_events(payload: dict[str, Any]) -> None:
+            """Handle the panel events lifecycle event.
+
+            Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+            ``client.on``, ``_handle_watch_payload``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await self._handle_watch_payload(payload, "panel")
 
         for ev in ("notify:chat.inbox.append", "notify:chat.message.add",
@@ -418,7 +689,30 @@ class MochatChannel(BaseChannel):
             return False
 
     def _build_notify_handler(self, event_name: str):
+        """Build notify handler for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._start_socket_client`` and collaborates with
+        ``event_name.startswith``, ``_handle_notify_inbox_append``,
+        ``_handle_notify_chat_message``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         async def handler(payload: Any) -> None:
+            """Handle one callback from the underlying transport.
+
+            Integration: Exposed through ``MochatChannel._build_notify_handler`` and
+            collaborates with ``_handle_notify_inbox_append``, ``_handle_notify_chat_message``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             if event_name == "notify:chat.inbox.append":
                 await self._handle_notify_inbox_append(payload)
             elif event_name.startswith("notify:chat.message."):
@@ -428,6 +722,18 @@ class MochatChannel(BaseChannel):
     # ---- subscribe ---------------------------------------------------------
 
     async def _subscribe_all(self) -> bool:
+        """Subscribe to all for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._start_socket_client``,
+        ``MochatChannel._start_socket_client.connect`` and collaborates with
+        ``_subscribe_sessions``, ``_subscribe_panels``, ``_refresh_targets``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ok = await self._subscribe_sessions(sorted(self._session_set))
         ok = await self._subscribe_panels(sorted(self._panel_set)) and ok
         if self._auto_discover_sessions or self._auto_discover_panels:
@@ -435,6 +741,18 @@ class MochatChannel(BaseChannel):
         return ok
 
     async def _subscribe_sessions(self, session_ids: list[str]) -> bool:
+        """Subscribe to sessions for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._subscribe_all``,
+        ``MochatChannel._refresh_sessions_directory`` and collaborates with ``ack.get``,
+        ``_socket_call``, ``logger.error``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not session_ids:
             return True
         for sid in session_ids:
@@ -464,6 +782,18 @@ class MochatChannel(BaseChannel):
         return True
 
     async def _subscribe_panels(self, panel_ids: list[str]) -> bool:
+        """Subscribe to panels for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._subscribe_all``,
+        ``MochatChannel._refresh_panels`` and collaborates with ``_socket_call``, ``ack.get``,
+        ``logger.error``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self._auto_discover_panels and not panel_ids:
             return True
         ack = await self._socket_call("com.claw.im.subscribePanels", {"panelIds": panel_ids})
@@ -473,6 +803,16 @@ class MochatChannel(BaseChannel):
         return True
 
     async def _socket_call(self, event_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run the socket call workflow through its asynchronous collaborators.
+
+        Integration: Called by ``MochatChannel._subscribe_sessions``,
+        ``MochatChannel._subscribe_panels`` and collaborates with ``_socket.call``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._socket:
             return {"result": False, "message": "socket not connected"}
         try:
@@ -484,6 +824,16 @@ class MochatChannel(BaseChannel):
     # ---- refresh / discovery -----------------------------------------------
 
     async def _refresh_loop(self) -> None:
+        """Refresh loop for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.start`` and collaborates with ``asyncio.sleep``,
+        ``_refresh_targets``, ``logger.warning``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         interval_s = max(1.0, self.config.refresh_interval_ms / 1000.0)
         while self._running:
             await asyncio.sleep(interval_s)
@@ -495,12 +845,34 @@ class MochatChannel(BaseChannel):
                 await self._ensure_fallback_workers()
 
     async def _refresh_targets(self, subscribe_new: bool) -> None:
+        """Refresh targets for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.start``, ``MochatChannel._subscribe_all`` and
+        collaborates with ``_refresh_sessions_directory``, ``_refresh_panels``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._auto_discover_sessions:
             await self._refresh_sessions_directory(subscribe_new)
         if self._auto_discover_panels:
             await self._refresh_panels(subscribe_new)
 
     async def _refresh_sessions_directory(self, subscribe_new: bool) -> None:
+        """Refresh sessions directory for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._refresh_targets``,
+        ``MochatChannel._handle_notify_inbox_append`` and collaborates with ``response.get``,
+        ``_str_field``, ``_post_json``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             response = await self._post_json("/api/claw/sessions/list", {})
         except Exception as e:
@@ -535,6 +907,16 @@ class MochatChannel(BaseChannel):
             await self._ensure_fallback_workers()
 
     async def _refresh_panels(self, subscribe_new: bool) -> None:
+        """Refresh panels for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._refresh_targets`` and collaborates with
+        ``response.get``, ``p.get``, ``_str_field``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             response = await self._post_json("/api/claw/groups/get", {})
         except Exception as e:
@@ -567,6 +949,18 @@ class MochatChannel(BaseChannel):
     # ---- fallback workers --------------------------------------------------
 
     async def _ensure_fallback_workers(self) -> None:
+        """Ensure fallback workers for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.start``, ``MochatChannel._start_socket_client``
+        and collaborates with ``_session_fallback_tasks.get``, ``_panel_fallback_tasks.get``,
+        ``t.done``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self._running:
             return
         self._fallback_mode = True
@@ -580,6 +974,18 @@ class MochatChannel(BaseChannel):
                 self._panel_fallback_tasks[pid] = asyncio.create_task(self._panel_poll_worker(pid))
 
     async def _stop_fallback_workers(self) -> None:
+        """Stop fallback workers for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.stop``, ``MochatChannel._start_socket_client``
+        and collaborates with ``_session_fallback_tasks.clear``,
+        ``_panel_fallback_tasks.clear``, ``t.cancel``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._fallback_mode = False
         tasks = [*self._session_fallback_tasks.values(), *self._panel_fallback_tasks.values()]
         for t in tasks:
@@ -590,6 +996,16 @@ class MochatChannel(BaseChannel):
         self._panel_fallback_tasks.clear()
 
     async def _session_watch_worker(self, session_id: str) -> None:
+        """Run the session watch worker workflow through its asynchronous collaborators.
+
+        Integration: Called by ``MochatChannel._ensure_fallback_workers`` and collaborates with
+        ``_post_json``, ``_handle_watch_payload``, ``logger.warning``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         while self._running and self._fallback_mode:
             try:
                 payload = await self._post_json("/api/claw/sessions/watch", {
@@ -604,6 +1020,16 @@ class MochatChannel(BaseChannel):
                 await asyncio.sleep(max(0.1, self.config.retry_delay_ms / 1000.0))
 
     async def _panel_poll_worker(self, panel_id: str) -> None:
+        """Run the panel poll worker workflow through its asynchronous collaborators.
+
+        Integration: Called by ``MochatChannel._ensure_fallback_workers`` and collaborates with
+        ``resp.get``, ``asyncio.sleep``, ``_post_json``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         sleep_s = max(1.0, self.config.refresh_interval_ms / 1000.0)
         while self._running and self._fallback_mode:
             try:
@@ -633,6 +1059,18 @@ class MochatChannel(BaseChannel):
     # ---- inbound event processing ------------------------------------------
 
     async def _handle_watch_payload(self, payload: dict[str, Any], target_kind: str) -> None:
+        """Handle watch payload for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._start_socket_client``,
+        ``MochatChannel._start_socket_client.on_session_events`` and collaborates with
+        ``_str_field``, ``_target_locks.setdefault``, ``asyncio.Lock``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not isinstance(payload, dict):
             return
         target_id = _str_field(payload, "sessionId")
@@ -663,6 +1101,18 @@ class MochatChannel(BaseChannel):
                     await self._process_inbound_event(target_id, event, target_kind)
 
     async def _process_inbound_event(self, target_id: str, event: dict[str, Any], target_kind: str) -> None:
+        """Process inbound event for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._panel_poll_worker``,
+        ``MochatChannel._handle_watch_payload`` and collaborates with ``event.get``,
+        ``_str_field``, ``_safe_dict``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         payload = event.get("payload")
         if not isinstance(payload, dict):
             return
@@ -711,6 +1161,17 @@ class MochatChannel(BaseChannel):
     # ---- dedup / buffering -------------------------------------------------
 
     def _remember_message_id(self, key: str, message_id: str) -> bool:
+        """Determine whether remember message identifier holds for the current inputs.
+
+        Integration: Called by ``MochatChannel._process_inbound_event`` and collaborates with
+        ``_seen_set.setdefault``, ``_seen_queue.setdefault``, ``seen_set.add``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         seen_set = self._seen_set.setdefault(key, set())
         seen_queue = self._seen_queue.setdefault(key, deque())
         if message_id in seen_set:
@@ -722,6 +1183,17 @@ class MochatChannel(BaseChannel):
         return False
 
     async def _enqueue_delayed_entry(self, key: str, target_id: str, target_kind: str, entry: MochatBufferedEntry) -> None:
+        """Enqueue delayed entry for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._process_inbound_event`` and collaborates with
+        ``_delay_states.setdefault``, ``DelayState``, ``state.entries.append``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         state = self._delay_states.setdefault(key, DelayState())
         async with state.lock:
             state.entries.append(entry)
@@ -730,10 +1202,33 @@ class MochatChannel(BaseChannel):
             state.timer = asyncio.create_task(self._delay_flush_after(key, target_id, target_kind))
 
     async def _delay_flush_after(self, key: str, target_id: str, target_kind: str) -> None:
+        """Run the delay flush after workflow through its asynchronous collaborators.
+
+        Integration: Called by ``MochatChannel._enqueue_delayed_entry`` and collaborates with
+        ``asyncio.sleep``, ``_flush_delayed_entries``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await asyncio.sleep(max(0, self.config.reply_delay_ms) / 1000.0)
         await self._flush_delayed_entries(key, target_id, target_kind, "timer", None)
 
     async def _flush_delayed_entries(self, key: str, target_id: str, target_kind: str, reason: str, entry: MochatBufferedEntry | None) -> None:
+        """Flush delayed entries for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._process_inbound_event``,
+        ``MochatChannel._delay_flush_after`` and collaborates with ``_delay_states.setdefault``,
+        ``DelayState``, ``asyncio.current_task``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         state = self._delay_states.setdefault(key, DelayState())
         async with state.lock:
             if entry:
@@ -748,6 +1243,18 @@ class MochatChannel(BaseChannel):
             await self._dispatch_entries(target_id, target_kind, entries, reason == "mention")
 
     async def _dispatch_entries(self, target_id: str, target_kind: str, entries: list[MochatBufferedEntry], was_mentioned: bool) -> None:
+        """Dispatch entries for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._process_inbound_event``,
+        ``MochatChannel._flush_delayed_entries`` and collaborates with ``build_buffered_body``,
+        ``_handle_message``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not entries:
             return
         last = entries[-1]
@@ -765,6 +1272,18 @@ class MochatChannel(BaseChannel):
         )
 
     async def _cancel_delay_timers(self) -> None:
+        """Cancel delay timers for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.stop`` and collaborates with
+        ``_delay_states.values``, ``_delay_states.clear``, ``state.timer.cancel``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for state in self._delay_states.values():
             if state.timer:
                 state.timer.cancel()
@@ -773,6 +1292,18 @@ class MochatChannel(BaseChannel):
     # ---- notify handlers ---------------------------------------------------
 
     async def _handle_notify_chat_message(self, payload: Any) -> None:
+        """Handle notify chat message for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._build_notify_handler``,
+        ``MochatChannel._build_notify_handler.handler`` and collaborates with ``_str_field``,
+        ``_make_synthetic_event``, ``_process_inbound_event``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not isinstance(payload, dict):
             return
         group_id = _str_field(payload, "groupId")
@@ -792,6 +1323,18 @@ class MochatChannel(BaseChannel):
         await self._process_inbound_event(panel_id, evt, "panel")
 
     async def _handle_notify_inbox_append(self, payload: Any) -> None:
+        """Handle notify inbox append for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._build_notify_handler``,
+        ``MochatChannel._build_notify_handler.handler`` and collaborates with ``payload.get``,
+        ``_str_field``, ``_session_by_converse.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not isinstance(payload, dict) or payload.get("type") != "message":
             return
         detail = payload.get("payload")
@@ -822,6 +1365,17 @@ class MochatChannel(BaseChannel):
     # ---- cursor persistence ------------------------------------------------
 
     def _mark_session_cursor(self, session_id: str, cursor: int) -> None:
+        """Mark session cursor for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._handle_watch_payload`` and collaborates with
+        ``_cursor_save_task.done``, ``asyncio.create_task``, ``_session_cursor.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if cursor < 0 or cursor < self._session_cursor.get(session_id, 0):
             return
         self._session_cursor[session_id] = cursor
@@ -829,10 +1383,33 @@ class MochatChannel(BaseChannel):
             self._cursor_save_task = asyncio.create_task(self._save_cursor_debounced())
 
     async def _save_cursor_debounced(self) -> None:
+        """Persist cursor debounced for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel._mark_session_cursor`` and collaborates with
+        ``asyncio.sleep``, ``_save_session_cursors``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await asyncio.sleep(CURSOR_SAVE_DEBOUNCE_S)
         await self._save_session_cursors()
 
     async def _load_session_cursors(self) -> None:
+        """Load session cursors for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.start`` and collaborates with
+        ``_cursor_path.exists``, ``json.loads``, ``data.get``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         if not self._cursor_path.exists():
             return
         try:
@@ -847,6 +1424,19 @@ class MochatChannel(BaseChannel):
                     self._session_cursor[sid] = cur
 
     async def _save_session_cursors(self) -> None:
+        """Persist session cursors for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.stop``, ``MochatChannel._save_cursor_debounced``
+        and collaborates with ``_state_dir.mkdir``, ``_cursor_path.write_text``,
+        ``logger.warning``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         try:
             self._state_dir.mkdir(parents=True, exist_ok=True)
             self._cursor_path.write_text(json.dumps({
@@ -859,6 +1449,17 @@ class MochatChannel(BaseChannel):
     # ---- HTTP helpers ------------------------------------------------------
 
     async def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run the post JSON workflow through its asynchronous collaborators.
+
+        Integration: Called by ``MochatChannel._refresh_sessions_directory``,
+        ``MochatChannel._refresh_panels`` and collaborates with ``RuntimeError``,
+        ``_http.post``, ``response.json``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._http:
             raise RuntimeError("Mochat HTTP client not initialized")
         url = f"{self.config.base_url.strip().rstrip('/')}{path}"
@@ -881,7 +1482,16 @@ class MochatChannel(BaseChannel):
 
     async def _api_send(self, path: str, id_key: str, id_val: str,
                         content: str, reply_to: str | None, group_id: str | None = None) -> dict[str, Any]:
-        """Unified send helper for session and panel messages."""
+        """Unified send helper for session and panel messages.
+
+        Integration: Called by ``MochatChannel.send`` and collaborates with ``_post_json``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         body: dict[str, Any] = {id_key: id_val, "content": content}
         if reply_to:
             body["replyTo"] = reply_to
@@ -891,6 +1501,17 @@ class MochatChannel(BaseChannel):
 
     @staticmethod
     def _read_group_id(metadata: dict[str, Any]) -> str | None:
+        """Read group identifier for the enclosing subsystem.
+
+        Integration: Called by ``MochatChannel.send`` and collaborates with ``metadata.get``,
+        ``value.strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not isinstance(metadata, dict):
             return None
         value = metadata.get("group_id") or metadata.get("groupId")

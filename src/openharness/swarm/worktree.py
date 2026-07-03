@@ -1,4 +1,15 @@
-"""Git worktree isolation for swarm agents."""
+"""Git worktree isolation for swarm agents.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +39,15 @@ def validate_worktree_slug(slug: str) -> str:
     - Leading/trailing '/' are rejected
 
     Returns the slug unchanged if valid, raises ValueError otherwise.
+
+    Integration: Called by ``WorktreeManager.create_worktree``,
+    ``WorktreeManager.remove_worktree`` and collaborates with ``slug.split``, ``ValueError``,
+    ``slug.startswith``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     if not slug:
         raise ValueError("Worktree slug must not be empty")
@@ -61,7 +81,17 @@ def validate_worktree_slug(slug: str) -> str:
 
 @dataclass
 class WorktreeInfo:
-    """Metadata about a managed git worktree."""
+    """Metadata about a managed git worktree.
+
+    Integration: Constructed or referenced by ``WorktreeManager.create_worktree``,
+    ``WorktreeManager.list_worktrees``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     slug: str
     path: Path
@@ -76,16 +106,46 @@ class WorktreeInfo:
 # ---------------------------------------------------------------------------
 
 def _flatten_slug(slug: str) -> str:
-    """Replace '/' with '+' to avoid nested directory/branch issues."""
+    """Replace '/' with '+' to avoid nested directory/branch issues.
+
+    Integration: Called by ``_worktree_branch``, ``WorktreeManager.create_worktree`` and
+    collaborates with ``slug.replace``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return slug.replace("/", "+")
 
 
 def _worktree_branch(slug: str) -> str:
+    """Derive worktree branch from the current inputs and subsystem state.
+
+    Integration: Called by ``WorktreeManager.create_worktree`` and collaborates with
+    ``_flatten_slug``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return f"worktree-{_flatten_slug(slug)}"
 
 
 async def _run_git(*args: str, cwd: Path) -> tuple[int, str, str]:
-    """Run a git command, returning (returncode, stdout, stderr)."""
+    """Run a git command, returning (returncode, stdout, stderr).
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``asyncio.create_subprocess_exec``, ``proc.communicate``, ``strip``.
+
+    Event loop: This coroutine awaits subprocess work; preserve process cleanup and avoid shell-
+    blocking operations.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
@@ -103,7 +163,17 @@ async def _run_git(*args: str, cwd: Path) -> tuple[int, str, str]:
 
 
 async def _symlink_common_dirs(repo_path: Path, worktree_path: Path) -> None:
-    """Symlink large common directories from the main repo to avoid duplication."""
+    """Symlink large common directories from the main repo to avoid duplication.
+
+    Integration: Called by ``WorktreeManager.create_worktree`` and collaborates with
+    ``dst.exists``, ``dst.is_symlink``, ``src.exists``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     for dir_name in _COMMON_SYMLINK_DIRS:
         src = repo_path / dir_name
         dst = worktree_path / dir_name
@@ -118,7 +188,18 @@ async def _symlink_common_dirs(repo_path: Path, worktree_path: Path) -> None:
 
 
 async def _remove_symlinks(worktree_path: Path) -> None:
-    """Remove symlinks created by _symlink_common_dirs."""
+    """Remove symlinks created by _symlink_common_dirs.
+
+    Integration: Called by ``WorktreeManager.remove_worktree`` and collaborates with
+    ``dst.is_symlink``, ``dst.unlink``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     for dir_name in _COMMON_SYMLINK_DIRS:
         dst = worktree_path / dir_name
         if dst.is_symlink():
@@ -138,9 +219,28 @@ class WorktreeManager:
     Worktrees are stored under ``base_dir/<slug>/`` (with '/' replaced by
     '+' to keep the layout flat).  A JSON metadata file tracks active
     worktrees and their associated agent IDs so stale ones can be pruned.
+
+    Integration: Constructed or referenced by ``RepoAutopilotStore.run_card``.
+
+    Event loop: Async methods ``create_worktree``, ``remove_worktree``, ``list_worktrees``,
+    ``cleanup_stale`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
+        """Initialize ``WorktreeManager`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``WorktreeManager`` and collaborates with ``Path.home``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.base_dir: Path = base_dir or Path.home() / ".openharness" / "worktrees"
 
     # ------------------------------------------------------------------
@@ -167,6 +267,15 @@ class WorktreeManager:
 
         Returns:
             WorktreeInfo describing the worktree.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``validate_worktree_slug``, ``repo_path.resolve``, ``base_dir.mkdir``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
         """
         validate_worktree_slug(slug)
         repo_path = repo_path.resolve()
@@ -217,6 +326,16 @@ class WorktreeManager:
 
         Returns:
             True if the worktree was removed; False if it did not exist.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``WorktreeManager.cleanup_stale`` and collaborates with ``validate_worktree_slug``,
+        ``_flatten_slug``, ``worktree_path.exists``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         validate_worktree_slug(slug)
         flat_slug = _flatten_slug(slug)
@@ -251,7 +370,17 @@ class WorktreeManager:
         return code == 0
 
     async def list_worktrees(self) -> list[WorktreeInfo]:
-        """Return WorktreeInfo for every known worktree under base_dir."""
+        """Return WorktreeInfo for every known worktree under base_dir.
+
+        Integration: Called by ``WorktreeManager.cleanup_stale`` and collaborates with
+        ``base_dir.iterdir``, ``base_dir.exists``, ``child.name.replace``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self.base_dir.exists():
             return []
 
@@ -301,6 +430,15 @@ class WorktreeManager:
 
         Returns:
             List of slugs that were removed.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``list_worktrees``, ``remove_worktree``, ``removed.append``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         worktrees = await self.list_worktrees()
         removed: list[str] = []

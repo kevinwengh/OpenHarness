@@ -1,4 +1,15 @@
-"""ohmo gateway-scoped provider and model commands."""
+"""ohmo gateway-scoped provider and model commands.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +22,16 @@ from ohmo.gateway.config import load_gateway_config, save_gateway_config
 
 
 def handle_gateway_provider_command(args: str, *, workspace: str | Path | None) -> tuple[str, bool]:
-    """Handle ``/provider`` against the ohmo gateway config."""
+    """Handle ``/provider`` against the ohmo gateway config.
+
+    Integration: Called by ``OhmoSessionRuntimePool._handle_gateway_scoped_command`` and
+    collaborates with ``args.split``, ``get_profile_statuses``, ``load_gateway_config``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     tokens = args.split()
     statuses = AuthManager(load_settings()).get_profile_statuses()
     config = load_gateway_config(workspace)
@@ -53,7 +73,16 @@ def handle_gateway_provider_command(args: str, *, workspace: str | Path | None) 
 
 
 def handle_gateway_model_command(args: str, *, workspace: str | Path | None) -> tuple[str, bool]:
-    """Handle ``/model`` against the profile selected by ohmo gateway."""
+    """Handle ``/model`` against the profile selected by ohmo gateway.
+
+    Integration: Called by ``OhmoSessionRuntimePool._handle_gateway_scoped_command`` and
+    collaborates with ``load_settings``, ``AuthManager``, ``load_gateway_config``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     settings = load_settings()
     manager = AuthManager(settings)
     config = load_gateway_config(workspace)
@@ -111,6 +140,16 @@ def handle_gateway_model_command(args: str, *, workspace: str | Path | None) -> 
 
 
 def _format_model_status(profile_name, profile) -> str:
+    """Format model status for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lines = [
         f"ohmo gateway model: {profile.resolved_model}",
         f"Profile: {profile_name}",
@@ -125,6 +164,16 @@ def _format_model_status(profile_name, profile) -> str:
 
 
 def _dedupe(values) -> list[str]:
+    """Remove duplicate values while preserving the required ordering.
+
+    Integration: Called by ``handle_gateway_model_command``, ``_seed_models`` and collaborates
+    with ``strip``, ``result.append``, ``seen.add``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     seen: set[str] = set()
     result: list[str] = []
     for value in values:
@@ -136,4 +185,13 @@ def _dedupe(values) -> list[str]:
 
 
 def _seed_models(profile) -> list[str]:
+    """Seed models for the enclosing subsystem.
+
+    Integration: Called by ``handle_gateway_model_command`` and collaborates with ``_dedupe``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _dedupe([*profile.allowed_models, profile.resolved_model])

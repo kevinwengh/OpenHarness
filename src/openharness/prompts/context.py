@@ -1,4 +1,13 @@
-"""Higher-level system prompt assembly."""
+"""Higher-level system prompt assembly.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +38,16 @@ def _build_skills_section(
     extra_plugin_roots: Iterable[str | Path] | None = None,
     settings: Settings | None = None,
 ) -> str | None:
-    """Build a system prompt section listing available skills."""
+    """Build a system prompt section listing available skills.
+
+    Integration: Called by ``build_runtime_system_prompt`` and collaborates with
+    ``load_skill_registry``, ``join``, ``lines.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     registry = load_skill_registry(
         cwd,
         extra_skill_dirs=extra_skill_dirs,
@@ -56,7 +74,15 @@ def _build_skills_section(
 
 
 def _build_delegation_section() -> str:
-    """Build a concise section describing delegation and worker usage."""
+    """Build a concise section describing delegation and worker usage.
+
+    Integration: Called by ``build_runtime_system_prompt`` and collaborates with ``join``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return "\n".join(
         [
             "# Delegation And Subagents",
@@ -78,7 +104,15 @@ def _build_delegation_section() -> str:
 
 
 def _build_permission_mode_section(settings: Settings) -> str:
-    """Build current permission-mode guidance for the model."""
+    """Build current permission-mode guidance for the model.
+
+    Integration: Called by ``build_runtime_system_prompt``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     mode = settings.permission.mode
     if mode == PermissionMode.PLAN:
         guidance = (
@@ -108,7 +142,18 @@ def build_runtime_system_prompt(
     extra_plugin_roots: Iterable[str | Path] | None = None,
     include_project_memory: bool = True,
 ) -> str:
-    """Build the runtime system prompt with project instructions and memory."""
+    """Build the runtime system prompt with project instructions and memory.
+
+    Integration: Called by ``OhmoSessionRuntimePool._runtime_system_prompt``, ``_run_scenario``
+    and collaborates with ``is_coordinator_mode``, ``sections.append``,
+    ``_build_skills_section``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if is_coordinator_mode():
         sections = [get_coordinator_system_prompt()]
     else:

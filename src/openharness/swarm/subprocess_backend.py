@@ -1,4 +1,15 @@
-"""Subprocess-based TeammateExecutor implementation."""
+"""Subprocess-based TeammateExecutor implementation.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +41,14 @@ class SubprocessBackend:
 
     Uses the existing :class:`~openharness.tasks.manager.BackgroundTaskManager`
     to create and manage the child processes, communicating via stdin/stdout.
+
+    Integration: Constructed or referenced by ``BackendRegistry._register_defaults``.
+
+    Event loop: Async methods ``spawn``, ``send_message``, ``shutdown`` run on their caller's
+    loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     type: BackendType = "subprocess"
@@ -38,10 +57,29 @@ class SubprocessBackend:
     _agent_tasks: dict[str, str]
 
     def __init__(self) -> None:
+        """Initialize ``SubprocessBackend`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``SubprocessBackend``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._agent_tasks = {}
 
     def is_available(self) -> bool:
-        """Subprocess backend is always available."""
+        """Subprocess backend is always available.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return True
 
     async def spawn(self, config: TeammateSpawnConfig) -> SpawnResult:
@@ -49,6 +87,14 @@ class SubprocessBackend:
 
         Builds the appropriate CLI command and creates a ``local_agent`` task
         that accepts the initial prompt via stdin.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``build_inherited_cli_flags``, ``get_task_manager``, ``logger.debug``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         agent_id = f"{config.name}@{config.team}"
 
@@ -119,6 +165,14 @@ class SubprocessBackend:
 
         The message is serialised as a single JSON line so the teammate can
         distinguish structured messages from plain prompts.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_agent_tasks.get``, ``get_task_manager``, ``logger.debug``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         task_id = self._agent_tasks.get(agent_id)
         if task_id is None:
@@ -148,6 +202,14 @@ class SubprocessBackend:
 
         Returns:
             True if the task was found and terminated.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_agent_tasks.get``, ``get_task_manager``, ``logger.debug``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         task_id = self._agent_tasks.get(agent_id)
         if task_id is None:
@@ -167,5 +229,15 @@ class SubprocessBackend:
         return True
 
     def get_task_id(self, agent_id: str) -> str | None:
-        """Return the task manager task ID for a given agent, if known."""
+        """Return the task manager task ID for a given agent, if known.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_agent_tasks.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._agent_tasks.get(agent_id)

@@ -1,4 +1,15 @@
-"""Bridge exports."""
+"""Bridge exports.
+
+Integration: This module participates in external command/session bridges exposed to runtime and
+UI status.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve subprocess lifecycle, output files, session identity, interruption, and
+cleanup.
+"""
 
 from openharness.bridge.manager import BridgeSessionManager, BridgeSessionRecord, get_bridge_manager
 from openharness.bridge.session_runner import SessionHandle, spawn_session

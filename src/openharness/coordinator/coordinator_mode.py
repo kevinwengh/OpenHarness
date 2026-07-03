@@ -1,4 +1,15 @@
-"""Coordinator mode detection and orchestration support."""
+"""Coordinator mode detection and orchestration support.
+
+Integration: This module participates in coordinator-mode context and delegated worker
+orchestration.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve context injection/removal, tool availability, async-agent state,
+continuation, and no cross-session leakage.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +27,16 @@ from xml.sax.saxutils import escape, unescape
 
 @dataclass
 class TeamRecord:
-    """A lightweight in-memory team."""
+    """A lightweight in-memory team.
+
+    Integration: Constructed or referenced by ``TeamRegistry.create_team``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     description: str = ""
@@ -25,12 +45,41 @@ class TeamRecord:
 
 
 class TeamRegistry:
-    """Store teams and agent memberships."""
+    """Store teams and agent memberships.
+
+    Integration: Constructed or referenced by ``get_team_registry``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self) -> None:
+        """Initialize ``TeamRegistry`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``TeamRegistry``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._teams: dict[str, TeamRecord] = {}
 
     def create_team(self, name: str, description: str = "") -> TeamRecord:
+        """Create team for the enclosing subsystem.
+
+        Integration: Exposed through ``TeamRegistry`` and collaborates with ``TeamRecord``,
+        ``ValueError``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if name in self._teams:
             raise ValueError(f"Team '{name}' already exists")
         team = TeamRecord(name=name, description=description)
@@ -38,22 +87,72 @@ class TeamRegistry:
         return team
 
     def delete_team(self, name: str) -> None:
+        """Delete team for the enclosing subsystem.
+
+        Integration: Exposed through ``TeamRegistry`` and collaborates with ``ValueError``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if name not in self._teams:
             raise ValueError(f"Team '{name}' does not exist")
         del self._teams[name]
 
     def add_agent(self, team_name: str, task_id: str) -> None:
+        """Add agent for the enclosing subsystem.
+
+        Integration: Called by ``AgentTool.execute`` and collaborates with ``_require_team``,
+        ``team.agents.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         team = self._require_team(team_name)
         if task_id not in team.agents:
             team.agents.append(task_id)
 
     def send_message(self, team_name: str, message: str) -> None:
+        """Send message for the enclosing subsystem.
+
+        Integration: Exposed through ``TeamRegistry`` and collaborates with ``_require_team``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._require_team(team_name).messages.append(message)
 
     def list_teams(self) -> list[TeamRecord]:
+        """List teams for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_teams.values``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return sorted(self._teams.values(), key=lambda item: item.name)
 
     def _require_team(self, name: str) -> TeamRecord:
+        """Derive require team from the current inputs and subsystem state.
+
+        Integration: Exposed through ``TeamRegistry`` and collaborates with ``ValueError``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         team = self._teams.get(name)
         if team is None:
             raise ValueError(f"Team '{name}' does not exist")
@@ -64,7 +163,17 @@ _DEFAULT_TEAM_REGISTRY: TeamRegistry | None = None
 
 
 def get_team_registry() -> TeamRegistry:
-    """Return the singleton team registry."""
+    """Return the singleton team registry.
+
+    Integration: Called by ``AgentTool.execute``, ``TeamCreateTool.execute`` and collaborates
+    with ``TeamRegistry``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     global _DEFAULT_TEAM_REGISTRY
     if _DEFAULT_TEAM_REGISTRY is None:
         _DEFAULT_TEAM_REGISTRY = TeamRegistry()
@@ -78,7 +187,17 @@ def get_team_registry() -> TeamRegistry:
 
 @dataclass
 class TaskNotification:
-    """Structured result from a completed agent task."""
+    """Structured result from a completed agent task.
+
+    Integration: Constructed or referenced by ``parse_task_notification``,
+    ``format_completed_task_notifications``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     task_id: str
     status: str
@@ -89,7 +208,16 @@ class TaskNotification:
 
 @dataclass
 class WorkerConfig:
-    """Configuration for a spawned worker agent."""
+    """Configuration for a spawned worker agent.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     agent_id: str
     name: str
@@ -107,7 +235,16 @@ _USAGE_FIELDS = ("total_tokens", "tool_uses", "duration_ms")
 
 
 def format_task_notification(n: TaskNotification) -> str:
-    """Serialize a TaskNotification to the canonical XML envelope."""
+    """Serialize a TaskNotification to the canonical XML envelope.
+
+    Integration: Called by ``format_completed_task_notifications`` and collaborates with
+    ``parts.append``, ``join``, ``escape``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parts = [
         "<task-notification>",
         f"<task-id>{escape(n.task_id)}</task-id>",
@@ -127,9 +264,30 @@ def format_task_notification(n: TaskNotification) -> str:
 
 
 def parse_task_notification(xml: str) -> TaskNotification:
-    """Parse a <task-notification> XML string into a TaskNotification."""
+    """Parse a <task-notification> XML string into a TaskNotification.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_extract``, ``re.search``, ``TaskNotification``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     def _extract(tag: str) -> Optional[str]:
+        """Derive extract from the current inputs and subsystem state.
+
+        Integration: Called by ``parse_task_notification`` and collaborates with ``re.search``,
+        ``unescape``, ``strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         m = re.search(rf"<{tag}>(.*?)</{tag}>", xml, re.DOTALL)
         return unescape(m.group(1).strip()) if m else None
 
@@ -184,7 +342,17 @@ _SIMPLE_WORKER_TOOLS = ["bash", "file_read", "file_edit"]
 
 
 def is_coordinator_mode() -> bool:
-    """Return True when the process is running in coordinator mode."""
+    """Return True when the process is running in coordinator mode.
+
+    Integration: Called by ``match_session_mode``, ``get_coordinator_user_context`` and
+    collaborates with ``os.environ.get``, ``val.lower``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     val = os.environ.get("CLAUDE_CODE_COORDINATOR_MODE", "")
     return val.lower() in {"1", "true", "yes"}
 
@@ -193,6 +361,14 @@ def match_session_mode(session_mode: Optional[str]) -> Optional[str]:
     """Align the env-var coordinator flag with a resumed session's stored mode.
 
     Returns a warning string if the mode was switched, or None if no change.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``is_coordinator_mode``, ``os.environ.pop``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if not session_mode:
         return None
@@ -214,7 +390,15 @@ def match_session_mode(session_mode: Optional[str]) -> Optional[str]:
 
 
 def get_coordinator_tools() -> list[str]:
-    """Return the tool names reserved for the coordinator."""
+    """Return the tool names reserved for the coordinator.
+
+    Integration: Exposed as a public entrypoint for this subsystem.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return [_AGENT_TOOL_NAME, _SEND_MESSAGE_TOOL_NAME, _TASK_STOP_TOOL_NAME]
 
 
@@ -222,7 +406,16 @@ def get_coordinator_user_context(
     mcp_clients: list[dict[str, str]] | None = None,
     scratchpad_dir: Optional[str] = None,
 ) -> dict[str, str]:
-    """Build the workerToolsContext injected into the coordinator's user turn."""
+    """Build the workerToolsContext injected into the coordinator's user turn.
+
+    Integration: Called by ``QueryEngine._build_coordinator_context_message`` and collaborates
+    with ``join``, ``is_coordinator_mode``, ``lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not is_coordinator_mode():
         return {}
 
@@ -250,7 +443,16 @@ def get_coordinator_user_context(
 
 
 def get_coordinator_system_prompt() -> str:
-    """Return the system prompt injected when running in coordinator mode."""
+    """Return the system prompt injected when running in coordinator mode.
+
+    Integration: Called by ``build_runtime_system_prompt`` and collaborates with ``lower``,
+    ``os.environ.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     is_simple = os.environ.get("CLAUDE_CODE_SIMPLE", "").lower() in {"1", "true", "yes"}
 
     if is_simple:

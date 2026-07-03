@@ -1,4 +1,15 @@
-"""Locking and session scanning for auto-dream."""
+"""Locking and session scanning for auto-dream.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
+"""
 
 from __future__ import annotations
 
@@ -16,11 +27,32 @@ HOLDER_STALE_SECONDS = 60 * 60
 
 
 def _lock_path(cwd: str | Path, memory_dir: str | Path | None = None) -> Path:
+    """Return the filesystem path for lock.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``Path``, ``get_project_memory_dir``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return Path(memory_dir) / LOCK_FILE if memory_dir is not None else get_project_memory_dir(cwd) / LOCK_FILE
 
 
 def read_last_consolidated_at(cwd: str | Path, memory_dir: str | Path | None = None) -> float:
-    """Return lock mtime as the last successful consolidation timestamp."""
+    """Return lock mtime as the last successful consolidation timestamp.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._dream_handler`` and collaborates with ``stat``,
+    ``_lock_path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     try:
         return _lock_path(cwd, memory_dir).stat().st_mtime
@@ -29,6 +61,16 @@ def read_last_consolidated_at(cwd: str | Path, memory_dir: str | Path | None = N
 
 
 def _holder_pid(path: Path) -> int | None:
+    """Derive holder pid from the current inputs and subsystem state.
+
+    Integration: Called by ``try_acquire_consolidation_lock`` and collaborates with ``strip``,
+    ``path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     try:
         raw = path.read_text(encoding="utf-8").strip()
         pid = int(raw)
@@ -38,6 +80,15 @@ def _holder_pid(path: Path) -> int | None:
 
 
 def _is_process_running(pid: int) -> bool:
+    """Return whether process running for the enclosing subsystem.
+
+    Integration: Called by ``try_acquire_consolidation_lock`` and collaborates with
+    ``os.getpid``, ``os.kill``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if pid == os.getpid():
         return True
     try:
@@ -50,7 +101,17 @@ def _is_process_running(pid: int) -> bool:
 
 
 def try_acquire_consolidation_lock(cwd: str | Path, memory_dir: str | Path | None = None) -> float | None:
-    """Acquire the consolidation lock and return prior mtime, or None if held."""
+    """Acquire the consolidation lock and return prior mtime, or None if held.
+
+    Integration: Called by ``start_dream_now`` and collaborates with ``_lock_path``,
+    ``path.parent.mkdir``, ``atomic_write_text``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     path = _lock_path(cwd, memory_dir)
     prior_mtime: float | None = None
@@ -80,7 +141,18 @@ def rollback_consolidation_lock(
     prior_mtime: float,
     memory_dir: str | Path | None = None,
 ) -> None:
-    """Restore lock mtime to its pre-acquire value after failed/killed dream."""
+    """Restore lock mtime to its pre-acquire value after failed/killed dream.
+
+    Integration: Called by ``_ensure_listener_registered``,
+    ``_ensure_listener_registered._listener`` and collaborates with ``_lock_path``,
+    ``atomic_write_text``, ``os.utime``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     path = _lock_path(cwd, memory_dir)
     try:
@@ -95,7 +167,17 @@ def rollback_consolidation_lock(
 
 
 def record_consolidation(cwd: str | Path, memory_dir: str | Path | None = None) -> None:
-    """Stamp a manual consolidation time."""
+    """Stamp a manual consolidation time.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_lock_path``, ``path.parent.mkdir``, ``atomic_write_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
 
     path = _lock_path(cwd, memory_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +191,17 @@ def list_sessions_touched_since(
     current_session_id: str | None = None,
     session_dir: str | Path | None = None,
 ) -> list[str]:
-    """Return saved session IDs whose snapshot files were touched after ``since_ts``."""
+    """Return saved session IDs whose snapshot files were touched after ``since_ts``.
+
+    Integration: Called by ``start_dream_now``, ``execute_auto_dream`` and collaborates with
+    ``Path``, ``get_project_session_dir``, ``resolved_session_dir.glob``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     resolved_session_dir = Path(session_dir) if session_dir is not None else get_project_session_dir(cwd)
     session_ids: list[str] = []

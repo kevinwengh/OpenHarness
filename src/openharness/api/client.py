@@ -1,4 +1,15 @@
-"""Anthropic API client wrapper with retry logic."""
+"""Anthropic API client wrapper with retry logic.
+
+Integration: This module participates in provider streaming clients and normalized request/event
+contracts.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve request conversion, streamed tool calls, usage/errors, auth secrecy,
+retries, and multi-turn replay.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +49,16 @@ OAUTH_BETA_HEADER = "oauth-2025-04-20"
 
 @dataclass(frozen=True)
 class ApiMessageRequest:
-    """Input parameters for a model invocation."""
+    """Input parameters for a model invocation.
+
+    Integration: Constructed or referenced by ``CopilotClient.stream_message``, ``run_query``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     model: str
     messages: list[ConversationMessage]
@@ -50,14 +70,34 @@ class ApiMessageRequest:
 
 @dataclass(frozen=True)
 class ApiTextDeltaEvent:
-    """Incremental text produced by the model."""
+    """Incremental text produced by the model.
+
+    Integration: Constructed or referenced by ``AnthropicApiClient._stream_once``,
+    ``CodexApiClient._stream_once``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     text: str
 
 
 @dataclass(frozen=True)
 class ApiMessageCompleteEvent:
-    """Terminal event containing the full assistant message."""
+    """Terminal event containing the full assistant message.
+
+    Integration: Constructed or referenced by ``AnthropicApiClient._stream_once``,
+    ``CodexApiClient._stream_once``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     message: ConversationMessage
     usage: UsageSnapshot
@@ -66,7 +106,17 @@ class ApiMessageCompleteEvent:
 
 @dataclass(frozen=True)
 class ApiRetryEvent:
-    """A recoverable upstream failure that will be retried automatically."""
+    """A recoverable upstream failure that will be retried automatically.
+
+    Integration: Constructed or referenced by ``AnthropicApiClient.stream_message``,
+    ``CodexApiClient.stream_message``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     message: str
     attempt: int
@@ -78,14 +128,48 @@ ApiStreamEvent = ApiTextDeltaEvent | ApiMessageCompleteEvent | ApiRetryEvent
 
 
 class SupportsStreamingMessages(Protocol):
-    """Protocol used by the query engine in tests and production."""
+    """Protocol used by the query engine in tests and production.
+
+    Integration: Implemented by injected adapters and consumed through structural typing.
+
+    Event loop: Async methods ``stream_message`` run on their caller's loop; instances must
+    retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Update every implementation, injection site, and contract test when method
+    signatures or ownership expectations change.
+    """
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
-        """Yield streamed events for the request."""
+        """Stream one provider response as normalized API events.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
 
 
 def _is_retryable(exc: Exception) -> bool:
-    """Check if an exception is retryable."""
+    """Check if an exception is retryable.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(exc, APIStatusError):
         return exc.status_code in RETRYABLE_STATUS_CODES
     if isinstance(exc, APIError):
@@ -96,7 +180,16 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 def _get_retry_delay(attempt: int, exc: Exception | None = None) -> float:
-    """Calculate delay with exponential backoff and jitter."""
+    """Calculate delay with exponential backoff and jitter.
+
+    Integration: Called by ``test_api_retry_config``, ``AnthropicApiClient.stream_message`` and
+    collaborates with ``random.uniform``, ``retry_after.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     import random
 
     # Check for Retry-After header
@@ -116,7 +209,16 @@ def _get_retry_delay(attempt: int, exc: Exception | None = None) -> float:
 
 
 class AnthropicApiClient:
-    """Thin wrapper around the Anthropic async SDK with retry logic."""
+    """Thin wrapper around the Anthropic async SDK with retry logic.
+
+    Integration: Constructed or referenced by ``_run``, ``_resolve_api_client_from_settings``.
+
+    Event loop: Async methods ``close``, ``stream_message``, ``_stream_once`` run on their
+    caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(
         self,
@@ -127,6 +229,17 @@ class AnthropicApiClient:
         claude_oauth: bool = False,
         auth_token_resolver: Callable[[], str] | None = None,
     ) -> None:
+        """Initialize ``AnthropicApiClient`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``AnthropicApiClient`` and collaborates with
+        ``_create_client``, ``get_claude_code_session_id``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._api_key = api_key
         self._auth_token = auth_token
         self._base_url = base_url
@@ -136,6 +249,18 @@ class AnthropicApiClient:
         self._client = self._create_client()
 
     def _create_client(self) -> AsyncAnthropic:
+        """Create client for the enclosing subsystem.
+
+        Integration: Called by ``AnthropicApiClient.__init__``,
+        ``AnthropicApiClient._refresh_client_auth`` and collaborates with ``AsyncAnthropic``,
+        ``claude_oauth_headers``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         kwargs: dict[str, Any] = {}
         if self._api_key:
             kwargs["api_key"] = self._api_key
@@ -151,10 +276,30 @@ class AnthropicApiClient:
         return AsyncAnthropic(**kwargs)
 
     async def close(self) -> None:
-        """Close the underlying HTTP client."""
+        """Close the underlying HTTP client.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await self._client.close()
 
     def _refresh_client_auth(self) -> None:
+        """Refresh client auth for the enclosing subsystem.
+
+        Integration: Called by ``AnthropicApiClient.stream_message`` and collaborates with
+        ``_auth_token_resolver``, ``_create_client``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self._claude_oauth or self._auth_token_resolver is None:
             return
         next_token = self._auth_token_resolver()
@@ -163,7 +308,24 @@ class AnthropicApiClient:
             self._client = self._create_client()
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
-        """Yield text deltas and the final assistant message with retry on transient errors."""
+        """Stream one provider response as normalized API events.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``RequestFailure``, ``_refresh_client_auth``, ``_stream_once``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         last_error: Exception | None = None
 
         for attempt in range(MAX_RETRIES + 1):
@@ -201,7 +363,25 @@ class AnthropicApiClient:
             raise RequestFailure(str(last_error)) from last_error
 
     async def _stream_once(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
-        """Single attempt at streaming a message."""
+        """Perform one underlying provider streaming attempt.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``claude_attribution_header``, ``claude_oauth_betas``,
+        ``ApiMessageCompleteEvent``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         params: dict[str, Any] = {
             "model": request.model,
             "messages": [message.to_api_param() for message in request.messages],
@@ -263,6 +443,18 @@ class AnthropicApiClient:
 
 
 def _translate_api_error(exc: APIError) -> OpenHarnessApiError:
+    """Translate API error for the enclosing subsystem.
+
+    Integration: Called by ``AnthropicApiClient.stream_message``,
+    ``AnthropicApiClient._stream_once`` and collaborates with ``RequestFailure``,
+    ``AuthenticationFailure``, ``RateLimitFailure``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     name = exc.__class__.__name__
     if name in {"AuthenticationError", "PermissionDeniedError"}:
         return AuthenticationFailure(str(exc))

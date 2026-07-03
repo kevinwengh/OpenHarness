@@ -1,4 +1,15 @@
-"""DingTalk/DingDing channel implementation using Stream Mode."""
+"""DingTalk/DingDing channel implementation using Stream Mode.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 import asyncio
 import json
@@ -40,17 +51,43 @@ except ImportError:
 
 
 class NanobotDingTalkHandler(CallbackHandler):
-    """
-    Standard DingTalk Stream SDK Callback Handler.
+    """Standard DingTalk Stream SDK Callback Handler.
     Parses incoming messages and forwards them to the Nanobot channel.
+
+    Integration: Constructed or referenced by ``DingTalkChannel.start``.
+
+    Event loop: Async methods ``process`` run on their caller's loop; instances must retain
+    clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self, channel: "DingTalkChannel"):
+        """Initialize ``NanobotDingTalkHandler`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``NanobotDingTalkHandler``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__()
         self.channel = channel
 
     async def process(self, message: CallbackMessage):
-        """Process incoming stream message."""
+        """Process incoming stream message.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``ChatbotMessage.from_dict``, ``logger.info``, ``asyncio.create_task``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             # Parse using SDK's ChatbotMessage for robust handling
             chatbot_msg = ChatbotMessage.from_dict(message.data)
@@ -91,14 +128,22 @@ class NanobotDingTalkHandler(CallbackHandler):
 
 
 class DingTalkChannel(BaseChannel):
-    """
-    DingTalk channel using Stream Mode.
+    """DingTalk channel using Stream Mode.
 
     Uses WebSocket to receive events via `dingtalk-stream` SDK.
     Uses direct HTTP API to send messages (SDK is mainly for receiving).
 
     Note: Currently only supports private (1:1) chat. Group messages are
     received but replies are sent back as private messages to the sender.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``_get_access_token``, ``_read_media_bytes``
+    run on their caller's loop; instances must retain clear task, cancellation, and cleanup
+    ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     name = "dingtalk"
@@ -107,6 +152,16 @@ class DingTalkChannel(BaseChannel):
     _VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
     def __init__(self, config: DingTalkConfig, bus: MessageBus):
+        """Initialize ``DingTalkChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``DingTalkChannel``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: DingTalkConfig = config
         self._client: Any = None
@@ -120,7 +175,16 @@ class DingTalkChannel(BaseChannel):
         self._background_tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
-        """Start the DingTalk bot with Stream Mode."""
+        """Start the DingTalk bot with Stream Mode.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``httpx.AsyncClient``, ``logger.info``, ``Credential``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             if not DINGTALK_AVAILABLE:
                 logger.error(
@@ -162,7 +226,17 @@ class DingTalkChannel(BaseChannel):
             logger.exception("Failed to start DingTalk channel: %s", e)
 
     async def stop(self) -> None:
-        """Stop the DingTalk bot."""
+        """Stop the DingTalk bot.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_background_tasks.clear``, ``task.cancel``, ``_http.aclose``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._running = False
         # Close the shared HTTP client
         if self._http:
@@ -174,7 +248,16 @@ class DingTalkChannel(BaseChannel):
         self._background_tasks.clear()
 
     async def _get_access_token(self) -> str | None:
-        """Get or refresh Access Token."""
+        """Get or refresh Access Token.
+
+        Integration: Called by ``DingTalkChannel.send`` and collaborates with
+        ``logger.warning``, ``resp.raise_for_status``, ``resp.json``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if self._access_token and time.time() < self._token_expiry:
             return self._access_token
 
@@ -202,9 +285,32 @@ class DingTalkChannel(BaseChannel):
 
     @staticmethod
     def _is_http_url(value: str) -> bool:
+        """Return whether http URL for the enclosing subsystem.
+
+        Integration: Called by ``DingTalkChannel._read_media_bytes``,
+        ``DingTalkChannel._send_media_ref`` and collaborates with ``urlparse``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return urlparse(value).scheme in ("http", "https")
 
     def _guess_upload_type(self, media_ref: str) -> str:
+        """Derive guess upload type from the current inputs and subsystem state.
+
+        Integration: Called by ``DingTalkChannel._read_media_bytes``,
+        ``DingTalkChannel._send_media_ref`` and collaborates with ``suffix.lower``, ``Path``,
+        ``urlparse``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ext = Path(urlparse(media_ref).path).suffix.lower()
         if ext in self._IMAGE_EXTS:
             return "image"
@@ -215,6 +321,18 @@ class DingTalkChannel(BaseChannel):
         return "file"
 
     def _guess_filename(self, media_ref: str, upload_type: str) -> str:
+        """Derive guess filename from the current inputs and subsystem state.
+
+        Integration: Called by ``DingTalkChannel._read_media_bytes``,
+        ``DingTalkChannel._send_media_ref`` and collaborates with ``os.path.basename``, ``get``,
+        ``urlparse``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         name = os.path.basename(urlparse(media_ref).path)
         return name or {"image": "image.jpg", "voice": "audio.amr", "video": "video.mp4"}.get(upload_type, "file.bin")
 
@@ -222,6 +340,16 @@ class DingTalkChannel(BaseChannel):
         self,
         media_ref: str,
     ) -> tuple[bytes | None, str | None, str | None]:
+        """Read media bytes for the enclosing subsystem.
+
+        Integration: Called by ``DingTalkChannel._send_media_ref`` and collaborates with
+        ``_is_http_url``, ``media_ref.startswith``, ``strip``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not media_ref:
             return None, None, None
 
@@ -268,6 +396,16 @@ class DingTalkChannel(BaseChannel):
         filename: str,
         content_type: str | None,
     ) -> str | None:
+        """Upload media for the enclosing subsystem.
+
+        Integration: Called by ``DingTalkChannel._send_media_ref`` and collaborates with
+        ``result.get``, ``mimetypes.guess_type``, ``_http.post``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._http:
             return None
         url = f"https://oapi.dingtalk.com/media/upload?access_token={token}&type={media_type}"
@@ -302,6 +440,17 @@ class DingTalkChannel(BaseChannel):
         msg_key: str,
         msg_param: dict[str, Any],
     ) -> bool:
+        """Send batch message for the enclosing subsystem.
+
+        Integration: Called by ``DingTalkChannel._send_markdown_text``,
+        ``DingTalkChannel._send_media_ref`` and collaborates with ``logger.warning``,
+        ``json.dumps``, ``result.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._http:
             logger.warning("DingTalk HTTP client not initialized, cannot send")
             return False
@@ -336,6 +485,17 @@ class DingTalkChannel(BaseChannel):
             return False
 
     async def _send_markdown_text(self, token: str, chat_id: str, content: str) -> bool:
+        """Send markdown text for the enclosing subsystem.
+
+        Integration: Called by ``DingTalkChannel.send`` and collaborates with
+        ``_send_batch_message``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return await self._send_batch_message(
             token,
             chat_id,
@@ -344,6 +504,17 @@ class DingTalkChannel(BaseChannel):
         )
 
     async def _send_media_ref(self, token: str, chat_id: str, media_ref: str) -> bool:
+        """Send media ref for the enclosing subsystem.
+
+        Integration: Called by ``DingTalkChannel.send`` and collaborates with ``strip``,
+        ``_guess_upload_type``, ``lstrip``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         media_ref = (media_ref or "").strip()
         if not media_ref:
             return True
@@ -403,7 +574,17 @@ class DingTalkChannel(BaseChannel):
         )
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through DingTalk."""
+        """Send a message through DingTalk.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_get_access_token``, ``msg.content.strip``, ``logger.error``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         token = await self._get_access_token()
         if not token:
             return
@@ -429,6 +610,14 @@ class DingTalkChannel(BaseChannel):
 
         Delegates to BaseChannel._handle_message() which enforces allow_from
         permission checks before publishing to the bus.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``logger.info``, ``_handle_message``, ``logger.error``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         try:
             logger.info("DingTalk inbound: %s from %s", content, sender_name)

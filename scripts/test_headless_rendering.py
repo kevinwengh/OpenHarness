@@ -2,6 +2,17 @@
 """E2E tests for headless REPL rendering improvements using kimi model.
 
 Tests markdown rendering, tool output formatting, and spinner indicators.
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
 """
 
 from __future__ import annotations
@@ -20,7 +31,17 @@ BOLD = "\033[1m"
 
 
 def _env_settings() -> dict[str, str | None]:
-    """Return kimi model settings."""
+    """Return kimi model settings.
+
+    Integration: Called by ``test_real_model_headless`` and collaborates with
+    ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         "model": os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5"),
         "base_url": os.environ.get("ANTHROPIC_BASE_URL", "https://api.moonshot.cn/anthropic"),
@@ -29,7 +50,18 @@ def _env_settings() -> dict[str, str | None]:
 
 
 async def test_markdown_render() -> tuple[bool, str]:
-    """Test that assistant output with markdown is rendered by rich."""
+    """Test that assistant output with markdown is rendered by rich.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``OutputRenderer``, ``StringIO``, ``Console``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from io import StringIO
     from rich.console import Console
 
@@ -57,7 +89,18 @@ async def test_markdown_render() -> tuple[bool, str]:
 
 
 async def test_tool_output_format() -> tuple[bool, str]:
-    """Test that tool output is formatted with panels."""
+    """Test that tool output is formatted with panels.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``OutputRenderer``, ``StringIO``, ``Console``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from io import StringIO
     from rich.console import Console
 
@@ -85,7 +128,18 @@ async def test_tool_output_format() -> tuple[bool, str]:
 
 
 async def test_spinner_display() -> tuple[bool, str]:
-    """Test that spinner starts on tool execution."""
+    """Test that spinner starts on tool execution.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``OutputRenderer``, ``StringIO``, ``Console``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from io import StringIO
     from rich.console import Console
 
@@ -114,7 +168,16 @@ async def test_spinner_display() -> tuple[bool, str]:
 
 
 async def test_real_model_headless() -> tuple[bool, str]:
-    """Test headless REPL with real model call."""
+    """Test headless REPL with real model call.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_env_settings``, ``run_print_mode``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     settings = _env_settings()
     if not settings["api_key"]:
         return False, "ANTHROPIC_AUTH_TOKEN not set"
@@ -135,6 +198,15 @@ async def test_real_model_headless() -> tuple[bool, str]:
 
 
 def main() -> None:
+    """Run the script's top-level validation or application workflow.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``sys.exit``, ``asyncio.run``, ``func``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     tests = [
         ("markdown_render", test_markdown_render),
         ("tool_output_format", test_tool_output_format),

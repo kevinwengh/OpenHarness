@@ -1,4 +1,15 @@
-"""Skill loading from bundled, user, compatibility, and project directories."""
+"""Skill loading from bundled, user, compatibility, and project directories.
+
+Integration: This module participates in instruction discovery and precedence used by runtime
+prompt assembly.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve root ordering, frontmatter compatibility, project overrides, bounded
+prompt metadata, and no import-time execution.
+"""
 
 from __future__ import annotations
 
@@ -28,14 +39,32 @@ _DEFAULT_PROJECT_SKILL_DIRS = (".openharness/skills", ".agents/skills", ".claude
 
 
 def get_user_skills_dir() -> Path:
-    """Return the OpenHarness user skills directory."""
+    """Return the OpenHarness user skills directory.
+
+    Integration: Called by ``get_user_skill_dirs`` and collaborates with ``path.mkdir``,
+    ``get_config_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = get_config_dir() / "skills"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def get_user_skill_dirs() -> list[Path]:
-    """Return user-level skill directories loaded by default."""
+    """Return user-level skill directories loaded by default.
+
+    Integration: Called by ``load_user_skills`` and collaborates with ``get_user_skills_dir``,
+    ``joinpath``, ``Path.home``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return [get_user_skills_dir(), *(Path.home().joinpath(*parts) for parts in _USER_COMPAT_SKILL_DIRS)]
 
 
@@ -46,7 +75,17 @@ def load_skill_registry(
     extra_plugin_roots: Iterable[str | Path] | None = None,
     settings=None,
 ) -> SkillRegistry:
-    """Load bundled, user-defined, project, and plugin skills."""
+    """Load bundled, user-defined, project, and plugin skills.
+
+    Integration: Called by ``test_real_skills_loaded``, ``test_real_skill_content_quality`` and
+    collaborates with ``SkillRegistry``, ``get_bundled_skills``, ``load_user_skills``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     registry = SkillRegistry()
     for skill in get_bundled_skills():
         registry.register(skill)
@@ -76,7 +115,16 @@ def load_skill_registry(
 
 
 def load_user_skills() -> list[SkillDefinition]:
-    """Load markdown skills from user-level OpenHarness and compatibility directories."""
+    """Load markdown skills from user-level OpenHarness and compatibility directories.
+
+    Integration: Called by ``load_skill_registry`` and collaborates with
+    ``load_skills_from_dirs``, ``get_user_skill_dirs``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return load_skills_from_dirs(get_user_skill_dirs(), source="user")
 
 
@@ -88,6 +136,14 @@ def discover_project_skill_dirs(
 
     Directories are ordered from least-specific to most-specific so later registry
     entries can override broader project or user skills deterministically.
+
+    Integration: Called by ``load_skill_registry`` and collaborates with ``resolve``,
+    ``start.is_file``, ``_valid_project_skill_dirs``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     start = Path(cwd).expanduser().resolve()
     if not start.exists():
@@ -124,7 +180,16 @@ def discover_project_skill_dirs(
 
 
 def _valid_project_skill_dirs(project_skill_dirs: Iterable[str]) -> list[Path]:
-    """Return safe relative project skill paths."""
+    """Return safe relative project skill paths.
+
+    Integration: Called by ``discover_project_skill_dirs`` and collaborates with ``strip``,
+    ``Path``, ``paths.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     paths: list[Path] = []
     for raw in project_skill_dirs:
         value = str(raw).strip()
@@ -139,7 +204,15 @@ def _valid_project_skill_dirs(project_skill_dirs: Iterable[str]) -> list[Path]:
 
 
 def _find_git_root(start: Path) -> Path | None:
-    """Find the nearest git root containing start, if any."""
+    """Find the nearest git root containing start, if any.
+
+    Integration: Called by ``discover_project_skill_dirs`` and collaborates with ``exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     current = start
     while True:
         if (current / ".git").exists():
@@ -160,6 +233,14 @@ def load_skills_from_dirs(
 
     Supported layout:
     - ``<root>/<skill-dir>/SKILL.md``
+
+    Integration: Called by ``load_skill_registry``, ``load_user_skills`` and collaborates with
+    ``resolve``, ``root.mkdir``, ``root.iterdir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
     """
     skills: list[SkillDefinition] = []
     if not directories:
@@ -207,11 +288,30 @@ def load_skills_from_dirs(
 
 
 def _parse_skill_markdown(default_name: str, content: str) -> tuple[str, str]:
-    """Parse name and description from a skill markdown file with YAML frontmatter support."""
+    """Parse name and description from a skill markdown file with YAML frontmatter support.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``parse_skill_frontmatter``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return parse_skill_frontmatter(default_name, content, fallback_template="Skill: {name}")
 
 
 def _parse_skill_metadata(default_name: str, content: str) -> dict:
+    """Parse skill metadata for the enclosing subsystem.
+
+    Integration: Called by ``_load_plugin_skills``, ``load_skills_from_dirs`` and collaborates
+    with ``parse_skill_metadata``, ``parsed.get``, ``parse_bool_frontmatter``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parsed = parse_skill_metadata(default_name, content, fallback_template="Skill: {name}")
     frontmatter = parsed.get("frontmatter")
     if not isinstance(frontmatter, dict):

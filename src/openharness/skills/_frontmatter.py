@@ -1,4 +1,15 @@
-"""Shared YAML frontmatter parsing for SKILL.md files."""
+"""Shared YAML frontmatter parsing for SKILL.md files.
+
+Integration: This module participates in instruction discovery and precedence used by runtime
+prompt assembly.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve root ordering, frontmatter compatibility, project overrides, bounded
+prompt metadata, and no import-time execution.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 def parse_bool_frontmatter(value: Any, *, default: bool) -> bool:
-    """Parse permissive YAML frontmatter booleans."""
+    """Parse permissive YAML frontmatter booleans.
+
+    Integration: Called by ``_parse_metadata``, ``_parse_skill_metadata`` and collaborates with
+    ``lower``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if value is None:
         return default
     if isinstance(value, bool):
@@ -25,7 +45,16 @@ def parse_bool_frontmatter(value: Any, *, default: bool) -> bool:
 
 
 def optional_frontmatter_str(value: Any) -> str | None:
-    """Return a stripped string value, or ``None`` when absent/blank."""
+    """Return a stripped string value, or ``None`` when absent/blank.
+
+    Integration: Called by ``_parse_metadata``, ``_parse_skill_metadata`` and collaborates with
+    ``value.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
@@ -44,6 +73,13 @@ def parse_skill_metadata(
     and other standard YAML constructs are handled correctly. Falls back to
     ``# heading`` + first body paragraph when no usable frontmatter is present,
     and finally to ``fallback_template`` when no description can be derived.
+
+    Integration: Called by ``parse_skill_frontmatter``, ``_parse_metadata`` and collaborates
+    with ``content.splitlines``, ``content.startswith``, ``content.find``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     name = default_name
     description = ""
@@ -88,7 +124,16 @@ def parse_skill_frontmatter(
     *,
     fallback_template: str = "Skill: {name}",
 ) -> tuple[str, str]:
-    """Extract ``name`` and ``description`` from a SKILL.md file."""
+    """Extract ``name`` and ``description`` from a SKILL.md file.
+
+    Integration: Called by ``_parse_frontmatter``, ``_parse_skill_markdown`` and collaborates
+    with ``parse_skill_metadata``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     metadata = parse_skill_metadata(
         default_name,
         content,

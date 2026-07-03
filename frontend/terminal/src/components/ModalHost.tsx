@@ -1,3 +1,16 @@
+/**
+ * Render and coordinate the `ModalHost` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React, {useEffect, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import TextInput from 'ink-text-input';
@@ -10,11 +23,33 @@ const WAIT_FRAMES = [
 ];
 const MAX_DIFF_LINES = 40;
 
+/**
+ * Render the WaitingAnimation React component.
+ *
+ * Integration: Owned by `ModalHost.tsx` and collaborates with `useState`, `useEffect`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function WaitingAnimation(): React.JSX.Element {
 	const [frame, setFrame] = useState(0);
-	useEffect(() => {
-		const timer = setInterval(() => setFrame((f) => (f + 1) % WAIT_FRAMES.length), 500);
-		return () => clearInterval(timer);
+	useEffect(/*
+	 * React effect: uses setInterval after render; keep dependencies, asynchronous work, and
+	 * returned cleanup synchronized.
+	 */ () => {
+		const timer = setInterval(/*
+		 * Timer callback: uses setFrame on Node's event loop; keep work bounded and preserve matching
+		 * cleanup.
+		 */ () => setFrame(/*
+		 * Functional state update: computes its callback result from prior React state; keep the
+		 * calculation pure and immutable.
+		 */ (f) => (f + 1) % WAIT_FRAMES.length), 500);
+		return /*
+		 * Effect cleanup: uses clearInterval; keep it paired with every resource acquired by the
+		 * effect.
+		 */ () => clearInterval(timer);
 	}, []);
 	return (
 		<Text color="magenta" dimColor>
@@ -23,6 +58,16 @@ function WaitingAnimation(): React.JSX.Element {
 	);
 }
 
+/**
+ * Render the QuestionModal React component.
+ *
+ * Integration: Owned by `ModalHost.tsx` and collaborates with `useState`, `useInput`, `String`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function QuestionModal({
 	modal,
 	modalInput,
@@ -36,14 +81,31 @@ function QuestionModal({
 }): React.JSX.Element {
 	const [extraLines, setExtraLines] = useState<string[]>([]);
 
-	useInput((_chunk, key) => {
+	useInput(/*
+	 * useInput callback: uses setExtraLines, setModalInput; keep event-loop work bounded and
+	 * preserve the callback's return contract.
+	 */ (_chunk, key) => {
 		if (key.shift && key.return) {
-			setExtraLines((lines) => [...lines, modalInput]);
+			setExtraLines(/*
+			 * Functional state update: computes its callback result from prior React state; keep the
+			 * calculation pure and immutable.
+			 */ (lines) => [...lines, modalInput]);
 			setModalInput('');
 		}
 	});
 
-	const handleSubmit = (value: string): void => {
+	 /**
+  * Handle submit for the owning UI boundary.
+  *
+  * Integration: Owned by `QuestionModal` and collaborates with `setExtraLines`, `onSubmit`, `join`.
+  *
+  * Event loop: Runs from an input or UI event; keep synchronous work bounded and order state
+  * updates before asynchronous follow-up.
+  *
+  * Change safety: Preserve React state ownership, functional-update semantics, and render ordering;
+  * review every dependent effect and component.
+  */
+ const handleSubmit = (value: string): void => {
 		const allLines = [...extraLines, value];
 		setExtraLines([]);
 		onSubmit(allLines.join('\n'));
@@ -70,7 +132,10 @@ function QuestionModal({
 			) : null}
 			{extraLines.length > 0 && (
 				<Box flexDirection="column" marginTop={1} marginLeft={2}>
-					{extraLines.map((line, i) => (
+					{extraLines.map(/*
+					 * map callback: computes its callback result; keep event-loop work bounded and preserve
+					 * the callback's return contract.
+					 */ (line, i) => (
 						<Text key={i} dimColor>
 							{line}
 						</Text>
@@ -93,10 +158,23 @@ type ParsedDiffLine = {
 	content: string;
 };
 
+/**
+ * Parse diff lines into the frontend's normalized representation.
+ *
+ * Integration: Owned by `ModalHost.tsx` and collaborates with `flatMap`, `split`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function parseDiffLines(diffText: string): ParsedDiffLine[] {
 	return diffText
 		.split('\n')
-		.flatMap((raw): ParsedDiffLine[] => {
+		.flatMap(/*
+		 * flatMap callback: uses startsWith, slice; keep event-loop work bounded and preserve the
+		 * callback's return contract.
+		 */ (raw): ParsedDiffLine[] => {
 			if (!raw || raw.startsWith('+++') || raw.startsWith('---')) {
 				return [];
 			}
@@ -113,6 +191,16 @@ function parseDiffLines(diffText: string): ParsedDiffLine[] {
 		});
 }
 
+/**
+ * Render the EditDiffModal React component.
+ *
+ * Integration: Owned by `ModalHost.tsx` and collaborates with `String`, `Number`, `parseDiffLines`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function EditDiffModal({modal}: {modal: Record<string, unknown>}): React.JSX.Element {
 	const path = String(modal.path ?? '');
 	const added = Number(modal.added ?? 0);
@@ -132,7 +220,10 @@ function EditDiffModal({modal}: {modal: Record<string, unknown>}): React.JSX.Ele
 				<Text>{' '}</Text>
 				<Text color="red">{`-${removed}`}</Text>
 			</Text>
-			{visibleLines.map((line, index) => {
+			{visibleLines.map(/*
+			 * map callback: computes its callback result; keep event-loop work bounded and preserve the
+			 * callback's return contract.
+			 */ (line, index) => {
 				if (line.kind === 'hunk') {
 					return (
 						<Text key={index}>
@@ -184,6 +275,16 @@ function EditDiffModal({modal}: {modal: Record<string, unknown>}): React.JSX.Ele
 	);
 }
 
+/**
+ * Render the ModalHostInner React component.
+ *
+ * Integration: Owned by `ModalHost.tsx` and collaborates with `String`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function ModalHostInner({
 	modal,
 	modalInput,

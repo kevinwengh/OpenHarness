@@ -1,4 +1,13 @@
-"""Minimal application state model."""
+"""Minimal application state model.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +16,16 @@ from dataclasses import dataclass, field
 
 @dataclass
 class AppState:
-    """Shared mutable UI/session state."""
+    """Shared mutable UI/session state.
+
+    Integration: Constructed or referenced by ``_make_command_context``, ``build_runtime``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     model: str
     permission_mode: str

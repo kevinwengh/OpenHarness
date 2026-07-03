@@ -1,4 +1,15 @@
-"""Shared utilities for spawning teammate processes."""
+"""Shared utilities for spawning teammate processes.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
+"""
 
 from __future__ import annotations
 
@@ -90,6 +101,15 @@ def get_teammate_command() -> str:
        This keeps spawned teammates on the same venv/source tree as the
        leader process.
     3. The ``openharness`` entry-point on PATH (installed package fallback).
+
+    Integration: Called by ``SubprocessBackend.spawn`` and collaborates with ``os.environ.get``,
+    ``shutil.which``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     override = os.environ.get(TEAMMATE_COMMAND_ENV_VAR)
     if override:
@@ -149,6 +169,15 @@ def build_inherited_cli_flags(
 
     Returns:
         List of CLI flag strings ready to be passed to :mod:`subprocess`.
+
+    Integration: Called by ``SubprocessBackend.spawn`` and collaborates with ``flags.extend``,
+    ``flags.append``, ``shlex.quote``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     flags: list[str] = []
 
@@ -203,6 +232,14 @@ def build_inherited_env_vars() -> dict[str, str]:
 
     Returns:
         Dict of env var name → value to merge into the subprocess environment.
+
+    Integration: Called by ``SubprocessBackend.spawn`` and collaborates with ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     env: dict[str, str] = {
         "OPENHARNESS_AGENT_TEAMS": "1",
@@ -220,10 +257,29 @@ def build_inherited_env_vars() -> dict[str, str]:
 
 
 def is_tmux_available() -> bool:
-    """Return True if the ``tmux`` binary is on PATH."""
+    """Return True if the ``tmux`` binary is on PATH.
+
+    Integration: Called by ``BackendRegistry.detect_pane_backend`` and collaborates with
+    ``shutil.which``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return shutil.which("tmux") is not None
 
 
 def is_inside_tmux() -> bool:
-    """Return True if the current process is running inside a tmux session."""
+    """Return True if the current process is running inside a tmux session.
+
+    Integration: Called by ``_kill_orphaned_teammate_panes`` and collaborates with
+    ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return bool(os.environ.get("TMUX"))

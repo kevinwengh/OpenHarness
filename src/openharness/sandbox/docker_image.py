@@ -1,4 +1,14 @@
-"""Docker image availability and build helpers."""
+"""Docker image availability and build helpers.
+
+Integration: This module participates in isolated execution selected by runtime/tool adapters.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve path validation, container lifecycle, network/resource limits, command
+fidelity, and cleanup.
+"""
 
 from __future__ import annotations
 
@@ -22,12 +32,29 @@ USER ohuser
 
 
 def get_dockerfile_content() -> str:
-    """Return the default Dockerfile content for the sandbox image."""
+    """Return the default Dockerfile content for the sandbox image.
+
+    Integration: Exposed as a public entrypoint for this subsystem.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _DOCKERFILE_CONTENT
 
 
 async def _image_exists(image: str) -> bool:
-    """Check whether a Docker image exists locally."""
+    """Check whether a Docker image exists locally.
+
+    Integration: Called by ``ensure_image_available`` and collaborates with ``shutil.which``,
+    ``asyncio.create_subprocess_exec``, ``process.communicate``.
+
+    Event loop: This coroutine awaits subprocess work; preserve process cleanup and avoid shell-
+    blocking operations.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     docker = shutil.which("docker") or "docker"
     process = await asyncio.create_subprocess_exec(
         docker,
@@ -45,6 +72,14 @@ async def build_default_image(image: str = _DEFAULT_IMAGE) -> bool:
     """Build the default sandbox image from the bundled Dockerfile.
 
     Returns ``True`` on success, ``False`` on failure.
+
+    Integration: Called by ``ensure_image_available`` and collaborates with
+    ``dockerfile_path.exists``, ``logger.info``, ``logger.warning``.
+
+    Event loop: This coroutine awaits subprocess work; preserve process cleanup and avoid shell-
+    blocking operations.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
     """
     docker = shutil.which("docker") or "docker"
     dockerfile_path = Path(__file__).parent / "Dockerfile"
@@ -94,6 +129,15 @@ async def ensure_image_available(image: str, auto_build: bool) -> bool:
     """Ensure the sandbox image exists, optionally building it.
 
     Returns ``True`` if the image is available.
+
+    Integration: Called by ``e2e_image``, ``_main`` and collaborates with ``_image_exists``,
+    ``logger.warning``, ``build_default_image``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if await _image_exists(image):
         return True

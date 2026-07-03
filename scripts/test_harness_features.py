@@ -2,6 +2,17 @@
 """E2E tests for Harness features: retry, skills, parallel tools, path permissions.
 
 Uses kimi model for real API calls.
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
 """
 
 from __future__ import annotations
@@ -23,6 +34,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _env() -> dict[str, str]:
+    """Build the isolated environment used by this validation workflow.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     env = os.environ.copy()
     env.setdefault("ANTHROPIC_BASE_URL", os.environ.get("ANTHROPIC_BASE_URL", ""))
     # ANTHROPIC_AUTH_TOKEN must be set in environment
@@ -31,6 +51,16 @@ def _env() -> dict[str, str]:
 
 
 def _run_oh(*args: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    """Run oh for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``subprocess.run``, ``_env``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     cmd = [sys.executable, "-m", "openharness", *args]
     return subprocess.run(
         cmd, capture_output=True, text=True, timeout=timeout,
@@ -41,7 +71,18 @@ def _run_oh(*args: str, timeout: int = 90) -> subprocess.CompletedProcess:
 # ---------- Test: API Retry ----------
 
 async def test_api_retry_config() -> tuple[bool, str]:
-    """Test that retry configuration is properly set up."""
+    """Test that retry configuration is properly set up.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_get_retry_delay``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.api.client import MAX_RETRIES, RETRYABLE_STATUS_CODES, _get_retry_delay
 
     if MAX_RETRIES != 3:
@@ -62,7 +103,18 @@ async def test_api_retry_config() -> tuple[bool, str]:
 
 
 async def test_api_retry_real_call() -> tuple[bool, str]:
-    """Test that API calls work with retry logic in place (real model call)."""
+    """Test that API calls work with retry logic in place (real model call).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``os.environ.get``, ``result.stdout.lower``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh("-p", "Say exactly: retry test ok", "--model", os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5"))
     if result.returncode != 0:
         return False, f"Exit {result.returncode}: {result.stderr[:200]}"
@@ -74,7 +126,18 @@ async def test_api_retry_real_call() -> tuple[bool, str]:
 # ---------- Test: Skills System ----------
 
 async def test_skills_loaded() -> tuple[bool, str]:
-    """Test that bundled skills are loaded from .md files."""
+    """Test that bundled skills are loaded from .md files.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_bundled_skills``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.skills.bundled import get_bundled_skills
 
     skills = get_bundled_skills()
@@ -91,7 +154,18 @@ async def test_skills_loaded() -> tuple[bool, str]:
 
 
 async def test_skills_in_system_prompt() -> tuple[bool, str]:
-    """Test that skills metadata is injected into the system prompt."""
+    """Test that skills metadata is injected into the system prompt.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``build_runtime_system_prompt``, ``load_settings``, ``prompt.lower``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import load_settings
     from openharness.prompts.context import build_runtime_system_prompt
 
@@ -106,7 +180,17 @@ async def test_skills_in_system_prompt() -> tuple[bool, str]:
 
 
 async def test_skill_tool_invocation() -> tuple[bool, str]:
-    """Test that SkillTool can load a skill's content."""
+    """Test that SkillTool can load a skill's content.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``SkillTool``, ``tool.execute``, ``SkillToolInput``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.tools.skill_tool import SkillTool, SkillToolInput
     from openharness.tools.base import ToolExecutionContext
 
@@ -123,7 +207,18 @@ async def test_skill_tool_invocation() -> tuple[bool, str]:
 
 
 async def test_skill_real_model() -> tuple[bool, str]:
-    """Test that the model can use skills via real API call."""
+    """Test that the model can use skills via real API call.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``result.stdout.lower``, ``os.environ.get``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh(
         "-p", "Use the /commit skill to explain what a good commit message looks like. Be brief.",
         "--model", os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5"),
@@ -139,7 +234,18 @@ async def test_skill_real_model() -> tuple[bool, str]:
 # ---------- Test: Parallel Tool Execution ----------
 
 async def test_parallel_tools_code() -> tuple[bool, str]:
-    """Test that the query loop supports parallel execution path."""
+    """Test that the query loop supports parallel execution path.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``inspect.getsource``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.engine.query import run_query
     import inspect
     source = inspect.getsource(run_query)
@@ -153,7 +259,18 @@ async def test_parallel_tools_code() -> tuple[bool, str]:
 # ---------- Test: Path-Level Permissions ----------
 
 async def test_path_permissions_deny() -> tuple[bool, str]:
-    """Test that path-level deny rules work."""
+    """Test that path-level deny rules work.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``PermissionSettings``, ``PermissionChecker``, ``checker.evaluate``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.permissions.checker import PermissionChecker
     from openharness.config.settings import PermissionSettings, PathRuleConfig
     from openharness.permissions.modes import PermissionMode
@@ -178,7 +295,18 @@ async def test_path_permissions_deny() -> tuple[bool, str]:
 
 
 async def test_command_deny_pattern() -> tuple[bool, str]:
-    """Test that command deny patterns work."""
+    """Test that command deny patterns work.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``PermissionSettings``, ``PermissionChecker``, ``checker.evaluate``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.permissions.checker import PermissionChecker
     from openharness.config.settings import PermissionSettings
     from openharness.permissions.modes import PermissionMode
@@ -203,6 +331,15 @@ async def test_command_deny_pattern() -> tuple[bool, str]:
 # ---------- Main ----------
 
 def main() -> None:
+    """Run the script's top-level validation or application workflow.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``sys.exit``, ``asyncio.run``, ``func``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     tests = [
         ("api_retry_config", test_api_retry_config),
         ("api_retry_real_call", test_api_retry_real_call),

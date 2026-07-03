@@ -1,4 +1,15 @@
-"""Core tool-aware query loop."""
+"""Core tool-aware query loop.
+
+Integration: This module participates in conversation ownership, provider streaming, tool-result
+replay, and usage accounting.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve message/tool pairing, stream ordering, compaction, hooks, permissions,
+cancellation, and session persistence.
+"""
 
 from __future__ import annotations
 
@@ -64,6 +75,20 @@ MAX_TRACKED_VERIFIED_WORK = 10
 
 
 def _is_prompt_too_long_error(exc: Exception) -> bool:
+    """Classify provider failures that can be recovered by reactive compaction.
+
+    ``run_query`` uses this deliberately broad text match once per submitted
+    prompt. Keep new provider phrases specific enough that unrelated API errors
+    are not retried after an expensive, state-changing compaction pass.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``lower``, ``any``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     text = str(exc).lower()
     return any(
         needle in text
@@ -93,6 +118,17 @@ def _bounded_completion_tokens(max_tokens: int, context_window_tokens: int | Non
     Some OpenAI-compatible providers reject very large ``max_tokens`` before
     the request reaches model-side context management.  Keep oversized user
     config from making every turn fail while preserving normal defaults.
+    ``run_query`` computes this once and may lower it again after a provider
+    rejection; changes must preserve a positive value and the configured
+    context-window ceiling.
+
+    Integration: Called by ``run_query``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     limit = MAX_SAFE_COMPLETION_TOKENS
     if context_window_tokens is not None and context_window_tokens > 0:
@@ -101,7 +137,21 @@ def _bounded_completion_tokens(max_tokens: int, context_window_tokens: int | Non
 
 
 def _extract_completion_token_limit(exc: Exception) -> int | None:
-    """Parse provider errors such as "supports at most 128000 completion tokens"."""
+    """Extract a usable completion-token ceiling from a provider error.
+
+    ``run_query`` uses the result to retry the same model turn without consuming
+    an additional logical turn. Keep patterns conservative and return ``None``
+    when the error does not contain an unambiguous positive integer.
+
+    Integration: Called by ``run_query`` and collaborates with ``replace``, ``re.search``,
+    ``lower``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract; preserve
+    exception and fallback behavior expected by callers.
+    """
     text = str(exc).lower().replace(",", "")
     patterns = (
         r"supports at most\s+(\d+)\s+completion tokens",
@@ -119,6 +169,20 @@ def _extract_completion_token_limit(exc: Exception) -> int | None:
 
 
 def _is_completion_token_limit_error(exc: Exception) -> bool:
+    """Return whether an API failure describes an oversized output-token limit.
+
+    This gate precedes numeric extraction in ``run_query``. Broadening it can
+    turn terminal API failures into retries, so keep it tied to completion-token
+    fields and provider limit language.
+
+    Integration: Called by ``run_query`` and collaborates with ``lower``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     text = str(exc).lower()
     return (
         ("max_tokens" in text or "max_completion_tokens" in text)
@@ -127,16 +191,54 @@ def _is_completion_token_limit_error(exc: Exception) -> bool:
 
 
 class MaxTurnsExceeded(RuntimeError):
-    """Raised when the agent exceeds the configured max_turns for one user prompt."""
+    """Signal that one submitted prompt exhausted its model/tool turn budget.
+
+    The engine and UI layers distinguish this control-flow failure from a model
+    response. Preserve ``max_turns`` for renderers and tests that report the
+    configured boundary to the user.
+
+    Integration: Constructed or referenced by ``run_query``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, max_turns: int) -> None:
+        """Capture the exhausted limit while constructing the user-facing error.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(f"Exceeded maximum turn limit ({max_turns})")
         self.max_turns = max_turns
 
 
 @dataclass
 class QueryContext:
-    """Context shared across a query run."""
+    """Bundle immutable services and mutable carryover used by one query run.
+
+    ``QueryEngine`` creates this boundary and ``run_query`` passes it through
+    compaction, provider streaming, permission checks, hooks, and tool execution.
+    New fields must be wired by every context constructor and must not hide
+    session state that belongs in ``tool_metadata`` or conversation messages.
+
+    Integration: Constructed or referenced by ``QueryEngine.submit_message``,
+    ``QueryEngine.continue_pending``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     api_client: SupportsStreamingMessages
     tool_registry: ToolRegistry
@@ -156,6 +258,19 @@ class QueryContext:
 
 
 def _append_capped_unique(bucket: list[Any], value: Any, *, limit: int) -> None:
+    """Move a value to the end of a bounded recency list.
+
+    Carryover-memory helpers use the ordering as most-recent-first evidence after
+    truncation. Preserve de-duplication and tail retention when changing limits.
+
+    Integration: Called by ``remember_user_goal``, ``_remember_active_artifact`` and
+    collaborates with ``bucket.append``, ``bucket.remove``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if value in bucket:
         bucket.remove(value)
     bucket.append(value)
@@ -164,6 +279,20 @@ def _append_capped_unique(bucket: list[Any], value: Any, *, limit: int) -> None:
 
 
 def _task_focus_state(tool_metadata: dict[str, object] | None) -> dict[str, object]:
+    """Return the normalized task-focus mapping stored in tool carryover metadata.
+
+    Compaction and session persistence consume this schema. The helper repairs
+    malformed restored values in place, so schema changes need migration-safe
+    defaults and corresponding session/compaction updates.
+
+    Integration: Called by ``remember_user_goal``, ``_remember_active_artifact`` and
+    collaborates with ``tool_metadata.setdefault``, ``value.setdefault``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if tool_metadata is None:
         return {}
     value = tool_metadata.setdefault(
@@ -195,6 +324,12 @@ def _task_focus_state(tool_metadata: dict[str, object] | None) -> dict[str, obje
 
 
 def _summarize_focus_text(text: str) -> str:
+    """Normalize free-form task text into a bounded carryover-memory entry.
+
+    This is deterministic and synchronous because it runs on every submitted
+    prompt. Keep the output compact enough for repeated session snapshots and
+    compaction attachments.
+    """
     normalized = " ".join(text.split())
     if not normalized:
         return ""
@@ -205,6 +340,12 @@ def remember_user_goal(
     tool_metadata: dict[str, object] | None,
     prompt: str,
 ) -> None:
+    """Record the latest user goal and its bounded recency history.
+
+    ``QueryEngine.submit_message`` calls this before entering the async model
+    loop, and session-memory/compaction code later reads the same task-focus
+    schema. Empty prompts must remain a no-op.
+    """
     state = _task_focus_state(tool_metadata)
     summary = _summarize_focus_text(prompt)
     if not summary:
@@ -219,6 +360,21 @@ def _remember_active_artifact(
     tool_metadata: dict[str, object] | None,
     artifact: str,
 ) -> None:
+    """Track a file, URL, skill, or generated artifact needed for continuity.
+
+    Successful tool calls feed this list, which is persisted and attached after
+    compaction. Preserve stable strings and recency capping to avoid unbounded
+    prompt growth.
+
+    Integration: Called by ``_record_tool_carryover``, ``_execute_tool_call`` and collaborates
+    with ``artifact.strip``, ``_task_focus_state``, ``state.setdefault``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = artifact.strip()
     if not normalized:
         return
@@ -232,6 +388,20 @@ def _remember_verified_work(
     tool_metadata: dict[str, object] | None,
     entry: str,
 ) -> None:
+    """Record evidence of completed work for session memory and compaction.
+
+    The entry is mirrored into both the legacy verified-work bucket and the
+    structured task-focus state. Keep those views synchronized until all
+    persistence consumers share one schema.
+
+    Integration: Called by ``_record_tool_carryover`` and collaborates with ``entry.strip``,
+    ``_tool_metadata_bucket``, ``_append_capped_unique``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = entry.strip()
     if not normalized:
         return
@@ -247,6 +417,20 @@ def _tool_metadata_bucket(
     tool_metadata: dict[str, object] | None,
     key: str,
 ) -> list[Any]:
+    """Return a mutable list bucket from optional carryover metadata.
+
+    Tool-recording helpers rely on in-place mutation so ``QueryEngine`` and the
+    session backend observe the same object. Malformed restored values are
+    replaced rather than propagated.
+
+    Integration: Called by ``_remember_verified_work``, ``_remember_read_file`` and collaborates
+    with ``tool_metadata.setdefault``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if tool_metadata is None:
         return []
     value = tool_metadata.setdefault(key, [])
@@ -265,6 +449,20 @@ def _remember_read_file(
     limit: int,
     output: str,
 ) -> None:
+    """Remember a bounded preview of the latest read for a file path.
+
+    Successful ``read_file`` execution calls this after permission enforcement.
+    Compaction uses the record to retain working-set context; avoid storing full
+    file contents or changing the path de-duplication contract casually.
+
+    Integration: Called by ``_record_tool_carryover`` and collaborates with
+    ``_tool_metadata_bucket``, ``line.strip``, ``time.time``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     bucket = _tool_metadata_bucket(tool_metadata, "read_file_state")
     preview_lines = [line.strip() for line in output.splitlines()[:6] if line.strip()]
     entry = {
@@ -289,6 +487,20 @@ def _remember_skill_invocation(
     *,
     skill_name: str,
 ) -> None:
+    """Record a successfully invoked skill in recency order.
+
+    The prompt/compaction layers use this metadata to preserve active operating
+    instructions across turns. Keep the list bounded and names compatible with
+    the skill registry.
+
+    Integration: Called by ``_record_tool_carryover`` and collaborates with
+    ``_tool_metadata_bucket``, ``skill_name.strip``, ``bucket.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     bucket = _tool_metadata_bucket(tool_metadata, "invoked_skills")
     normalized = skill_name.strip()
     if not normalized:
@@ -307,6 +519,20 @@ def _remember_async_agent_activity(
     tool_input: dict[str, object],
     output: str,
 ) -> None:
+    """Append a human-readable summary of asynchronous agent interaction.
+
+    This runs after an ``agent`` or ``send_message`` tool completes and feeds
+    compaction continuity rather than task execution itself. Do not include
+    unbounded child output or credentials in the persisted summary.
+
+    Integration: Called by ``_record_tool_carryover`` and collaborates with
+    ``_tool_metadata_bucket``, ``bucket.append``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     bucket = _tool_metadata_bucket(tool_metadata, "async_agent_state")
     if tool_name == "agent":
         description = str(tool_input.get("description") or tool_input.get("prompt") or "").strip()
@@ -327,6 +553,20 @@ def _parse_spawned_agent_identity(
     output: str,
     metadata: dict[str, object] | None = None,
 ) -> tuple[str, str] | None:
+    """Resolve spawned-agent and task identifiers from structured or legacy output.
+
+    Structured result metadata is authoritative; the text parser preserves
+    compatibility with older tool results. Update both the agent tool contract
+    and this fallback when spawn output formats change.
+
+    Integration: Called by ``_remember_async_agent_task`` and collaborates with ``re.search``,
+    ``strip``, ``output.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(metadata, dict):
         agent_id = str(metadata.get("agent_id") or "").strip()
         task_id = str(metadata.get("task_id") or "").strip()
@@ -346,6 +586,12 @@ def _remember_async_agent_task(
     output: str,
     result_metadata: dict[str, object] | None = None,
 ) -> None:
+    """Persist a newly spawned asynchronous agent as resumable task metadata.
+
+    Polling, notifications, session snapshots, and compaction inspect these task
+    records. Only successful ``agent`` calls with both identifiers are recorded;
+    preserve task-ID de-duplication when updating the schema.
+    """
     if tool_name != "agent":
         return
     identity = _parse_spawned_agent_identity(output, result_metadata)
@@ -377,6 +623,19 @@ def _remember_work_log(
     *,
     entry: str,
 ) -> None:
+    """Append one bounded operational entry to the recent work log.
+
+    The log supplements structured task state after compaction and resume. Keep
+    entries concise and avoid using it as an execution or audit authority.
+
+    Integration: Called by ``_record_tool_carryover`` and collaborates with
+    ``_tool_metadata_bucket``, ``entry.strip``, ``bucket.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     bucket = _tool_metadata_bucket(tool_metadata, "recent_work_log")
     normalized = entry.strip()
     if not normalized:
@@ -387,6 +646,19 @@ def _remember_work_log(
 
 
 def _update_plan_mode(tool_metadata: dict[str, object] | None, mode: str) -> None:
+    """Mirror a successful plan-mode transition into persisted carryover state.
+
+    Permission policy remains authoritative; this metadata exists so compaction
+    and resumed sessions retain the visible mode. Keep values aligned with the
+    permission-mode vocabulary.
+
+    Integration: Called by ``_record_tool_carryover``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if tool_metadata is None:
         return
     tool_metadata["permission_mode"] = mode
@@ -402,6 +674,22 @@ def _record_tool_carryover(
     is_error: bool,
     resolved_file_path: str | None,
 ) -> None:
+    """Translate a successful tool result into bounded session-continuity facts.
+
+    ``_execute_tool_call`` invokes this only after execution and output offload.
+    The mapping is intentionally tool-specific and feeds persistence and
+    compaction, not permission decisions. New tool cases must avoid secrets,
+    preserve bounded fields, and never record failed work as verified.
+
+    Integration: Called by ``_execute_tool_call`` and collaborates with
+    ``_remember_active_artifact``, ``_remember_read_file``, ``_remember_verified_work``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if is_error:
         return
     if resolved_file_path is not None:
@@ -511,12 +799,31 @@ def _record_tool_carryover(
 
 
 def _tool_artifact_dir() -> Path:
+    """Create and return the data-directory location for full tool outputs.
+
+    Output offloading calls this synchronously inside the agent loop. Keep path
+    selection under ``get_data_dir`` so tests and isolated runtimes can redirect
+    state, and avoid moving artifact creation ahead of the size check.
+    """
     artifact_dir = get_data_dir() / "tool_artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     return artifact_dir
 
 
 def _safe_tool_artifact_name(tool_name: str) -> str:
+    """Convert an untrusted tool name into a bounded artifact filename segment.
+
+    This is only one component of a generated filename; preserve character
+    filtering and length limits when changing artifact naming.
+
+    Integration: Called by ``_offload_tool_output_if_needed`` and collaborates with ``re.sub``,
+    ``tool_name.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = re.sub(r"[^A-Za-z0-9_.-]+", "_", tool_name.strip())
     return (normalized or "tool")[:80]
 
@@ -527,6 +834,22 @@ def _offload_tool_output_if_needed(
     tool_use_id: str,
     output: str,
 ) -> tuple[str, Path | None]:
+    """Offload oversized tool output and return provider-safe inline content.
+
+    Tool execution calls this before constructing its ``ToolResultBlock``. The
+    full payload is written once while the model receives a bounded preview and
+    path; changes must preserve error-free small-output passthrough, encoding,
+    isolation under the data directory, and enough context to retrieve the file.
+
+    Integration: Called by ``_execute_tool_call`` and collaborates with
+    ``tool_output_inline_chars``, ``artifact_path.write_text``, ``_tool_artifact_dir``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     inline_limit = tool_output_inline_chars()
     if len(output) <= inline_limit:
         return output, None
@@ -567,7 +890,10 @@ async def _preprocess_images_in_messages(
     """Scan messages for ImageBlocks and convert them to text if the active
     model does not support multimodal input.
 
-    Yields status events during conversion so the UI stays responsive.
+    Yields status events during conversion so the UI stays responsive. Image
+    descriptions run concurrently on the caller's event loop; tool execution
+    must remain awaitable and replacement indices must continue to refer to the
+    original message layout.
     """
     if is_model_multimodal(context.model):
         return
@@ -593,6 +919,12 @@ async def _preprocess_images_in_messages(
 
     # Process images in parallel
     async def _describe(msg_idx: int, blk_idx: int, block: ImageBlock) -> tuple[int, int, str]:
+        """Execute one image-to-text conversion and retain replacement coordinates.
+
+        This coroutine is gathered with sibling conversions. It converts
+        validation and tool failures into text placeholders so one image cannot
+        cancel the batch; keep it free of blocking I/O.
+        """
         tool = context.tool_registry.get("image_to_text")
         if tool is None:
             return msg_idx, blk_idx, "[Image: could not describe — image_to_text tool not available]"
@@ -640,7 +972,11 @@ async def run_query(
     estimated token count exceeds the model's auto-compact threshold,
     the engine first tries a cheap microcompact (clearing old tool result
     content) and, if that is not enough, performs a full LLM-based
-    summarization of older messages.
+    summarization of older messages. Provider messages, tool-use/result pairing,
+    hook ordering, and turn accounting are protocol invariants: any change must
+    be checked against permission, compaction, provider replay, and UI stream
+    tests. All waits run on the caller's event loop; blocking work belongs in a
+    tool or an explicitly managed executor.
     """
     from openharness.services.compact import (
         AutoCompactState,
@@ -661,10 +997,37 @@ async def run_query(
         trigger: str,
         force: bool = False,
     ) -> AsyncIterator[tuple[StreamEvent, UsageSnapshot | None]]:
+        """Run compaction while forwarding progress events to the outer stream.
+
+        The compactor executes in a child task because it reports through an
+        async callback rather than yielding directly. Preserve queue draining,
+        task exception propagation, and the single shared result slot when
+        changing progress cadence or cancellation behavior.
+
+        Integration: Called by ``run_query`` and collaborates with ``asyncio.Queue``,
+        ``asyncio.create_task``, ``auto_compact_if_needed``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+        """
         nonlocal last_compaction_result
         progress_queue: asyncio.Queue[CompactProgressEvent] = asyncio.Queue()
 
         async def _progress(event: CompactProgressEvent) -> None:
+            """Bridge a compactor callback into the query stream's progress queue.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``progress_queue.put``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await progress_queue.put(event)
 
         task = asyncio.create_task(
@@ -844,6 +1207,21 @@ async def run_query(
                 yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input), None
 
             async def _run(tc):
+                """Execute one sibling tool call for ``asyncio.gather``.
+
+                Exceptions intentionally escape this wrapper so gather can
+                convert each one into a matching tool result without cancelling
+                unrelated calls.
+
+                Integration: Used as an internal helper or callback at this module boundary and
+                collaborates with ``_execute_tool_call``.
+
+                Event loop: This coroutine awaits collaborators on the caller's loop and must
+                avoid blocking I/O.
+
+                Change safety: Preserve the signature, return value, and side-effect contract
+                expected by callers.
+                """
                 return await _execute_tool_call(context, tc.name, tc.id, tc.input)
 
             # Use return_exceptions=True so a single failing tool does not abandon
@@ -890,6 +1268,15 @@ async def _execute_tool_call(
     tool_use_id: str,
     tool_input: dict[str, object],
 ) -> ToolResultBlock:
+    """Govern, execute, and normalize one model-requested tool invocation.
+
+    The order is part of the runtime safety contract: pre-hook, registry lookup,
+    input validation, permission evaluation/interactive approval, async tool
+    execution, output offload, carryover recording, then post-hook. Every return
+    must retain ``tool_use_id`` so provider replay remains valid. Avoid blocking
+    the event loop and update permission, hooks, sandbox, persistence, and engine
+    tests whenever this sequence changes.
+    """
     if context.hook_executor is not None:
         pre_hooks = await context.hook_executor.execute(
             HookEvent.PRE_TOOL_USE,
@@ -1023,6 +1410,21 @@ def _resolve_permission_file_path(
     raw_input: dict[str, object],
     parsed_input: object,
 ) -> str | None:
+    """Resolve the file-like input used for permission-policy evaluation.
+
+    Raw model input is checked before the validated model for compatibility with
+    built-in and plugin schemas. Relative paths are anchored to the runtime cwd;
+    adding aliases must not bypass sensitive-path checks or change tool inputs.
+
+    Integration: Called by ``_execute_tool_call`` and collaborates with ``raw_input.get``,
+    ``value.strip``, ``expanduser``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for key in ("file_path", "path", "root"):
         value = raw_input.get(key)
         if isinstance(value, str) and value.strip():
@@ -1046,6 +1448,21 @@ def _extract_permission_command(
     raw_input: dict[str, object],
     parsed_input: object,
 ) -> str | None:
+    """Extract a shell command string for permission-policy evaluation.
+
+    This normalizes raw and validated tool inputs without executing or rewriting
+    the command. Keep it aligned with command-bearing tool schemas so sandbox and
+    deny rules see the same value the tool will execute.
+
+    Integration: Called by ``_execute_tool_call`` and collaborates with ``raw_input.get``,
+    ``value.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     value = raw_input.get("command")
     if isinstance(value, str) and value.strip():
         return value

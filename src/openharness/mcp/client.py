@@ -1,4 +1,15 @@
-"""MCP client manager."""
+"""MCP client manager.
+
+Integration: This module participates in external MCP transports adapted into the normal
+tool/resource registry.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve transport lifecycle, authentication, namespacing, JSON schemas, errors,
+and shared permission/tool replay.
+"""
 
 from __future__ import annotations
 
@@ -23,13 +34,44 @@ from openharness.mcp.types import (
 
 
 class McpServerNotConnectedError(Exception):
-    """Raised when an MCP server is not connected or its session has been lost."""
+    """Raised when an MCP server is not connected or its session has been lost.
+
+    Integration: Constructed or referenced by ``McpClientManager.call_tool``,
+    ``McpClientManager.read_resource``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
 
 class McpClientManager:
-    """Manage MCP connections and expose tools/resources."""
+    """Manage MCP connections and expose tools/resources.
+
+    Integration: Constructed or referenced by ``_run_scenario``, ``_run_mcp_flow``.
+
+    Event loop: Async methods ``connect_all``, ``reconnect_all``, ``_close_failed_stack``,
+    ``close`` run on their caller's loop; instances must retain clear task, cancellation, and
+    cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, server_configs: dict[str, object]) -> None:
+        """Initialize ``McpClientManager`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``McpClientManager`` and collaborates with
+        ``McpConnectionStatus``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._server_configs = server_configs
         self._statuses: dict[str, McpConnectionStatus] = {
             name: McpConnectionStatus(
@@ -43,7 +85,17 @@ class McpClientManager:
         self._stacks: dict[str, AsyncExitStack] = {}
 
     async def connect_all(self) -> None:
-        """Connect all configured MCP servers supported by the current build."""
+        """Connect all configured MCP servers supported by the current build.
+
+        Integration: Called by ``_run_scenario``, ``_run_mcp_flow`` and collaborates with
+        ``_server_configs.items``, ``_connect_stdio``, ``McpConnectionStatus``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for name, config in self._server_configs.items():
             if isinstance(config, McpStdioServerConfig):
                 await self._connect_stdio(name, config)
@@ -59,7 +111,17 @@ class McpClientManager:
                 )
 
     async def reconnect_all(self) -> None:
-        """Reconnect all configured servers."""
+        """Reconnect all configured servers.
+
+        Integration: Called by ``McpAuthTool.execute`` and collaborates with ``close``,
+        ``McpConnectionStatus``, ``connect_all``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await self.close()
         self._statuses = {
             name: McpConnectionStatus(name=name, state="pending", transport=getattr(config, "type", "unknown"))
@@ -68,15 +130,43 @@ class McpClientManager:
         await self.connect_all()
 
     def update_server_config(self, name: str, config: object) -> None:
-        """Replace one server config in memory."""
+        """Replace one server config in memory.
+
+        Integration: Called by ``McpAuthTool.execute``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._server_configs[name] = config
 
     def get_server_config(self, name: str) -> object | None:
-        """Return one configured server object if present."""
+        """Return one configured server object if present.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_server_configs.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._server_configs.get(name)
 
     async def _close_failed_stack(self, stack: AsyncExitStack) -> None:
-        """Best-effort cleanup for a connection attempt that never finished."""
+        """Best-effort cleanup for a connection attempt that never finished.
+
+        Integration: Called by ``McpClientManager._connect_stdio``,
+        ``McpClientManager._connect_http`` and collaborates with ``stack.aclose``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             await stack.aclose()
         except BaseException as exc:
@@ -91,7 +181,17 @@ class McpClientManager:
         auth_configured: bool,
         exc: BaseException,
     ) -> None:
-        """Record one MCP connection failure without aborting startup."""
+        """Record one MCP connection failure without aborting startup.
+
+        Integration: Called by ``McpClientManager._connect_stdio``,
+        ``McpClientManager._connect_http`` and collaborates with ``McpConnectionStatus``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._statuses[name] = McpConnectionStatus(
             name=name,
             state="failed",
@@ -101,7 +201,17 @@ class McpClientManager:
         )
 
     async def close(self) -> None:
-        """Close all active MCP sessions."""
+        """Close all active MCP sessions.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_stacks.clear``, ``_sessions.clear``, ``_stacks.values``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for stack in list(self._stacks.values()):
             with contextlib.suppress(RuntimeError, asyncio.CancelledError):
                 await stack.aclose()
@@ -109,25 +219,65 @@ class McpClientManager:
         self._sessions.clear()
 
     def list_statuses(self) -> list[McpConnectionStatus]:
-        """Return statuses for all configured servers."""
+        """Return statuses for all configured servers.
+
+        Integration: Called by ``McpClientManager.list_tools``,
+        ``McpClientManager.list_resources``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return [self._statuses[name] for name in sorted(self._statuses)]
 
     def list_tools(self) -> list[McpToolInfo]:
-        """Return all connected MCP tools."""
+        """Return all connected MCP tools.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``list_statuses``, ``tools.extend``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         tools: list[McpToolInfo] = []
         for status in self.list_statuses():
             tools.extend(status.tools)
         return tools
 
     def list_resources(self) -> list[McpResourceInfo]:
-        """Return all connected MCP resources."""
+        """Return all connected MCP resources.
+
+        Integration: Called by ``McpClientManager._register_connected_session``,
+        ``ListMcpResourcesTool.execute`` and collaborates with ``list_statuses``,
+        ``resources.extend``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         resources: list[McpResourceInfo] = []
         for status in self.list_statuses():
             resources.extend(status.resources)
         return resources
 
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> str:
-        """Invoke one MCP tool and stringify the result."""
+        """Invoke one MCP tool and stringify the result.
+
+        Integration: Called by ``McpToolAdapter.execute`` and collaborates with
+        ``_sessions.get``, ``strip``, ``_statuses.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         session = self._sessions.get(server_name)
         if session is None:
             status = self._statuses.get(server_name)
@@ -154,7 +304,16 @@ class McpClientManager:
         return "\n".join(parts).strip()
 
     async def read_resource(self, server_name: str, uri: str) -> str:
-        """Read one MCP resource and stringify the response."""
+        """Read one MCP resource and stringify the response.
+
+        Integration: Called by ``ReadMcpResourceTool.execute`` and collaborates with
+        ``_sessions.get``, ``strip``, ``_statuses.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         session = self._sessions.get(server_name)
         if session is None:
             status = self._statuses.get(server_name)
@@ -178,6 +337,16 @@ class McpClientManager:
         return "\n".join(parts).strip()
 
     async def _connect_stdio(self, name: str, config: McpStdioServerConfig) -> None:
+        """Connect stdio for the enclosing subsystem.
+
+        Integration: Called by ``McpClientManager.connect_all`` and collaborates with
+        ``AsyncExitStack``, ``stack.enter_async_context``, ``_register_connected_session``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         stack = AsyncExitStack()
         try:
             read_stream, write_stream = await stack.enter_async_context(
@@ -216,6 +385,16 @@ class McpClientManager:
             )
 
     async def _connect_http(self, name: str, config: McpHttpServerConfig) -> None:
+        """Connect http for the enclosing subsystem.
+
+        Integration: Called by ``McpClientManager.connect_all`` and collaborates with
+        ``AsyncExitStack``, ``stack.enter_async_context``, ``_register_connected_session``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         stack = AsyncExitStack()
         try:
             http_client = await stack.enter_async_context(
@@ -259,6 +438,17 @@ class McpClientManager:
         write_stream: Any,
         auth_configured: bool,
     ) -> None:
+        """Register connected session for the enclosing subsystem.
+
+        Integration: Called by ``McpClientManager._connect_stdio``,
+        ``McpClientManager._connect_http`` and collaborates with ``McpConnectionStatus``,
+        ``stack.enter_async_context``, ``session.initialize``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await session.initialize()
         tool_result = await session.list_tools()

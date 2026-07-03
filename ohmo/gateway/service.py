@@ -1,4 +1,15 @@
-"""Gateway service lifecycle for ohmo."""
+"""Gateway service lifecycle for ohmo.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -37,9 +48,30 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class OhmoGatewayService:
-    """Foreground/background service wrapper for the personal gateway."""
+    """Foreground/background service wrapper for the personal gateway.
+
+    Integration: Constructed or referenced by ``gateway_run_cmd``, ``start_gateway_process``.
+
+    Event loop: Async methods ``request_restart``, ``create_group``, ``create_group_for_user``,
+    ``publish_group_welcome`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, cwd: str | Path | None = None, workspace: str | Path | None = None) -> None:
+        """Initialize ``OhmoGatewayService`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``OhmoGatewayService`` and collaborates with ``os.chdir``,
+        ``initialize_workspace``, ``load_gateway_config``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._cwd = str(Path(cwd or Path.cwd()).resolve())
         self._workspace = workspace
         os.chdir(self._cwd)
@@ -74,17 +106,61 @@ class OhmoGatewayService:
 
     @property
     def pid_file(self) -> Path:
+        """Derive pid file from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``get_workspace_root``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return get_workspace_root(self._workspace) / "gateway.pid"
 
     @property
     def log_file(self) -> Path:
+        """Derive log file from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``get_logs_dir``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return get_logs_dir(self._workspace) / "gateway.log"
 
     @property
     def state_file(self) -> Path:
+        """Derive state file from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``get_state_path``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return get_state_path(self._workspace)
 
     def _channel_last_error(self) -> str | None:
+        """Derive channel last error from the current inputs and subsystem state.
+
+        Integration: Called by ``OhmoGatewayService.write_state`` and collaborates with
+        ``_manager.channels.items``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for name, channel in self._manager.channels.items():
             error = getattr(channel, "last_error", None)
             if error:
@@ -92,6 +168,18 @@ class OhmoGatewayService:
         return None
 
     def write_state(self, *, running: bool, last_error: str | None = None) -> None:
+        """Write state for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayService.run_foreground``,
+        ``OhmoGatewayService.run_foreground._state_heartbeat`` and collaborates with
+        ``GatewayState``, ``state_file.write_text``, ``state.model_dump_json``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         state = GatewayState(
             running=running,
             pid=os.getpid() if running else None,
@@ -103,7 +191,17 @@ class OhmoGatewayService:
         self.state_file.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
     async def request_restart(self, message, session_key: str) -> None:
-        """Ask the foreground gateway loop to restart itself."""
+        """Ask the foreground gateway loop to restart itself.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``write_text``, ``asyncio.sleep``, ``get_gateway_restart_notice_path``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         restart_notice = {
             "channel": message.channel,
             "chat_id": message.chat_id,
@@ -122,13 +220,31 @@ class OhmoGatewayService:
             self._stop_event.set()
 
     async def create_group(self, message, name: str) -> str:
-        """Create a managed group through the active channel implementation."""
+        """Create a managed group through the active channel implementation.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``RuntimeError``, ``create_group_for_user``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if message.channel != "feishu":
             raise RuntimeError(f"{message.channel} does not support managed group creation.")
         return await self.create_group_for_user(str(message.sender_id), name)
 
     async def create_group_for_user(self, user_open_id: str, name: str) -> str:
-        """Create a managed Feishu group for a user open_id."""
+        """Create a managed Feishu group for a user open_id.
+
+        Integration: Called by ``OhmoGatewayService.create_group`` and collaborates with
+        ``_manager.get_channel``, ``creator``, ``RuntimeError``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         channel = self._manager.get_channel("feishu")
         if channel is None:
             raise RuntimeError("Feishu channel is not enabled.")
@@ -139,7 +255,17 @@ class OhmoGatewayService:
         return str(await result if asyncio.iscoroutine(result) else result)
 
     async def publish_group_welcome(self, chat_id: str, content: str, owner_open_id: str) -> None:
-        """Send a welcome message to a newly created managed group."""
+        """Send a welcome message to a newly created managed group.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_bus.publish_outbound``, ``OutboundMessage``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await self._bus.publish_outbound(
             OutboundMessage(
                 channel="feishu",
@@ -150,6 +276,17 @@ class OhmoGatewayService:
         )
 
     def _exec_restart(self) -> None:
+        """Apply exec restart to the enclosing subsystem state.
+
+        Integration: Called by ``OhmoGatewayService.run_foreground`` and collaborates with
+        ``logger.info``, ``os.execv``, ``get_workspace_root``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         root = str(get_workspace_root(self._workspace))
         argv = [
             sys.executable,
@@ -166,6 +303,17 @@ class OhmoGatewayService:
         os.execv(sys.executable, argv)
 
     async def _publish_pending_restart_notice(self) -> None:
+        """Publish pending restart notice for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayService.run_foreground`` and collaborates with
+        ``get_gateway_restart_notice_path``, ``path.exists``, ``json.loads``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         path = get_gateway_restart_notice_path(self._workspace)
         if not path.exists():
             return
@@ -196,6 +344,17 @@ class OhmoGatewayService:
             path.unlink(missing_ok=True)
 
     async def run_foreground(self) -> int:
+        """Run foreground for the enclosing subsystem.
+
+        Integration: Called by ``gateway_run_cmd`` and collaborates with
+        ``pid_file.write_text``, ``write_state``, ``asyncio.create_task``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         self.pid_file.write_text(str(os.getpid()), encoding="utf-8")
         self.write_state(running=True)
         bridge_task = asyncio.create_task(self._bridge.run(), name="ohmo-gateway-bridge")
@@ -209,6 +368,16 @@ class OhmoGatewayService:
         self._restart_requested = False
 
         def _stop(*_: object) -> None:
+            """Stop the active ohmo gateway service.run foreground lifecycle.
+
+            Integration: Used as an internal helper or callback at this module boundary.
+
+            Concurrency: This is synchronous; preserve deterministic behavior for its direct
+            callers.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             stop_event.set()
 
         loop = asyncio.get_running_loop()
@@ -217,6 +386,17 @@ class OhmoGatewayService:
                 loop.add_signal_handler(sig, _stop)
 
         async def _state_heartbeat() -> None:
+            """Run the state heartbeat workflow through its asynchronous collaborators.
+
+            Integration: Called by ``OhmoGatewayService.run_foreground`` and collaborates with
+            ``stop_event.is_set``, ``write_state``, ``asyncio.sleep``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             while not stop_event.is_set():
                 self.write_state(running=True)
                 await asyncio.sleep(5.0)
@@ -254,7 +434,16 @@ class OhmoGatewayService:
 
 
 def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path | None = None) -> int:
-    """Start the gateway as a detached subprocess."""
+    """Start the gateway as a detached subprocess.
+
+    Integration: Called by ``_maybe_restart_gateway``, ``gateway_start_cmd`` and collaborates
+    with ``OhmoGatewayService``, ``service.log_file.parent.mkdir``, ``os.environ.copy``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     service = OhmoGatewayService(cwd, workspace)
     service.log_file.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
@@ -298,6 +487,16 @@ def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path |
 
 
 def _pid_is_running(pid: int) -> bool:
+    """Return whether pid is running.
+
+    Integration: Called by ``_iter_workspace_gateway_pids``, ``stop_gateway_process`` and
+    collaborates with ``kernel32.OpenProcess``, ``ctypes.c_ulong``,
+    ``kernel32.GetExitCodeProcess``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if sys.platform == "win32":
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -320,6 +519,16 @@ def _pid_is_running(pid: int) -> bool:
 
 
 def _iter_workspace_gateway_pids(workspace: str | Path | None = None) -> list[int]:
+    """Iterate over workspace gateway pids for the enclosing subsystem.
+
+    Integration: Called by ``stop_gateway_process``, ``gateway_status`` and collaborates with
+    ``get_workspace_root``, ``os.getpid``, ``result.stdout.splitlines``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     root = str(get_workspace_root(workspace))
     if sys.platform == "win32":
         try:
@@ -380,7 +589,17 @@ def _iter_workspace_gateway_pids(workspace: str | Path | None = None) -> list[in
 
 
 def stop_gateway_process(cwd: str | Path | None = None, workspace: str | Path | None = None) -> bool:
-    """Stop the background gateway process if present."""
+    """Stop the background gateway process if present.
+
+    Integration: Called by ``_maybe_restart_gateway``, ``gateway_stop_cmd`` and collaborates
+    with ``OhmoGatewayService``, ``service.pid_file.exists``, ``pids.extend``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    argv boundaries, timeouts, and child cleanup; preserve exception and fallback behavior
+    expected by callers.
+    """
     service = OhmoGatewayService(cwd, workspace)
     pids: list[int] = []
     if service.pid_file.exists():
@@ -414,7 +633,16 @@ def stop_gateway_process(cwd: str | Path | None = None, workspace: str | Path | 
 
 
 def gateway_status(cwd: str | Path | None = None, workspace: str | Path | None = None) -> GatewayState:
-    """Load the last known gateway state."""
+    """Load the last known gateway state.
+
+    Integration: Called by ``_maybe_restart_gateway``, ``gateway_status_cmd`` and collaborates
+    with ``OhmoGatewayService``, ``service.pid_file.exists``, ``service.state_file.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     service = OhmoGatewayService(cwd, workspace)
     live_pid: int | None = None
     if service.pid_file.exists():

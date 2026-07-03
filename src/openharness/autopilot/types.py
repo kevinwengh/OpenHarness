@@ -1,4 +1,15 @@
-"""Repo autopilot data models."""
+"""Repo autopilot data models.
+
+Integration: This module participates in repository task intake, policy, execution,
+verification, PR, journal, and dashboard export.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve state-machine transitions, Git/worktree safety, retries, human gates,
+idempotent comments, and atomic artifacts.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +42,16 @@ RepoTaskSource = Literal[
 
 
 class RepoTaskCard(BaseModel):
-    """One normalized repo-level work item."""
+    """One normalized repo-level work item.
+
+    Integration: Constructed or referenced by ``RepoAutopilotStore.enqueue_card``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     id: str
     fingerprint: str
@@ -49,7 +69,16 @@ class RepoTaskCard(BaseModel):
 
 
 class RepoJournalEntry(BaseModel):
-    """Append-only repo journal event."""
+    """Append-only repo journal event.
+
+    Integration: Constructed or referenced by ``RepoAutopilotStore.append_journal``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     timestamp: float
     kind: str
@@ -59,7 +88,17 @@ class RepoJournalEntry(BaseModel):
 
 
 class RepoAutopilotRegistry(BaseModel):
-    """Full registry payload."""
+    """Full registry payload.
+
+    Integration: Constructed or referenced by ``RepoAutopilotStore._ensure_layout``,
+    ``RepoAutopilotStore._load_registry``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     version: int = 1
     updated_at: float = 0.0
@@ -67,7 +106,16 @@ class RepoAutopilotRegistry(BaseModel):
 
 
 class RepoVerificationStep(BaseModel):
-    """One verification command result."""
+    """One verification command result.
+
+    Integration: Constructed or referenced by ``RepoAutopilotStore._run_verification_steps``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     command: str
     returncode: int
@@ -77,7 +125,17 @@ class RepoVerificationStep(BaseModel):
 
 
 class RepoRunResult(BaseModel):
-    """Result of one autopilot execution attempt."""
+    """Result of one autopilot execution attempt.
+
+    Integration: Constructed or referenced by ``RepoAutopilotStore.run_card``,
+    ``RepoAutopilotStore._process_existing_pr_card``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     card_id: str
     status: RepoTaskStatus

@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""E2E tests for CLI flags using kimi model."""
+"""E2E tests for CLI flags using kimi model.
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +28,16 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 
 def _env() -> dict[str, str]:
-    """Return environment with kimi model configuration."""
+    """Return environment with kimi model configuration.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``os.environ.copy``, ``env.setdefault``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     env = os.environ.copy()
     env.setdefault("ANTHROPIC_BASE_URL", "https://api.moonshot.cn/anthropic")
     env.setdefault("ANTHROPIC_MODEL", "kimi-k2.5")
@@ -24,7 +45,15 @@ def _env() -> dict[str, str]:
 
 
 def _run_oh(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
-    """Run the oh CLI with the given args."""
+    """Run the oh CLI with the given args.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``subprocess.run``, ``_env``, ``resolve``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     cmd = [sys.executable, "-m", "openharness", *args]
     return subprocess.run(
         cmd,
@@ -37,7 +66,16 @@ def _run_oh(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
 
 
 def test_help_output() -> tuple[bool, str]:
-    """Test that --help shows all flag groups."""
+    """Test that --help shows all flag groups.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``all``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh("--help")
     output = result.stdout + result.stderr
     checks = [
@@ -68,7 +106,16 @@ def test_help_output() -> tuple[bool, str]:
 
 
 def test_print_mode() -> tuple[bool, str]:
-    """Test -p flag: non-interactive mode with real model call."""
+    """Test -p flag: non-interactive mode with real model call.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``lower``, ``os.environ.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh("-p", "Say exactly: hello openharness", "--model", os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5"))
     output = result.stdout.strip().lower()
     if result.returncode != 0:
@@ -79,7 +126,15 @@ def test_print_mode() -> tuple[bool, str]:
 
 
 def test_print_json() -> tuple[bool, str]:
-    """Test --output-format json with real model call."""
+    """Test --output-format json with real model call.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``os.environ.get``, ``json.loads``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     result = _run_oh(
         "-p", "Respond with exactly: test123",
         "--output-format", "json",
@@ -97,7 +152,16 @@ def test_print_json() -> tuple[bool, str]:
 
 
 def test_subcommand_mcp_list() -> tuple[bool, str]:
-    """Test oh mcp list subcommand."""
+    """Test oh mcp list subcommand.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``output.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh("mcp", "list")
     output = result.stdout + result.stderr
     if result.returncode == 0:
@@ -106,7 +170,16 @@ def test_subcommand_mcp_list() -> tuple[bool, str]:
 
 
 def test_subcommand_plugin_list() -> tuple[bool, str]:
-    """Test oh plugin list subcommand."""
+    """Test oh plugin list subcommand.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``output.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh("plugin", "list")
     output = result.stdout + result.stderr
     if result.returncode == 0:
@@ -115,7 +188,16 @@ def test_subcommand_plugin_list() -> tuple[bool, str]:
 
 
 def test_subcommand_auth_status() -> tuple[bool, str]:
-    """Test oh auth status subcommand."""
+    """Test oh auth status subcommand.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``output.lower``, ``output.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh("auth", "status")
     output = result.stdout + result.stderr
     if result.returncode == 0 and "provider" in output.lower():
@@ -124,6 +206,15 @@ def test_subcommand_auth_status() -> tuple[bool, str]:
 
 
 def main() -> None:
+    """Run the script's top-level validation or application workflow.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``sys.exit``, ``func``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     tests = [
         ("help_output", test_help_output),
         ("print_mode", test_print_mode),

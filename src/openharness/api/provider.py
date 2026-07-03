@@ -1,4 +1,15 @@
-"""Provider/auth capability helpers."""
+"""Provider/auth capability helpers.
+
+Integration: This module participates in provider streaming clients and normalized request/event
+contracts.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve request conversion, streamed tool calls, usage/errors, auth secrecy,
+retries, and multi-turn replay.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +42,16 @@ _VOICE_REASON: dict[str, str] = {
 
 @dataclass(frozen=True)
 class ProviderInfo:
-    """Resolved provider metadata for UI and diagnostics."""
+    """Resolved provider metadata for UI and diagnostics.
+
+    Integration: Constructed or referenced by ``detect_provider``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     auth_kind: str
@@ -40,7 +60,17 @@ class ProviderInfo:
 
 
 def detect_provider(settings: Settings) -> ProviderInfo:
-    """Infer the active provider and rough capability set using the registry."""
+    """Infer the active provider and rough capability set using the registry.
+
+    Integration: Called by ``_build_dry_run_preview``, ``create_default_command_registry`` and
+    collaborates with ``detect_provider_from_registry``, ``ProviderInfo``, ``_AUTH_KIND.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if settings.provider == "openai_codex":
         return ProviderInfo(
             name="openai-codex",
@@ -95,7 +125,17 @@ def detect_provider(settings: Settings) -> ProviderInfo:
 
 
 def auth_status(settings: Settings) -> str:
-    """Return a compact auth status string."""
+    """Return a compact auth status string.
+
+    Integration: Called by ``_build_dry_run_preview``, ``create_default_command_registry`` and
+    collaborates with ``resolved.source.startswith``, ``load_copilot_auth``,
+    ``settings.resolve_auth``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if settings.api_format == "copilot":
         from openharness.api.copilot_auth import load_copilot_auth
 
@@ -178,6 +218,15 @@ def is_model_multimodal(model: str) -> bool:
     This is a heuristic based on known model naming conventions.  It errs on
     the side of returning False for unknown models so that the image-to-text
     fallback tool is used rather than silently failing.
+
+    Integration: Called by ``_preprocess_images_in_messages`` and collaborates with ``lower``,
+    ``any``, ``model.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     normalized = model.strip().lower()
     # Strip provider prefix like "anthropic/" or "openai/"

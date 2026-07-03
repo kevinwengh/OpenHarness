@@ -1,4 +1,15 @@
-"""Unified authentication management for OpenHarness."""
+"""Unified authentication management for OpenHarness.
+
+Integration: This module participates in credential discovery, subscription login, and provider
+authentication.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve credential-store permissions, token refresh, source precedence,
+redaction, and noninteractive failure guidance.
+"""
 
 from openharness.auth.flows import ApiKeyFlow, BrowserFlow, DeviceCodeFlow
 from openharness.auth.manager import AuthManager

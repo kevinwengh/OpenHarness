@@ -1,4 +1,15 @@
-"""Memory exports."""
+"""Memory exports.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from openharness.memory.memdir import load_memory_prompt
 from openharness.memory.manager import add_memory_entry, list_memory_files, remove_memory_entry

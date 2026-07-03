@@ -1,4 +1,14 @@
-"""Path boundary enforcement for sandbox file operations."""
+"""Path boundary enforcement for sandbox file operations.
+
+Integration: This module participates in isolated execution selected by runtime/tool adapters.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve path validation, container lifecycle, network/resource limits, command
+fidelity, and cleanup.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +24,14 @@ def validate_sandbox_path(
 
     Returns ``(True, "")`` when the path is allowed, or ``(False, reason)``
     when it falls outside the permitted directories.
+
+    Integration: Called by ``FileEditTool.execute``, ``FileReadTool.execute`` and collaborates
+    with ``path.resolve``, ``cwd.resolve``, ``resolved.relative_to``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     resolved = path.resolve()
     resolved_cwd = cwd.resolve()

@@ -1,4 +1,15 @@
-"""Session persistence helpers."""
+"""Session persistence helpers.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +41,16 @@ _PERSISTED_TOOL_METADATA_KEYS = (
 
 
 def _sanitize_metadata(value: Any) -> Any:
+    """Sanitize metadata for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     if isinstance(value, Path):
@@ -42,6 +63,16 @@ def _sanitize_metadata(value: Any) -> Any:
 
 
 def _persistable_tool_metadata(tool_metadata: dict[str, object] | None) -> dict[str, Any]:
+    """Derive persistable tool metadata from the current inputs and subsystem state.
+
+    Integration: Called by ``save_session_snapshot``, ``save_session_snapshot`` and collaborates
+    with ``_sanitize_metadata``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(tool_metadata, dict):
         return {}
     payload: dict[str, Any] = {}
@@ -52,7 +83,16 @@ def _persistable_tool_metadata(tool_metadata: dict[str, object] | None) -> dict[
 
 
 def get_project_session_dir(cwd: str | Path) -> Path:
-    """Return the session directory for a project."""
+    """Return the session directory for a project.
+
+    Integration: Called by ``list_sessions_touched_since``, ``_resolve_session_dir`` and
+    collaborates with ``resolve``, ``session_dir.mkdir``, ``hexdigest``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = Path(cwd).resolve()
     digest = sha1(str(path).encode("utf-8")).hexdigest()[:12]
     session_dir = get_sessions_dir() / f"{path.name}-{digest}"
@@ -70,7 +110,16 @@ def save_session_snapshot(
     session_id: str | None = None,
     tool_metadata: dict[str, object] | None = None,
 ) -> Path:
-    """Persist a session snapshot. Saves both by ID and as latest."""
+    """Persist a session snapshot. Saves both by ID and as latest.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_project_session_dir``, ``time.time``, ``sanitize_conversation_messages``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     session_dir = get_project_session_dir(cwd)
     sid = session_id or uuid4().hex[:12]
     now = time.time()
@@ -108,7 +157,16 @@ def save_session_snapshot(
 
 
 def _sanitize_snapshot_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Normalize persisted messages for forward compatibility."""
+    """Normalize persisted messages for forward compatibility.
+
+    Integration: Called by ``load_latest``, ``load_latest_for_session_key`` and collaborates
+    with ``payload.get``, ``sanitize_conversation_messages``, ``message.model_dump``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     raw_messages = payload.get("messages", [])
     if isinstance(raw_messages, list):
         messages = sanitize_conversation_messages(
@@ -121,7 +179,16 @@ def _sanitize_snapshot_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_session_snapshot(cwd: str | Path) -> dict[str, Any] | None:
-    """Load the most recent session snapshot for the project."""
+    """Load the most recent session snapshot for the project.
+
+    Integration: Called by ``main``, ``OpenHarnessSessionBackend.load_latest`` and collaborates
+    with ``_sanitize_snapshot_payload``, ``get_project_session_dir``, ``path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = get_project_session_dir(cwd) / "latest.json"
     if not path.exists():
         return None
@@ -129,7 +196,16 @@ def load_session_snapshot(cwd: str | Path) -> dict[str, Any] | None:
 
 
 def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, Any]]:
-    """List saved sessions for the project, newest first."""
+    """List saved sessions for the project, newest first.
+
+    Integration: Called by ``main``, ``OpenHarnessSessionBackend.list_snapshots`` and
+    collaborates with ``get_project_session_dir``, ``sessions.sort``, ``session_dir.glob``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     session_dir = get_project_session_dir(cwd)
     sessions: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -192,7 +268,16 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
 
 
 def load_session_by_id(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
-    """Load a specific session by ID."""
+    """Load a specific session by ID.
+
+    Integration: Called by ``main``, ``OpenHarnessSessionBackend.load_by_id`` and collaborates
+    with ``get_project_session_dir``, ``path.exists``, ``latest.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     session_dir = get_project_session_dir(cwd)
     # Try named session first
     path = session_dir / f"session-{session_id}.json"
@@ -212,7 +297,16 @@ def export_session_markdown(
     cwd: str | Path,
     messages: list[ConversationMessage],
 ) -> Path:
-    """Export the session transcript as Markdown."""
+    """Export the session transcript as Markdown.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_project_session_dir``, ``atomic_write_text``, ``parts.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     session_dir = get_project_session_dir(cwd)
     path = session_dir / "transcript.md"
     parts: list[str] = ["# OpenHarness Session Transcript"]

@@ -2,6 +2,13 @@
 # OpenHarness one-click installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/HKUDS/OpenHarness/main/scripts/install.sh | bash
 #        bash scripts/install.sh [--from-source] [--with-channels]
+#
+# Integration: bootstraps the packaged or source installation, frontend dependencies, command
+# links, and shell PATH configuration before users invoke `oh` or `ohmo`.
+# Concurrency: this is a sequential shell process, not an event-loop participant; every child
+# command must finish before dependent installation state is used.
+# Change safety: preserve strict error handling, platform/path quoting, idempotent profile edits,
+# noninteractive curl-pipe use, and actionable cleanup/recovery messages.
 
 set -euo pipefail
 
@@ -20,10 +27,15 @@ else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' RESET=''
 fi
 
+# Render an informational installer message on stdout; keep color optional for redirected output.
 info()    { echo -e "${CYAN}[INFO]${RESET}  $*"; }
+# Render a successful-step message consumed by humans; do not use it as machine-readable status.
 success() { echo -e "${GREEN}[OK]${RESET}    $*"; }
+# Render a recoverable warning while allowing the sequential installer to continue.
 warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+# Render a failure on stderr so callers can separate diagnostics from normal installer output.
 error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
+# Delimit a major installer phase; preserve ordering with the commands that implement that phase.
 step()    { echo -e "\n${BOLD}${BLUE}==>${RESET}${BOLD} $*${RESET}"; }
 
 # ---------------------------------------------------------------------------
@@ -330,6 +342,9 @@ EOF
 configured_any=false
 
 append_shell_path() {
+    # Add the command directory to one existing POSIX shell profile exactly once.
+    # This helper mutates user startup state synchronously; keep the grep guard, quoting, and
+    # `configured_any` side effect aligned with the caller's fallback instructions.
     local rc_file="$1"
     if [ ! -f "$rc_file" ]; then
         return

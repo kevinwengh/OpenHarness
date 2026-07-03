@@ -1,9 +1,32 @@
+/**
+ * Render and coordinate the `ToolCallDisplay` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
 
+/**
+ * Render the ToolCallDisplay React component.
+ *
+ * Integration: Owned by `ToolCallDisplay.tsx` and collaborates with `useTheme`, `trim`, `replace`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function ToolCallDisplay({
 	item,
 	resultItem,
@@ -28,17 +51,26 @@ export function ToolCallDisplay({
 				statusNode = isCodexStyle
 					? <Text color={theme.colors.error}> error</Text>
 					: <Text color={theme.colors.error}> {theme.icons.error.trim()}</Text>;
-				const lines = resultItem.text.split('\n').filter((l) => l.trim());
+				const lines = resultItem.text.split('\n').filter(/*
+				 * filter callback: uses trim; keep event-loop work bounded and preserve the callback's
+				 * return contract.
+				 */ (l) => l.trim());
 				const maxErrLines = isCodexStyle ? 8 : 5;
 				errorLines = lines.length > maxErrLines
 					? [...lines.slice(0, maxErrLines), `... (${lines.length - maxErrLines} more lines)`]
 					: lines;
 			} else if (!isCodexStyle) {
-				const lineCount = resultItem.text.split('\n').filter((l) => l.trim()).length;
+				const lineCount = resultItem.text.split('\n').filter(/*
+				 * filter callback: uses trim; keep event-loop work bounded and preserve the callback's
+				 * return contract.
+				 */ (l) => l.trim()).length;
 				const resultLabel = lineCount > 0 ? `${lineCount}L` : theme.icons.success.trim();
 				statusNode = <Text dimColor> → {resultLabel}</Text>;
 			} else {
-				const lineCount = resultItem.text.split('\n').filter((l) => l.trim()).length;
+				const lineCount = resultItem.text.split('\n').filter(/*
+				 * filter callback: uses trim; keep event-loop work bounded and preserve the callback's
+				 * return contract.
+				 */ (l) => l.trim()).length;
 				statusNode = <Text dimColor>{lineCount > 0 ? ` ${lineCount}L` : ''}</Text>;
 			}
 		}
@@ -47,7 +79,10 @@ export function ToolCallDisplay({
 			return (
 				<Box marginLeft={0} flexDirection="column">
 					<Text dimColor>{`• Ran ${toolName}${summary ? ` ${summary}` : ''}`}{statusNode}</Text>
-					{errorLines?.map((line, i) => {
+					{errorLines?.map(/*
+					 * map callback: computes its callback result; keep event-loop work bounded and preserve
+					 * the callback's return contract.
+					 */ (line, i) => {
 						const prefix = i === errorLines.length - 1 ? '└ ' : '│ ';
 						return (
 							<Text key={i} color={theme.colors.error}>
@@ -68,7 +103,10 @@ export function ToolCallDisplay({
 					<Text dimColor> {summary}</Text>
 					{statusNode}
 				</Text>
-				{errorLines?.map((line, i) => (
+				{errorLines?.map(/*
+				 * map callback: computes its callback result; keep event-loop work bounded and preserve the
+				 * callback's return contract.
+				 */ (line, i) => (
 					<Box key={i} marginLeft={4}>
 						<Text color={theme.colors.error}>{line}</Text>
 					</Box>
@@ -82,14 +120,20 @@ export function ToolCallDisplay({
 			return <></>;
 		}
 		const lines = item.text.length > 0
-			? item.text.split('\n').filter((l) => l.trim())
+			? item.text.split('\n').filter(/*
+			 * filter callback: uses trim; keep event-loop work bounded and preserve the callback's
+			 * return contract.
+			 */ (l) => l.trim())
 			: [''];
 		const maxLines = isCodexStyle ? 8 : 5;
 		const display = lines.length > maxLines ? [...lines.slice(0, maxLines), `... (${lines.length - maxLines} more lines)`] : lines;
 		if (isCodexStyle) {
 			return (
 				<Box marginLeft={0} flexDirection="column">
-					{display.map((line, i) => {
+					{display.map(/*
+					 * map callback: computes its callback result; keep event-loop work bounded and preserve
+					 * the callback's return contract.
+					 */ (line, i) => {
 						const prefix = i === display.length - 1 ? '└ ' : '│ ';
 						return (
 							<Text key={i} color={theme.colors.error}>
@@ -103,7 +147,10 @@ export function ToolCallDisplay({
 		}
 		return (
 			<Box marginLeft={4} flexDirection="column">
-				{display.map((line, i) => (
+				{display.map(/*
+				 * map callback: computes its callback result; keep event-loop work bounded and preserve the
+				 * callback's return contract.
+				 */ (line, i) => (
 					<Text key={i} color={theme.colors.error}>{line}</Text>
 				))}
 			</Box>
@@ -113,6 +160,17 @@ export function ToolCallDisplay({
 	return <Text>{item.text}</Text>;
 }
 
+/**
+ * Derive summarize input from the current frontend state and inputs.
+ *
+ * Integration: Owned by `ToolCallDisplay.tsx` and collaborates with `slice`, `toLowerCase`,
+ * `String`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function summarizeInput(toolName: string, toolInput?: Record<string, unknown>, fallback?: string): string {
 	if (!toolInput) {
 		return fallback?.slice(0, 80) ?? '';

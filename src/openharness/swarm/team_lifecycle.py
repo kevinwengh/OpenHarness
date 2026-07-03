@@ -7,6 +7,16 @@ This module provides TeamMember, TeamFile, AllowedPath, TeamLifecycleManager
 and a full set of CRUD helpers matching the TS teamHelpers.ts API.
 The TeamLifecycleManager can work alongside the in-memory TeamRegistry
 in coordinator_mode.py without modifying that module.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
 """
 
 from __future__ import annotations
@@ -36,6 +46,14 @@ def sanitize_name(name: str) -> str:
 
     Mirrors TS ``sanitizeName``:
     ``name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()``
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``lower``, ``re.sub``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     return re.sub(r"[^a-zA-Z0-9]", "-", name).lower()
 
@@ -45,6 +63,14 @@ def sanitize_agent_name(name: str) -> str:
 
     Mirrors TS ``sanitizeAgentName``:
     ``name.replace(/@/g, '-')``
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``name.replace``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     return name.replace("@", "-")
 
@@ -56,7 +82,16 @@ def sanitize_agent_name(name: str) -> str:
 
 @dataclass
 class AllowedPath:
-    """A path that all team members can edit without asking for permission."""
+    """A path that all team members can edit without asking for permission.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     path: str
     """Absolute directory path."""
@@ -71,6 +106,16 @@ class AllowedPath:
     """Timestamp when the rule was added."""
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record into its persisted dictionary shape.
+
+        Integration: Exposed through ``AllowedPath``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return {
             "path": self.path,
             "tool_name": self.tool_name,
@@ -80,6 +125,17 @@ class AllowedPath:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AllowedPath":
+        """Reconstruct this record from its persisted dictionary shape.
+
+        Integration: Exposed through ``AllowedPath`` and collaborates with ``cls``,
+        ``time.time``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             path=data["path"],
             tool_name=data.get("tool_name", data.get("toolName", "")),
@@ -90,7 +146,17 @@ class AllowedPath:
 
 @dataclass
 class TeamMember:
-    """A member of a swarm team."""
+    """A member of a swarm team.
+
+    Integration: Constructed or referenced by ``set_member_mode``,
+    ``set_multiple_member_modes``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     agent_id: str
     name: str
@@ -141,6 +207,16 @@ class TeamMember:
     """Coarse status of this agent."""
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record into its persisted dictionary shape.
+
+        Integration: Exposed through ``TeamMember``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return {
             "agent_id": self.agent_id,
             "name": self.name,
@@ -164,6 +240,16 @@ class TeamMember:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TeamMember":
+        """Reconstruct this record from its persisted dictionary shape.
+
+        Integration: Exposed through ``TeamMember`` and collaborates with ``cls``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             agent_id=data["agent_id"],
             name=data["name"],
@@ -188,7 +274,16 @@ class TeamMember:
 
 @dataclass
 class TeamFile:
-    """Persistent team metadata stored as team.json inside the team directory."""
+    """Persistent team metadata stored as team.json inside the team directory.
+
+    Integration: Constructed or referenced by ``TeamLifecycleManager.create_team``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     created_at: float
@@ -220,6 +315,16 @@ class TeamFile:
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record into its persisted dictionary shape.
+
+        Integration: Exposed through ``TeamFile``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return {
             "name": self.name,
             "description": self.description,
@@ -235,6 +340,16 @@ class TeamFile:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TeamFile":
+        """Reconstruct this record from its persisted dictionary shape.
+
+        Integration: Exposed through ``TeamFile`` and collaborates with ``cls``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         members = {
             k: TeamMember.from_dict(v)
             for k, v in data.get("members", {}).items()
@@ -261,7 +376,17 @@ class TeamFile:
     # ------------------------------------------------------------------
 
     def save(self, path: Path) -> None:
-        """Atomically write this team file to *path*."""
+        """Atomically write this team file to *path*.
+
+        Integration: Exposed through ``TeamFile`` and collaborates with ``path.parent.mkdir``,
+        ``path.with_suffix``, ``tmp.write_text``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
@@ -274,6 +399,15 @@ class TeamFile:
         Raises:
             FileNotFoundError: if *path* does not exist.
             json.JSONDecodeError: if the file is not valid JSON.
+
+        Integration: Exposed through ``TeamFile`` and collaborates with ``json.loads``,
+        ``from_dict``, ``path.read_text``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
         """
         data = json.loads(path.read_text(encoding="utf-8"))
         return cls.from_dict(data)
@@ -287,12 +421,30 @@ _TEAM_FILE_NAME = "team.json"
 
 
 def _team_file_path(name: str) -> Path:
-    """Return the path to the team.json for *name*."""
+    """Return the path to the team.json for *name*.
+
+    Integration: Called by ``get_team_file_path``, ``read_team_file`` and collaborates with
+    ``get_team_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_team_dir(name) / _TEAM_FILE_NAME
 
 
 def get_team_file_path(team_name: str) -> Path:
-    """Public accessor for the team.json path."""
+    """Public accessor for the team.json path.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_team_file_path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _team_file_path(team_name)
 
 
@@ -306,6 +458,14 @@ def read_team_file(team_name: str) -> TeamFile | None:
 
     Uses synchronous I/O — safe for use in sync contexts such as React-like
     render paths or signal handlers.
+
+    Integration: Called by ``remove_teammate_from_team_file``, ``add_hidden_pane_id`` and
+    collaborates with ``_team_file_path``, ``path.exists``, ``TeamFile.load``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     path = _team_file_path(team_name)
     if not path.exists():
@@ -317,7 +477,16 @@ def read_team_file(team_name: str) -> TeamFile | None:
 
 
 def write_team_file(team_name: str, team_file: TeamFile) -> None:
-    """Persist *team_file* to disk (synchronous)."""
+    """Persist *team_file* to disk (synchronous).
+
+    Integration: Called by ``remove_teammate_from_team_file``, ``add_hidden_pane_id`` and
+    collaborates with ``team_file.save``, ``_team_file_path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     team_file.save(_team_file_path(team_name))
 
 
@@ -327,13 +496,33 @@ def write_team_file(team_name: str, team_file: TeamFile) -> None:
 
 
 async def read_team_file_async(team_name: str) -> TeamFile | None:
-    """Async wrapper around :func:`read_team_file`."""
+    """Async wrapper around :func:`read_team_file`.
+
+    Integration: Called by ``get_leader_name``, ``set_member_active`` and collaborates with
+    ``asyncio.get_event_loop``, ``loop.run_in_executor``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, read_team_file, team_name)
 
 
 async def write_team_file_async(team_name: str, team_file: TeamFile) -> None:
-    """Async wrapper around :func:`write_team_file`."""
+    """Async wrapper around :func:`write_team_file`.
+
+    Integration: Called by ``set_member_active`` and collaborates with
+    ``asyncio.get_event_loop``, ``loop.run_in_executor``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, write_team_file, team_name, team_file)
 
@@ -355,6 +544,14 @@ def remove_teammate_from_team_file(
 
     Returns:
         ``True`` if a member was removed, ``False`` otherwise.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``identifier.get``, ``read_team_file``, ``write_team_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     agent_id = identifier.get("agent_id")
     name = identifier.get("name")
@@ -386,6 +583,14 @@ def add_hidden_pane_id(team_name: str, pane_id: str) -> bool:
 
     Returns:
         ``True`` if successful, ``False`` if the team does not exist.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``read_team_file``, ``team_file.hidden_pane_ids.append``, ``write_team_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team_file = read_team_file(team_name)
     if not team_file:
@@ -402,6 +607,13 @@ def remove_hidden_pane_id(team_name: str, pane_id: str) -> bool:
 
     Returns:
         ``True`` if successful, ``False`` if the team does not exist.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``read_team_file``, ``team_file.hidden_pane_ids.remove``, ``write_team_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     team_file = read_team_file(team_name)
     if not team_file:
@@ -420,6 +632,13 @@ def remove_member_from_team(team_name: str, tmux_pane_id: str) -> bool:
 
     Returns:
         ``True`` if the member was found and removed, ``False`` otherwise.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``read_team_file``, ``write_team_file``, ``team_file.hidden_pane_ids.remove``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     team_file = read_team_file(team_name)
     if not team_file:
@@ -453,6 +672,14 @@ def remove_member_by_agent_id(team_name: str, agent_id: str) -> bool:
 
     Returns:
         ``True`` if the member was found and removed, ``False`` otherwise.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``read_team_file``, ``write_team_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team_file = read_team_file(team_name)
     if not team_file:
@@ -487,6 +714,14 @@ def set_member_mode(
 
     Returns:
         ``True`` if successful, ``False`` if the team or member is not found.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``read_team_file``, ``team_file.members.items``, ``write_team_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team_file = read_team_file(team_name)
     if not team_file:
@@ -524,6 +759,14 @@ def sync_teammate_mode(
     Args:
         mode: The permission mode to sync.
         team_name_override: Optional override for the team name.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``os.environ.get``, ``set_member_mode``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team_name = team_name_override or os.environ.get("CLAUDE_CODE_TEAM_NAME")
     agent_name = os.environ.get("CLAUDE_CODE_AGENT_NAME")
@@ -543,6 +786,14 @@ def set_multiple_member_modes(
 
     Returns:
         ``True`` if the team file was found (even if nothing changed).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``read_team_file``, ``team_file.members.items``, ``update_map.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team_file = read_team_file(team_name)
     if not team_file:
@@ -578,6 +829,15 @@ async def set_member_active(
         team_name: The name of the team.
         member_name: The *name* of the member to update.
         is_active: Whether the member is active.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``read_team_file_async``, ``team_file.members.items``, ``write_team_file_async``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team_file = await read_team_file_async(team_name)
     if not team_file:
@@ -615,12 +875,29 @@ def register_team_for_session_cleanup(team_name: str) -> None:
     Call this right after the initial write_team_file.
     :func:`unregister_team_for_session_cleanup` should be called after an
     explicit team deletion to prevent double-cleanup.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_session_created_teams.add``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     _session_created_teams.add(team_name)
 
 
 def unregister_team_for_session_cleanup(team_name: str) -> None:
-    """Remove a team from session cleanup tracking (e.g. after explicit delete)."""
+    """Remove a team from session cleanup tracking (e.g. after explicit delete).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_session_created_teams.discard``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _session_created_teams.discard(team_name)
 
 
@@ -632,6 +909,14 @@ async def _kill_orphaned_teammate_panes(team_name: str) -> None:
     processes in open tmux/iTerm2 panes; this function kills them first.
 
     Mirrors TS ``killOrphanedTeammatePanes`` in teamHelpers.ts.
+
+    Integration: Called by ``cleanup_session_teams`` and collaborates with ``read_team_file``,
+    ``get_backend_registry``, ``is_inside_tmux``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     from openharness.swarm.registry import get_backend_registry
     from openharness.swarm.spawn_utils import is_inside_tmux
@@ -656,6 +941,16 @@ async def _kill_orphaned_teammate_panes(team_name: str) -> None:
     use_external_session = not is_inside_tmux()
 
     async def _kill_one(member: TeamMember) -> None:
+        """Run the kill one workflow through its asynchronous collaborators.
+
+        Integration: Called by ``_kill_orphaned_teammate_panes`` and collaborates with
+        ``registry.get_executor``, ``executor.kill_pane``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             executor = registry.get_executor(member.backend_type)
             await executor.kill_pane(
@@ -674,6 +969,15 @@ async def cleanup_session_teams() -> None:
     Kills orphaned teammate panes first, then removes team and task directories
     for every team registered via :func:`register_team_for_session_cleanup`.
     Safe to call multiple times.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_session_created_teams.clear``, ``asyncio.gather``, ``_kill_orphaned_teammate_panes``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if not _session_created_teams:
         return
@@ -701,6 +1005,16 @@ async def _destroy_worktree(worktree_path: str) -> None:
     """Best-effort removal of a git worktree.
 
     Tries ``git worktree remove --force`` first; falls back to ``shutil.rmtree``.
+
+    Integration: Called by ``cleanup_team_directories`` and collaborates with ``Path``,
+    ``strip``, ``re.match``.
+
+    Event loop: This coroutine awaits subprocess work; preserve process cleanup and avoid shell-
+    blocking operations.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    argv boundaries, timeouts, and child cleanup; preserve exception and fallback behavior
+    expected by callers.
     """
     wt = Path(worktree_path)
     git_file = wt / ".git"
@@ -751,6 +1065,14 @@ async def cleanup_team_directories(team_name: str) -> None:
 
     Args:
         team_name: The team name to clean up.
+
+    Integration: Called by ``cleanup_session_teams`` and collaborates with ``read_team_file``,
+    ``get_team_dir``, ``team_file.members.values``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     # Read team file to get worktree paths BEFORE deleting the team directory
     team_file = read_team_file(team_name)
@@ -787,6 +1109,14 @@ class TeamLifecycleManager:
 
     This class is stateless: every method reads from and writes to disk
     directly, making it safe to instantiate multiple times.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Event loop: Async methods ``set_member_active`` run on their caller's loop; instances must
+    retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     # ------------------------------------------------------------------
@@ -798,6 +1128,14 @@ class TeamLifecycleManager:
 
         Raises:
             ValueError: if a team with *name* already exists.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_team_file_path``, ``path.exists``, ``TeamFile``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         path = _team_file_path(name)
         if path.exists():
@@ -816,6 +1154,14 @@ class TeamLifecycleManager:
 
         Raises:
             ValueError: if the team does not exist.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``get_team_dir``, ``shutil.rmtree``, ``team_file.exists``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         team_dir = get_team_dir(name)
         team_file = team_dir / _TEAM_FILE_NAME
@@ -824,7 +1170,16 @@ class TeamLifecycleManager:
         shutil.rmtree(team_dir)
 
     def get_team(self, name: str) -> TeamFile | None:
-        """Return the TeamFile for *name*, or ``None`` if it does not exist."""
+        """Return the TeamFile for *name*, or ``None`` if it does not exist.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_team_file_path``, ``path.exists``, ``TeamFile.load``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         path = _team_file_path(name)
         if not path.exists():
             return None
@@ -834,7 +1189,16 @@ class TeamLifecycleManager:
             return None
 
     def list_teams(self) -> list[TeamFile]:
-        """Return all teams found in ``~/.openharness/teams/``, sorted by name."""
+        """Return all teams found in ``~/.openharness/teams/``, sorted by name.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``base.exists``, ``base.iterdir``, ``Path.home``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         base = Path.home() / ".openharness" / "teams"
         if not base.exists():
             return []
@@ -861,6 +1225,15 @@ class TeamLifecycleManager:
 
         Raises:
             ValueError: if the team does not exist.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_team_file_path``, ``_require_team``, ``team.save``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         path = _team_file_path(team_name)
         team = self._require_team(team_name, path)
@@ -873,6 +1246,14 @@ class TeamLifecycleManager:
 
         Raises:
             ValueError: if the team or member does not exist.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_team_file_path``, ``_require_team``, ``team.save``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         path = _team_file_path(team_name)
         team = self._require_team(team_name, path)
@@ -891,13 +1272,31 @@ class TeamLifecycleManager:
     def set_member_mode(
         self, team_name: str, member_name: str, mode: str
     ) -> bool:
-        """Set a team member's permission mode."""
+        """Set a team member's permission mode.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return set_member_mode(team_name, member_name, mode)
 
     async def set_member_active(
         self, team_name: str, member_name: str, is_active: bool
     ) -> None:
-        """Set a team member's active status."""
+        """Set a team member's active status.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await set_member_active(team_name, member_name, is_active)
 
     # ------------------------------------------------------------------
@@ -905,6 +1304,16 @@ class TeamLifecycleManager:
     # ------------------------------------------------------------------
 
     def _require_team(self, name: str, path: Path) -> TeamFile:
+        """Derive require team from the current inputs and subsystem state.
+
+        Integration: Exposed through ``TeamLifecycleManager`` and collaborates with
+        ``TeamFile.load``, ``path.exists``, ``ValueError``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not path.exists():
             raise ValueError(f"Team '{name}' does not exist")
         return TeamFile.load(path)

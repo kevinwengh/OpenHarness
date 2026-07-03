@@ -1,4 +1,15 @@
-"""Console rendering helpers with rich markdown, syntax highlighting, and spinners."""
+"""Console rendering helpers with rich markdown, syntax highlighting, and spinners.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -18,9 +29,29 @@ from openharness.engine.stream_events import (
 
 
 class OutputRenderer:
-    """Render model and tool events to the terminal with rich formatting."""
+    """Render model and tool events to the terminal with rich formatting.
+
+    Integration: Constructed or referenced by ``test_markdown_render``,
+    ``test_tool_output_format``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, style_name: str = "default") -> None:
+        """Initialize ``OutputRenderer`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``OutputRenderer`` and collaborates with ``Console``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.console = Console()
         self._assistant_line_open = False
         self._assistant_buffer = ""
@@ -29,10 +60,30 @@ class OutputRenderer:
         self._last_tool_input: dict | None = None
 
     def set_style(self, style_name: str) -> None:
+        """Set style for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._style_name = style_name
 
     def show_thinking(self) -> None:
-        """Show a 'thinking' spinner before the first assistant token arrives."""
+        """Show a 'thinking' spinner before the first assistant token arrives.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``console.status``, ``_spinner_status.start``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._spinner_status is not None:
             return
         if self._style_name == "minimal":
@@ -43,6 +94,16 @@ class OutputRenderer:
         self._spinner_status.start()
 
     def start_assistant_turn(self) -> None:
+        """Start assistant turn for the enclosing subsystem.
+
+        Integration: Called by ``test_markdown_render`` and collaborates with ``_stop_spinner``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._stop_spinner()  # Stop the thinking spinner when output starts
         if self._assistant_line_open:
             self.console.print()
@@ -54,6 +115,17 @@ class OutputRenderer:
             self.console.print("[green bold]\u23fa[/green bold] ", end="")
 
     def render_event(self, event: StreamEvent) -> None:
+        """Render event for the enclosing subsystem.
+
+        Integration: Called by ``test_markdown_render``, ``test_tool_output_format`` and
+        collaborates with ``_stop_spinner``, ``_summarize_tool_input``, ``_render_tool_output``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if isinstance(event, AssistantTextDelta):
             self._assistant_buffer += event.text
             # Stream raw text for responsiveness
@@ -139,6 +211,17 @@ class OutputRenderer:
             self._render_tool_output(tool_name, tool_input, output)
 
     def print_system(self, message: str) -> None:
+        """Render one system message through the active output adapter.
+
+        Integration: Called by ``submit_follow_up``, ``drain_coordinator_async_agents`` and
+        collaborates with ``_stop_spinner``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._stop_spinner()
         if self._assistant_line_open:
             self.console.print()
@@ -156,7 +239,17 @@ class OutputRenderer:
         output_tokens: int = 0,
         permission_mode: str = "default",
     ) -> None:
-        """Print a compact status line after each turn."""
+        """Print a compact status line after each turn.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``parts.append``, ``sep.join``, ``_fmt_num``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         parts = [f"[cyan]model: {model}[/cyan]"]
         if input_tokens > 0 or output_tokens > 0:
             down = "\u2193"
@@ -168,20 +261,63 @@ class OutputRenderer:
         self.console.print(f"[dim]{line}[/dim]")
 
     def clear(self) -> None:
+        """Clear mutable state owned by output renderer.
+
+        Integration: Exposed through ``OutputRenderer``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.console.clear()
 
     def _start_spinner(self, tool_name: str) -> None:
+        """Start spinner for the enclosing subsystem.
+
+        Integration: Called by ``OutputRenderer.render_event`` and collaborates with
+        ``console.status``, ``_spinner_status.start``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._style_name == "minimal":
             return
         self._spinner_status = self.console.status(f"Running {tool_name}...", spinner="dots")
         self._spinner_status.start()
 
     def _stop_spinner(self) -> None:
+        """Stop spinner for the enclosing subsystem.
+
+        Integration: Called by ``OutputRenderer.start_assistant_turn``,
+        ``OutputRenderer.render_event`` and collaborates with ``_spinner_status.stop``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._spinner_status is not None:
             self._spinner_status.stop()
             self._spinner_status = None
 
     def _render_tool_output(self, tool_name: str, tool_input: dict | None, output: str) -> None:
+        """Render tool output for the enclosing subsystem.
+
+        Integration: Called by ``OutputRenderer.render_event`` and collaborates with
+        ``tool_name.lower``, ``output.split``, ``get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lower = tool_name.lower()
         # Bash: show in a panel
         if lower == "bash":
@@ -218,12 +354,30 @@ class OutputRenderer:
 
 
 def _has_markdown(text: str) -> bool:
-    """Check if text likely contains markdown formatting."""
+    """Check if text likely contains markdown formatting.
+
+    Integration: Called by ``OutputRenderer.render_event`` and collaborates with ``any``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     indicators = ["```", "## ", "### ", "- ", "* ", "1. ", "**", "__", "> "]
     return any(ind in text for ind in indicators)
 
 
 def _summarize_tool_input(tool_name: str, tool_input: dict | None) -> str:
+    """Summarize tool input for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not tool_input:
         return ""
     lower = tool_name.lower()
@@ -247,6 +401,16 @@ def _summarize_tool_input(tool_name: str, tool_input: dict | None) -> str:
 
 
 def _ext_to_lexer(ext: str) -> str | None:
+    """Derive ext to lexer from the current inputs and subsystem state.
+
+    Integration: Called by ``OutputRenderer._render_tool_output`` and collaborates with
+    ``mapping.get``, ``ext.lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     mapping = {
         "py": "python", "js": "javascript", "ts": "typescript", "tsx": "tsx",
         "jsx": "jsx", "rs": "rust", "go": "go", "rb": "ruby", "java": "java",
@@ -260,6 +424,15 @@ def _ext_to_lexer(ext: str) -> str | None:
 
 
 def _fmt_num(n: int) -> str:
+    """Derive fmt num from the current inputs and subsystem state.
+
+    Integration: Called by ``OutputRenderer.print_status_line``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if n >= 1000:
         return f"{n / 1000:.1f}k"
     return str(n)

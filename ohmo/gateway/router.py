@@ -1,4 +1,15 @@
-"""Session routing for ohmo gateway."""
+"""Session routing for ohmo gateway.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +22,15 @@ def session_key_for_message(message: InboundMessage) -> str:
     Private chats keep the original ``channel:chat_id`` key so existing long
     ohmo sessions remain resumable. Group/shared chats include sender identity
     to avoid multiple people sharing one agent memory.
+
+    Integration: Called by ``OhmoGatewayBridge.run`` and collaborates with ``lower``, ``strip``,
+    ``message.metadata.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if message.session_key_override:
         return message.session_key_override

@@ -1,3 +1,16 @@
+/**
+ * Own the terminal frontend's types boundary.
+ *
+ * Integration: Connects the Ink application to shared TypeScript types and the Python backend
+ * protocol.
+ *
+ * Event loop: Process I/O, React effects, input events, and buffered rendering coexist on Node's
+ * event loop; preserve cleanup and backpressure.
+ *
+ * Change safety: Coordinate protocol, process lifecycle, terminal restoration, and packaging
+ * changes with the Python host and UI tests.
+ */
+
 export type FrontendConfig = {
 	backend_command: string[];
 	initial_prompt?: string | null;

@@ -1,4 +1,15 @@
-"""Conversation message models used by the query engine."""
+"""Conversation message models used by the query engine.
+
+Integration: This module participates in conversation ownership, provider streaming, tool-result
+replay, and usage accounting.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve message/tool pairing, stream ordering, compaction, hooks, permissions,
+cancellation, and session persistence.
+"""
 
 from __future__ import annotations
 
@@ -12,14 +23,34 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class TextBlock(BaseModel):
-    """Plain text content."""
+    """Plain text content.
+
+    Integration: Constructed or referenced by ``_sanitize_group_command_prompt``,
+    ``_build_inbound_user_message``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["text"] = "text"
     text: str
 
 
 class ImageBlock(BaseModel):
-    """Image content encoded inline for multimodal providers."""
+    """Image content encoded inline for multimodal providers.
+
+    Integration: Constructed or referenced by ``ImageToTextTool._call_vision_model``,
+    ``_build_user_message_with_images``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["image"] = "image"
     media_type: str
@@ -28,7 +59,16 @@ class ImageBlock(BaseModel):
 
     @classmethod
     def from_path(cls, path: str | Path) -> "ImageBlock":
-        """Load a local image file into a base64-backed content block."""
+        """Load a local image file into a base64-backed content block.
+
+        Integration: Called by ``_build_inbound_user_message`` and collaborates with
+        ``resolve``, ``mimetypes.guess_type``, ``decode``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         resolved = Path(path).expanduser().resolve()
         media_type, _ = mimetypes.guess_type(str(resolved))
         if not media_type or not media_type.startswith("image/"):
@@ -38,7 +78,17 @@ class ImageBlock(BaseModel):
 
 
 class ToolUseBlock(BaseModel):
-    """A request from the model to execute a named tool."""
+    """A request from the model to execute a named tool.
+
+    Integration: Constructed or referenced by ``CodexApiClient._stream_once``,
+    ``_parse_assistant_response``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["tool_use"] = "tool_use"
     id: str = Field(default_factory=lambda: f"toolu_{uuid4().hex}")
@@ -47,7 +97,16 @@ class ToolUseBlock(BaseModel):
 
 
 class ToolResultBlock(BaseModel):
-    """Tool result content sent back to the model."""
+    """Tool result content sent back to the model.
+
+    Integration: Constructed or referenced by ``run_query``, ``_execute_tool_call``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["tool_result"] = "tool_result"
     tool_use_id: str
@@ -63,7 +122,17 @@ ContentBlock = Annotated[
 
 
 class ConversationMessage(BaseModel):
-    """A single assistant or user message."""
+    """A single assistant or user message.
+
+    Integration: Constructed or referenced by ``_make_command_context``,
+    ``test_markdown_render``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     role: Literal["user", "assistant"]
     content: list[ContentBlock] = Field(default_factory=list)
@@ -71,42 +140,111 @@ class ConversationMessage(BaseModel):
     @field_validator("content", mode="before")
     @classmethod
     def _normalize_content(cls, value: Any) -> list[Any]:
-        """Normalize legacy/null payloads before block validation."""
+        """Normalize legacy/null payloads before block validation.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``field_validator``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if value is None:
             return []
         return value
 
     @classmethod
     def from_user_text(cls, text: str) -> "ConversationMessage":
-        """Construct a user message from raw text."""
+        """Construct a user message from raw text.
+
+        Integration: Called by ``QueryEngine.submit_message``,
+        ``HookExecutor._run_prompt_like_hook`` and collaborates with ``cls``, ``TextBlock``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(role="user", content=[TextBlock(text=text)])
 
     @classmethod
     def from_user_content(cls, content: list[ContentBlock]) -> "ConversationMessage":
-        """Construct a user message from explicit content blocks."""
+        """Construct a user message from explicit content blocks.
+
+        Integration: Called by ``_build_inbound_user_message``,
+        ``_build_user_message_with_images`` and collaborates with ``cls``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(role="user", content=list(content))
 
     @property
     def text(self) -> str:
-        """Return concatenated text blocks."""
+        """Return concatenated text blocks.
+
+        Integration: Called by ``_text_prompt``, ``_text_prompt`` and collaborates with
+        ``join``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return "".join(
             block.text for block in self.content if isinstance(block, TextBlock)
         )
 
     @property
     def tool_uses(self) -> list[ToolUseBlock]:
-        """Return all tool calls contained in the message."""
+        """Return all tool calls contained in the message.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return [block for block in self.content if isinstance(block, ToolUseBlock)]
 
     def to_api_param(self) -> dict[str, Any]:
-        """Convert the message into Anthropic SDK message params."""
+        """Convert the message into Anthropic SDK message params.
+
+        Integration: Called by ``AnthropicApiClient._stream_once`` and collaborates with
+        ``serialize_content_block``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return {
             "role": self.role,
             "content": [serialize_content_block(block) for block in self.content],
         }
 
     def is_effectively_empty(self) -> bool:
-        """Return True when the message carries no useful content."""
+        """Return True when the message carries no useful content.
+
+        Integration: Called by ``sanitize_conversation_messages``, ``run_query`` and
+        collaborates with ``block.text.strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self.content:
             for block in self.content:
                 if isinstance(block, TextBlock) and block.text.strip():
@@ -124,6 +262,16 @@ def sanitize_conversation_messages(messages: list[ConversationMessage]) -> list[
     matching user ``tool_result`` response. Those broken tails can happen when a
     session is interrupted mid-turn and would later cause OpenAI-compatible
     providers to reject the resumed conversation.
+
+    Integration: Called by ``OhmoSessionRuntimePool._refresh_bundle``, ``save_session_snapshot``
+    and collaborates with ``sanitized.append``, ``sanitized.pop``,
+    ``message.is_effectively_empty``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     sanitized: list[ConversationMessage] = []
     pending_tool_use_ids: set[str] = set()
@@ -172,7 +320,15 @@ def sanitize_conversation_messages(messages: list[ConversationMessage]) -> list[
 
 
 def serialize_content_block(block: ContentBlock) -> dict[str, Any]:
-    """Convert a local content block into the provider wire format."""
+    """Convert a local content block into the provider wire format.
+
+    Integration: Called by ``ConversationMessage.to_api_param``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(block, TextBlock):
         return {"type": "text", "text": block.text}
 
@@ -203,7 +359,17 @@ def serialize_content_block(block: ContentBlock) -> dict[str, Any]:
 
 
 def assistant_message_from_api(raw_message: Any) -> ConversationMessage:
-    """Convert an Anthropic SDK message object into a conversation message."""
+    """Convert an Anthropic SDK message object into a conversation message.
+
+    Integration: Called by ``AnthropicApiClient._stream_once`` and collaborates with
+    ``ConversationMessage``, ``content.append``, ``TextBlock``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     content: list[ContentBlock] = []
 
     for raw_block in getattr(raw_message, "content", []):

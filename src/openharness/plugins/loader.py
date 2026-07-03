@@ -1,4 +1,15 @@
-"""Plugin discovery and loading."""
+"""Plugin discovery and loading.
+
+Integration: This module participates in manifest-driven discovery of optional skills, commands,
+agents, tools, hooks, and MCP servers.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project-plugin opt-in trust, import isolation, precedence, namespacing,
+and actionable load failures.
+"""
 
 from __future__ import annotations
 
@@ -34,21 +45,48 @@ logger = logging.getLogger(__name__)
 
 
 def get_user_plugins_dir() -> Path:
-    """Return the user plugin directory."""
+    """Return the user plugin directory.
+
+    Integration: Called by ``_resolve_user_plugin_dir``, ``install_plugin_from_path`` and
+    collaborates with ``path.mkdir``, ``get_config_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = get_config_dir() / "plugins"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def get_project_plugins_dir(cwd: str | Path) -> Path:
-    """Return the project plugin directory."""
+    """Return the project plugin directory.
+
+    Integration: Called by ``discover_plugin_paths``, ``discover_plugin_paths_for_settings`` and
+    collaborates with ``path.mkdir``, ``resolve``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = Path(cwd).resolve() / ".openharness" / "plugins"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _find_manifest(plugin_dir: Path) -> Path | None:
-    """Find plugin.json in standard or .claude-plugin/ locations."""
+    """Find plugin.json in standard or .claude-plugin/ locations.
+
+    Integration: Called by ``discover_plugin_paths``, ``discover_plugin_paths_for_settings`` and
+    collaborates with ``candidate.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for candidate in [
         plugin_dir / "plugin.json",
         plugin_dir / ".claude-plugin" / "plugin.json",
@@ -59,7 +97,16 @@ def _find_manifest(plugin_dir: Path) -> Path | None:
 
 
 def discover_plugin_paths(cwd: str | Path, extra_roots: Iterable[str | Path] | None = None) -> list[Path]:
-    """Find plugin directories from user and project locations."""
+    """Find plugin directories from user and project locations.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_user_plugins_dir``, ``get_project_plugins_dir``, ``resolve``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     roots = [get_user_plugins_dir(), get_project_plugins_dir(cwd)]
     if extra_roots:
         for root in extra_roots:
@@ -83,7 +130,16 @@ def discover_plugin_paths_for_settings(
     cwd: str | Path,
     extra_roots: Iterable[str | Path] | None = None,
 ) -> list[Path]:
-    """Find plugin directories that are permitted by the active settings."""
+    """Find plugin directories that are permitted by the active settings.
+
+    Integration: Called by ``load_plugins`` and collaborates with ``get_user_plugins_dir``,
+    ``roots.append``, ``get_project_plugins_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     roots = [get_user_plugins_dir()]
     if getattr(settings, "allow_project_plugins", False):
         roots.append(get_project_plugins_dir(cwd))
@@ -105,7 +161,17 @@ def discover_plugin_paths_for_settings(
 
 
 def load_plugins(settings, cwd: str | Path, extra_roots: Iterable[str | Path] | None = None) -> list[LoadedPlugin]:
-    """Load plugins from disk."""
+    """Load plugins from disk.
+
+    Integration: Called by ``_run_scenario``, ``_run_plugin_flow`` and collaborates with
+    ``get_project_plugins_dir``, ``discover_plugin_paths_for_settings``, ``any``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     project_plugins_dir = get_project_plugins_dir(cwd)
     if not getattr(settings, "allow_project_plugins", False) and any(
         path.is_dir() and _find_manifest(path) is not None for path in sorted(project_plugins_dir.iterdir())
@@ -124,7 +190,16 @@ def load_plugins(settings, cwd: str | Path, extra_roots: Iterable[str | Path] | 
 
 
 def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | None:
-    """Load one plugin directory."""
+    """Load one plugin directory.
+
+    Integration: Called by ``load_plugins`` and collaborates with ``_find_manifest``,
+    ``enabled_plugins.get``, ``_load_plugin_skills``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     manifest_path = _find_manifest(path)
     if manifest_path is None:
         return None
@@ -163,6 +238,15 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
 
 
 def _parse_frontmatter(content: str, path: Path) -> tuple[dict[str, Any], str]:
+    """Parse frontmatter for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``content.find``, ``yaml.safe_load``, ``logger.debug``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not content.startswith("---\n"):
         return {}, content
     marker = "\n---\n"
@@ -182,6 +266,16 @@ def _parse_frontmatter(content: str, path: Path) -> tuple[dict[str, Any], str]:
 
 
 def _extract_description(frontmatter: dict[str, Any], body: str, *, fallback: str) -> str:
+    """Extract description for the enclosing subsystem.
+
+    Integration: Called by ``_load_single_command_file`` and collaborates with
+    ``frontmatter.get``, ``body.splitlines``, ``description.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     description = frontmatter.get("description")
     if isinstance(description, str) and description.strip():
         return description.strip()
@@ -201,6 +295,16 @@ def _walk_plugin_markdown(
     *,
     stop_at_skill_dir: bool,
 ) -> list[Path]:
+    """Derive walk plugin markdown from the current inputs and subsystem state.
+
+    Integration: Called by ``_load_commands_from_directory``, ``_load_agents_from_directory``
+    and collaborates with ``os.walk``, ``root.exists``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not root.exists():
         return []
     files: list[Path] = []
@@ -218,6 +322,16 @@ def _walk_plugin_markdown(
 
 
 def _transform_command_files(files: list[Path]) -> list[Path]:
+    """Derive transform command files from the current inputs and subsystem state.
+
+    Integration: Called by ``_load_commands_from_directory`` and collaborates with
+    ``files_by_dir.items``, ``append``, ``result.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     files_by_dir: dict[Path, list[Path]] = {}
     for file_path in files:
         files_by_dir.setdefault(file_path.parent, []).append(file_path)
@@ -232,6 +346,16 @@ def _transform_command_files(files: list[Path]) -> list[Path]:
 
 
 def _command_name_from_file(file_path: Path, base_dir: Path, plugin_name: str) -> str:
+    """Derive a plugin command name from its definition file.
+
+    Integration: Called by ``_load_commands_from_directory`` and collaborates with ``join``,
+    ``file_path.name.lower``, ``parent_of_skill_dir.relative_to``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if file_path.name.lower() == "skill.md":
         skill_dir = file_path.parent
         parent_of_skill_dir = skill_dir.parent
@@ -249,7 +373,16 @@ def _command_name_from_file(file_path: Path, base_dir: Path, plugin_name: str) -
 
 
 def _load_plugin_skills(path: Path) -> list[SkillDefinition]:
-    """Load plugin skills using Claude Code's directory SKILL.md layout."""
+    """Load plugin skills using Claude Code's directory SKILL.md layout.
+
+    Integration: Called by ``load_plugin`` and collaborates with ``direct_skill.exists``,
+    ``path.exists``, ``direct_skill.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     if not path.exists():
         return []
     skills: list[SkillDefinition] = []
@@ -308,6 +441,15 @@ def _load_plugin_skills(path: Path) -> list[SkillDefinition]:
 
 
 def _coerce_path_list(raw: Any) -> list[str]:
+    """Coerce path list for the enclosing subsystem.
+
+    Integration: Called by ``_load_plugin_commands``, ``_load_plugin_agents``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if raw is None:
         return []
     if isinstance(raw, str):
@@ -318,6 +460,16 @@ def _coerce_path_list(raw: Any) -> list[str]:
 
 
 def _load_plugin_commands(path: Path, manifest: PluginManifest) -> list[PluginCommandDefinition]:
+    """Load plugin commands for the enclosing subsystem.
+
+    Integration: Called by ``load_plugin`` and collaborates with ``commands.extend``,
+    ``_load_commands_from_directory``, ``manifest_commands.items``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     commands: list[PluginCommandDefinition] = []
     seen: set[Path] = set()
     default_commands_dir = path / "commands"
@@ -396,6 +548,16 @@ def _load_commands_from_directory(
     plugin_name: str,
     seen: set[Path],
 ) -> list[PluginCommandDefinition]:
+    """Load commands from directory for the enclosing subsystem.
+
+    Integration: Called by ``_load_plugin_commands`` and collaborates with
+    ``_walk_plugin_markdown``, ``_transform_command_files``, ``directory.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not directory.exists():
         return []
     raw_files = _walk_plugin_markdown(directory, stop_at_skill_dir=True)
@@ -429,6 +591,16 @@ def _load_single_command_file(
     metadata_override: dict[str, Any] | None,
     seen: set[Path],
 ) -> PluginCommandDefinition | None:
+    """Load single command file for the enclosing subsystem.
+
+    Integration: Called by ``_load_plugin_commands``, ``_load_commands_from_directory`` and
+    collaborates with ``file_path.resolve``, ``seen.add``, ``file_path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     if not file_path.exists():
         return None
     resolved = file_path.resolve()
@@ -477,6 +649,16 @@ def _load_single_command_file(
 
 
 def _load_plugin_agents(path: Path, manifest: PluginManifest) -> list[AgentDefinition]:
+    """Load plugin agents for the enclosing subsystem.
+
+    Integration: Called by ``load_plugin`` and collaborates with ``agents.extend``,
+    ``_coerce_path_list``, ``_load_agents_from_directory``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     agents: list[AgentDefinition] = []
     seen: set[Path] = set()
     default_agents_dir = path / "agents"
@@ -498,6 +680,16 @@ def _load_agents_from_directory(
     plugin_name: str,
     seen: set[Path],
 ) -> list[AgentDefinition]:
+    """Load agents from directory for the enclosing subsystem.
+
+    Integration: Called by ``_load_plugin_agents`` and collaborates with
+    ``_walk_plugin_markdown``, ``directory.exists``, ``_load_single_agent_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not directory.exists():
         return []
     agents: list[AgentDefinition] = []
@@ -521,6 +713,16 @@ def _load_single_agent_file(
     namespace: tuple[str, ...],
     seen: set[Path],
 ) -> AgentDefinition | None:
+    """Load single agent file for the enclosing subsystem.
+
+    Integration: Called by ``_load_plugin_agents``, ``_load_agents_from_directory`` and
+    collaborates with ``file_path.resolve``, ``seen.add``, ``file_path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     if not file_path.exists():
         return None
     resolved = file_path.resolve()
@@ -619,7 +821,16 @@ def _load_single_agent_file(
 
 
 def _load_plugin_hooks(path: Path) -> dict[str, list]:
-    """Load hooks from a flat hooks.json file."""
+    """Load hooks from a flat hooks.json file.
+
+    Integration: Called by ``load_plugin`` and collaborates with ``json.loads``, ``raw.items``,
+    ``path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     if not path.exists():
         return {}
     from openharness.hooks.schemas import (
@@ -647,7 +858,16 @@ def _load_plugin_hooks(path: Path) -> dict[str, list]:
 
 
 def _load_plugin_hooks_structured(path: Path, plugin_root: Path) -> dict[str, list]:
-    """Load hooks from structured hooks.json format."""
+    """Load hooks from structured hooks.json format.
+
+    Integration: Called by ``load_plugin`` and collaborates with ``raw.get``,
+    ``hooks_data.items``, ``path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if not path.exists():
         return {}
     try:
@@ -678,7 +898,16 @@ def _load_plugin_hooks_structured(path: Path, plugin_root: Path) -> dict[str, li
 
 
 def _load_plugin_mcp(path: Path) -> dict[str, object]:
-    """Load MCP server configuration from a JSON file."""
+    """Load MCP server configuration from a JSON file.
+
+    Integration: Called by ``load_plugin`` and collaborates with ``json.loads``,
+    ``McpJsonConfig.model_validate``, ``path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     if not path.exists():
         return {}
     from openharness.mcp.types import McpJsonConfig
@@ -689,7 +918,15 @@ def _load_plugin_mcp(path: Path) -> dict[str, object]:
 
 
 def _load_plugin_tools(path: Path, manifest: PluginManifest) -> list:
-    """Discover and instantiate BaseTool subclasses from a plugin's tools/ directory."""
+    """Discover and instantiate BaseTool subclasses from a plugin's tools/ directory.
+
+    Integration: Called by ``load_plugin`` and collaborates with ``tools_dir.is_dir``,
+    ``tools_dir.glob``, ``py_file.name.startswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.tools.base import BaseTool
 
     tools_dir = path / manifest.tools_dir

@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""E2E tests for React TUI interactions: command picker, permission flow, shortcuts."""
+"""E2E tests for React TUI interactions: command picker, permission flow, shortcuts.
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +30,15 @@ FRONTEND_DIR = PROJECT_ROOT / "frontend" / "terminal"
 
 
 def _env() -> dict[str, str]:
+    """Build the isolated environment used by this validation workflow.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     env = os.environ.copy()
     env.setdefault("ANTHROPIC_BASE_URL", os.environ.get("ANTHROPIC_BASE_URL", ""))
     # ANTHROPIC_AUTH_TOKEN must be set in environment
@@ -26,7 +47,15 @@ def _env() -> dict[str, str]:
 
 
 def test_command_picker_shows() -> tuple[bool, str]:
-    """Test that typing / triggers the command picker with available commands."""
+    """Test that typing / triggers the command picker with available commands.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_env``, ``json.dumps``, ``env.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         import pexpect
     except ImportError:
@@ -67,7 +96,15 @@ def test_command_picker_shows() -> tuple[bool, str]:
 
 
 def test_permission_flow() -> tuple[bool, str]:
-    """Test that permission modal appears and y/n works."""
+    """Test that permission modal appears and y/n works.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_env``, ``json.dumps``, ``env.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         import pexpect
     except ImportError:
@@ -116,7 +153,15 @@ def test_permission_flow() -> tuple[bool, str]:
 
 
 def test_shortcut_hints_visible() -> tuple[bool, str]:
-    """Test that keyboard shortcut hints are visible in the TUI."""
+    """Test that keyboard shortcut hints are visible in the TUI.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_env``, ``json.dumps``, ``pexpect.spawn``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         import pexpect
     except ImportError:
@@ -158,7 +203,15 @@ def test_shortcut_hints_visible() -> tuple[bool, str]:
 
 
 def test_no_headless_flag() -> tuple[bool, str]:
-    """Test that --headless flag is removed."""
+    """Test that --headless flag is removed.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``subprocess.run``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     import subprocess
     result = subprocess.run(
         [sys.executable, "-m", "openharness", "--help"],
@@ -171,6 +224,15 @@ def test_no_headless_flag() -> tuple[bool, str]:
 
 
 def main() -> None:
+    """Run the script's top-level validation or application workflow.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``sys.exit``, ``func``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     tests = [
         ("no_headless_flag", test_no_headless_flag),
         ("command_picker", test_command_picker_shows),

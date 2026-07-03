@@ -1,4 +1,15 @@
-"""MCP tool adapters."""
+"""MCP tool adapters.
+
+Integration: This module participates in model-callable tools registered with the shared engine
+governance path.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve Pydantic schemas, async ToolResult behavior, read-only policy,
+context.cwd, hooks, sandboxing, output bounds, and registration.
+"""
 
 from __future__ import annotations
 
@@ -12,9 +23,29 @@ from openharness.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
 class McpToolAdapter(BaseTool):
-    """Expose one MCP tool as a normal OpenHarness tool."""
+    """Expose one MCP tool as a normal OpenHarness tool.
+
+    Integration: Constructed or referenced by ``create_default_tool_registry``.
+
+    Event loop: Async methods ``execute`` run on their caller's loop; instances must retain
+    clear task, cancellation, and cleanup ownership.
+
+    Change safety: Keep the input schema, read-only classification, async ``ToolResult``
+    contract, permission metadata, hooks, sandbox behavior, and registration synchronized.
+    """
 
     def __init__(self, manager: McpClientManager, tool_info: McpToolInfo) -> None:
+        """Initialize ``McpToolAdapter`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``McpToolAdapter`` and collaborates with
+        ``_sanitize_tool_segment``, ``_input_model_from_schema``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._manager = manager
         self._tool_info = tool_info
         server_segment = _sanitize_tool_segment(tool_info.server_name)
@@ -24,6 +55,22 @@ class McpToolAdapter(BaseTool):
         self.input_model = _input_model_from_schema(self.name, tool_info.input_schema)
 
     async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
+        """Execute one model-requested ``McpToolAdapter`` invocation.
+
+        Integration: Exposed through ``McpToolAdapter`` and collaborates with ``ToolResult``,
+        ``_manager.call_tool``, ``arguments.model_dump``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+
+        Tool contract: The engine validates the Pydantic input and applies hooks and permission
+        policy before awaiting this method. Return ``ToolResult`` for expected operational
+        failures, resolve paths from ``context.cwd``, keep output and metadata serializable and
+        bounded, and do not block the event loop. Revisit sandbox routing, secret redaction,
+        tool-result replay, and registration whenever execution behavior changes.
+        """
         del context
         try:
             output = await self._manager.call_tool(
@@ -47,6 +94,16 @@ _JSON_TYPE_MAP: dict[str, type] = {
 
 
 def _input_model_from_schema(tool_name: str, schema: dict[str, object]) -> type[BaseModel]:
+    """Build a Pydantic tool-input model from an MCP JSON schema.
+
+    Integration: Called by ``McpToolAdapter.__init__`` and collaborates with ``schema.get``,
+    ``create_model``, ``_JSON_TYPE_MAP.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     properties = schema.get("properties", {})
     if not isinstance(properties, dict):
         return create_model(f"{tool_name.title()}Input")
@@ -64,6 +121,16 @@ def _input_model_from_schema(tool_name: str, schema: dict[str, object]) -> type[
 
 
 def _sanitize_tool_segment(value: str) -> str:
+    """Sanitize tool segment for the enclosing subsystem.
+
+    Integration: Called by ``McpToolAdapter.__init__`` and collaborates with ``re.sub``,
+    ``isalpha``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     sanitized = re.sub(r"[^A-Za-z0-9_-]", "_", value)
     if not sanitized:
         return "tool"

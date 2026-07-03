@@ -1,4 +1,15 @@
-"""ohmo-only Feishu group management tool."""
+"""ohmo-only Feishu group management tool.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +29,17 @@ PublishGroupWelcome = Callable[[str, str, str], Awaitable[None] | None]
 
 
 class OhmoCreateFeishuGroupInput(BaseModel):
-    """Arguments selected by the model for creating a Feishu group."""
+    """Arguments selected by the model for creating a Feishu group.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     name: str = Field(description="Final Feishu group name to create.")
     cwd: str | None = Field(
@@ -36,7 +57,16 @@ class OhmoCreateFeishuGroupInput(BaseModel):
 
 
 class OhmoCreateFeishuGroupTool(BaseTool):
-    """Create a Feishu group for the current ohmo private-chat requester."""
+    """Create a Feishu group for the current ohmo private-chat requester.
+
+    Integration: Constructed or referenced by ``OhmoSessionRuntimePool._register_group_tool``.
+
+    Event loop: Async methods ``execute`` run on their caller's loop; instances must retain
+    clear task, cancellation, and cleanup ownership.
+
+    Change safety: Keep the input schema, read-only classification, async ``ToolResult``
+    contract, permission metadata, hooks, sandbox behavior, and registration synchronized.
+    """
 
     name = "ohmo_create_feishu_group"
     description = (
@@ -53,6 +83,16 @@ class OhmoCreateFeishuGroupTool(BaseTool):
         create_group: CreateFeishuGroup,
         publish_group_welcome: PublishGroupWelcome | None = None,
     ) -> None:
+        """Initialize ``OhmoCreateFeishuGroupTool`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``OhmoCreateFeishuGroupTool``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._workspace = workspace
         self._create_group = create_group
         self._publish_group_welcome = publish_group_welcome
@@ -61,10 +101,32 @@ class OhmoCreateFeishuGroupTool(BaseTool):
         # Permission is enforced by the slash-command context guard below. This
         # tool is only registered inside ohmo gateway sessions and cannot run
         # unless the current inbound message was a private Feishu /group request.
+        """Classify whether this ``OhmoCreateFeishuGroupTool`` invocation can mutate state.
+
+        Integration: Exposed through ``OhmoCreateFeishuGroupTool``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve conservative argument-aware classification used by permission
+        policy expected by callers.
+        """
         del arguments
         return True
 
     async def execute(self, arguments: OhmoCreateFeishuGroupInput, context: ToolExecutionContext) -> ToolResult:
+        """Execute one model-requested ``OhmoCreateFeishuGroupTool`` invocation.
+
+        Integration: Exposed through ``OhmoCreateFeishuGroupTool`` and collaborates with
+        ``_resolve_cwd``, ``ToolResult``, ``normalize_group_name``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the asynchronous ``ToolResult`` contract, ``context.cwd``, and
+        normalized operational failures; preserve permission, hook, sandbox, metadata, and
+        output-size assumptions; preserve exception and fallback behavior expected by callers.
+        """
         request = context.metadata.get("ohmo_group_request")
         if not isinstance(request, dict):
             return ToolResult(
@@ -150,6 +212,17 @@ class OhmoCreateFeishuGroupTool(BaseTool):
 
 
 def _resolve_cwd(raw: str | None, base_cwd: Path) -> str | None:
+    """Resolve working directory for the enclosing subsystem.
+
+    Integration: Called by ``OhmoCreateFeishuGroupTool.execute`` and collaborates with
+    ``expanduser``, ``path.is_absolute``, ``path.resolve``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if raw is None or not str(raw).strip():
         return None
     path = Path(str(raw).strip()).expanduser()

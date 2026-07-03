@@ -5,6 +5,16 @@ Settings are resolved with the following precedence (highest first):
 2. Environment variables (ANTHROPIC_API_KEY, OPENHARNESS_MODEL, etc.)
 3. Config file (~/.openharness/settings.json)
 4. Defaults
+
+Integration: This module participates in settings models, persisted profiles, environment input,
+and CLI override precedence.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve backward-compatible fields/defaults, secret redaction, profile
+materialization, and atomic persistence.
 """
 
 from __future__ import annotations
@@ -34,6 +44,14 @@ def strip_ansi_escape_sequences(text: str) -> str:
 
     This is used to clean environment variables that may contain terminal
     formatting codes (e.g., '[1m' for bold) which can corrupt API requests.
+
+    Integration: Called by ``Settings.merge_cli_overrides``, ``_apply_env_overrides`` and
+    collaborates with ``_ANSI_ESCAPE_PATTERN.sub``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if not text:
         return text
@@ -41,14 +59,33 @@ def strip_ansi_escape_sequences(text: str) -> str:
 
 
 class PathRuleConfig(BaseModel):
-    """A glob-pattern path permission rule."""
+    """A glob-pattern path permission rule.
+
+    Integration: Constructed or referenced by ``test_path_permissions_deny``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     pattern: str
     allow: bool = True
 
 
 class PermissionSettings(BaseModel):
-    """Permission mode configuration."""
+    """Permission mode configuration.
+
+    Integration: Constructed or referenced by ``test_path_permissions_deny``,
+    ``test_command_deny_pattern``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     mode: PermissionMode = PermissionMode.DEFAULT
     allowed_tools: list[str] = Field(default_factory=list)
@@ -58,7 +95,17 @@ class PermissionSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    """Memory system configuration."""
+    """Memory system configuration.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     enabled: bool = True
     max_files: int = 5
@@ -75,14 +122,33 @@ class MemorySettings(BaseModel):
 
 
 class SandboxNetworkSettings(BaseModel):
-    """OS-level network restrictions passed to sandbox-runtime."""
+    """OS-level network restrictions passed to sandbox-runtime.
+
+    Integration: Constructed or referenced by ``_settings``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     allowed_domains: list[str] = Field(default_factory=list)
     denied_domains: list[str] = Field(default_factory=list)
 
 
 class SandboxFilesystemSettings(BaseModel):
-    """OS-level filesystem restrictions passed to sandbox-runtime."""
+    """OS-level filesystem restrictions passed to sandbox-runtime.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     allow_read: list[str] = Field(default_factory=list)
     deny_read: list[str] = Field(default_factory=list)
@@ -91,7 +157,16 @@ class SandboxFilesystemSettings(BaseModel):
 
 
 class DockerSandboxSettings(BaseModel):
-    """Docker-specific sandbox configuration."""
+    """Docker-specific sandbox configuration.
+
+    Integration: Constructed or referenced by ``_settings``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     image: str = "openharness-sandbox:latest"
     auto_build_image: bool = True
@@ -102,7 +177,16 @@ class DockerSandboxSettings(BaseModel):
 
 
 class SandboxSettings(BaseModel):
-    """Sandbox-runtime integration settings."""
+    """Sandbox-runtime integration settings.
+
+    Integration: Constructed or referenced by ``_settings``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     enabled: bool = False
     backend: str = "srt"
@@ -114,7 +198,17 @@ class SandboxSettings(BaseModel):
 
 
 class WebSettings(BaseModel):
-    """Outbound web tool configuration."""
+    """Outbound web tool configuration.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     proxy: str | None = None
     resolution_mode: str = "auto"
@@ -122,7 +216,17 @@ class WebSettings(BaseModel):
 
 
 class ProviderProfile(BaseModel):
-    """Named provider workflow configuration."""
+    """Named provider workflow configuration.
+
+    Integration: Constructed or referenced by ``_configure_custom_profile_via_setup``,
+    ``_ensure_preset_profile``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     label: str
     provider: str
@@ -138,7 +242,17 @@ class ProviderProfile(BaseModel):
 
     @property
     def resolved_model(self) -> str:
-        """Return the active model for this profile."""
+        """Return the active model for this profile.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``resolve_model_setting``, ``strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return resolve_model_setting(
             (self.last_model or "").strip() or self.default_model,
             self.provider,
@@ -148,7 +262,16 @@ class ProviderProfile(BaseModel):
 
 @dataclass(frozen=True)
 class ResolvedAuth:
-    """Normalized auth material used to construct API clients."""
+    """Normalized auth material used to construct API clients.
+
+    Integration: Constructed or referenced by ``Settings.resolve_auth``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     provider: str
     auth_kind: str
@@ -182,6 +305,14 @@ def normalize_anthropic_model_name(model: str) -> str:
 
     - Strips the ``anthropic/`` prefix when present.
     - Converts dotted Claude version separators to Anthropic's hyphenated form.
+
+    Integration: Called by ``resolve_model_setting`` and collaborates with ``model.strip``,
+    ``normalized.lower``, ``lower.startswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     normalized = model.strip()
     lower = normalized.lower()
@@ -194,7 +325,16 @@ def normalize_anthropic_model_name(model: str) -> str:
 
 
 def default_provider_profiles() -> dict[str, ProviderProfile]:
-    """Return the built-in provider workflow catalog."""
+    """Return the built-in provider workflow catalog.
+
+    Integration: Called by ``builtin_provider_profile_names``, ``display_label_for_profile`` and
+    collaborates with ``ProviderProfile``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         "claude-api": ProviderProfile(
             label="Anthropic-Compatible API",
@@ -283,7 +423,17 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
 
 
 def builtin_provider_profile_names() -> set[str]:
-    """Return the names of built-in provider profiles."""
+    """Return the names of built-in provider profiles.
+
+    Integration: Called by ``AuthManager.remove_profile``,
+    ``_default_credential_slot_for_profile`` and collaborates with
+    ``default_provider_profiles``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return set(default_provider_profiles())
 
 
@@ -292,6 +442,14 @@ def display_label_for_profile(profile_name: str, profile: ProviderProfile) -> st
 
     Built-in profiles always use the current built-in catalog label so old
     persisted settings don't keep stale wording in menus.
+
+    Integration: Called by ``AuthManager.get_profile_statuses`` and collaborates with ``get``,
+    ``default_provider_profiles``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     builtin = default_provider_profiles().get(profile_name)
     if builtin is not None:
@@ -300,12 +458,30 @@ def display_label_for_profile(profile_name: str, profile: ProviderProfile) -> st
 
 
 def is_claude_family_provider(provider: str) -> bool:
-    """Return True when the provider is a Claude/Anthropic workflow."""
+    """Return True when the provider is a Claude/Anthropic workflow.
+
+    Integration: Called by ``_prompt_model_for_profile``, ``display_model_setting``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return provider in {"anthropic", "anthropic_claude"}
 
 
 def display_model_setting(profile: ProviderProfile) -> str:
-    """Return the user-facing model setting for a profile."""
+    """Return the user-facing model setting for a profile.
+
+    Integration: Called by ``AuthManager.get_profile_statuses``, ``_prompt_model_for_profile``
+    and collaborates with ``strip``, ``is_claude_family_provider``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     configured = (profile.last_model or "").strip()
     if not configured and is_claude_family_provider(profile.provider):
         return "default"
@@ -319,7 +495,17 @@ def resolve_model_setting(
     default_model: str | None = None,
     permission_mode: str | None = None,
 ) -> str:
-    """Resolve a user-facing model setting into the concrete runtime model ID."""
+    """Resolve a user-facing model setting into the concrete runtime model ID.
+
+    Integration: Called by ``ProviderProfile.resolved_model``,
+    ``Settings.materialize_active_profile`` and collaborates with ``model_setting.strip``,
+    ``configured.lower``, ``is_claude_family_provider``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     configured = model_setting.strip()
     normalized = configured.lower()
 
@@ -354,7 +540,16 @@ def resolve_model_setting(
 
 
 def auth_source_provider_name(auth_source: str) -> str:
-    """Map an auth source to the storage/runtime provider name."""
+    """Map an auth source to the storage/runtime provider name.
+
+    Integration: Called by ``AuthManager.get_auth_source_statuses``,
+    ``AuthManager.store_credential`` and collaborates with ``mapping.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     mapping = {
         "anthropic_api_key": "anthropic",
         "openai_api_key": "openai",
@@ -374,12 +569,29 @@ def auth_source_provider_name(auth_source: str) -> str:
 
 
 def auth_source_uses_api_key(auth_source: str) -> bool:
-    """Return True when the auth source is backed by a user-supplied API key."""
+    """Return True when the auth source is backed by a user-supplied API key.
+
+    Integration: Called by ``AuthManager.get_profile_statuses``,
+    ``_default_credential_slot_for_profile`` and collaborates with ``auth_source.endswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return auth_source.endswith("_api_key")
 
 
 def auth_source_env_var_candidates(auth_source: str) -> tuple[str, ...]:
-    """Return env vars to probe for an auth source in precedence order."""
+    """Return env vars to probe for an auth source in precedence order.
+
+    Integration: Called by ``resolve_auth_env_value`` and collaborates with ``mapping.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     mapping = {
         "anthropic_api_key": ("OPENHARNESS_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
         "openai_api_key": ("OPENHARNESS_OPENAI_API_KEY", "OPENAI_API_KEY"),
@@ -394,7 +606,16 @@ def auth_source_env_var_candidates(auth_source: str) -> tuple[str, ...]:
 
 
 def resolve_auth_env_value(auth_source: str) -> tuple[str, str] | None:
-    """Return the first configured env var/value pair for an auth source."""
+    """Return the first configured env var/value pair for an auth source.
+
+    Integration: Called by ``Settings.resolve_api_key``, ``Settings.resolve_auth`` and
+    collaborates with ``auth_source_env_var_candidates``, ``os.environ.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for env_var in auth_source_env_var_candidates(auth_source):
         env_value = os.environ.get(env_var, "")
         if env_value:
@@ -407,6 +628,15 @@ def credential_storage_provider_name(profile_name: str, profile: ProviderProfile
 
     Built-in API-key flows continue to use provider-level storage by default.
     Custom compatible profiles can set ``credential_slot`` to bind their own key.
+
+    Integration: Called by ``AuthManager.get_profile_statuses``,
+    ``AuthManager.store_profile_credential`` and collaborates with
+    ``auth_source_provider_name``, ``auth_source_uses_api_key``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     del profile_name
     if auth_source_uses_api_key(profile.auth_source) and profile.credential_slot:
@@ -415,7 +645,16 @@ def credential_storage_provider_name(profile_name: str, profile: ProviderProfile
 
 
 def default_auth_source_for_provider(provider: str, api_format: str | None = None) -> str:
-    """Infer the default auth source for a provider/backend."""
+    """Infer the default auth source for a provider/backend.
+
+    Integration: Called by ``AuthManager.update_profile``,
+    ``_configure_custom_profile_via_setup``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if provider == "anthropic_claude":
         return "claude_subscription"
     if provider == "openai_codex":
@@ -444,6 +683,16 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
 
 
 def _slugify_profile_name(value: str) -> str:
+    """Derive slugify profile name from the current inputs and subsystem state.
+
+    Integration: Called by ``_infer_profile_name_from_flat_settings`` and collaborates with
+    ``strip``, ``cleaned.replace``, ``join``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
     while "--" in cleaned:
         cleaned = cleaned.replace("--", "-")
@@ -451,6 +700,16 @@ def _slugify_profile_name(value: str) -> str:
 
 
 def _infer_profile_name_from_flat_settings(settings: "Settings") -> str:
+    """Infer a provider-profile name from legacy flat settings.
+
+    Integration: Called by ``_profile_from_flat_settings`` and collaborates with ``strip``,
+    ``_slugify_profile_name``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     provider = (settings.provider or "").strip()
     if provider == "openai_codex":
         return "codex"
@@ -470,6 +729,16 @@ def _infer_profile_name_from_flat_settings(settings: "Settings") -> str:
 
 
 def _profile_from_flat_settings(settings: "Settings") -> tuple[str, ProviderProfile]:
+    """Construct a provider profile from legacy flat settings.
+
+    Integration: Called by ``Settings.resolve_profile``, ``load_settings`` and collaborates with
+    ``default_provider_profiles``, ``_infer_profile_name_from_flat_settings``, ``defaults.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     defaults = default_provider_profiles()
     name = _infer_profile_name_from_flat_settings(settings)
     existing = defaults.get(name)
@@ -507,7 +776,17 @@ def _profile_from_flat_settings(settings: "Settings") -> tuple[str, ProviderProf
 
 
 class ImageGenerationConfig(BaseModel):
-    """Configuration for the image_generation tool."""
+    """Configuration for the image_generation tool.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     provider: str = "auto"
     model: str = "gpt-image-2"
@@ -518,7 +797,17 @@ class ImageGenerationConfig(BaseModel):
 
     @classmethod
     def from_env(cls) -> "ImageGenerationConfig":
-        """Load image generation config from environment variables."""
+        """Load image generation config from environment variables.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``cls``, ``strip``, ``os.environ.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             provider=os.environ.get("OPENHARNESS_IMAGE_GENERATION_PROVIDER", "auto").strip()
             or "auto",
@@ -533,7 +822,16 @@ class ImageGenerationConfig(BaseModel):
 
     @property
     def is_configured(self) -> bool:
-        """Return True when either a key provider or Codex provider is selected."""
+        """Return True when either a key provider or Codex provider is selected.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return bool(self.api_key or self.provider in {"auto", "codex"})
 
 
@@ -542,6 +840,15 @@ class VisionModelConfig(BaseModel):
 
     When the active model does not support multimodal input, the agent loop
     automatically falls back to this vision model to describe images.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
     """
 
     model: str = ""
@@ -550,7 +857,17 @@ class VisionModelConfig(BaseModel):
 
     @classmethod
     def from_env(cls) -> "VisionModelConfig":
-        """Load vision model config from environment variables."""
+        """Load vision model config from environment variables.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``cls``, ``strip``, ``os.environ.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             model=os.environ.get("OPENHARNESS_VISION_MODEL", "").strip(),
             api_key=os.environ.get("OPENHARNESS_VISION_API_KEY", "").strip(),
@@ -559,12 +876,30 @@ class VisionModelConfig(BaseModel):
 
     @property
     def is_configured(self) -> bool:
-        """Return True when both model and api_key are set."""
+        """Return True when both model and api_key are set.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return bool(self.model and self.api_key)
 
 
 class Settings(BaseModel):
-    """Main settings model for OpenHarness."""
+    """Main settings model for OpenHarness.
+
+    Integration: Constructed or referenced by ``_run_plugin_flow``, ``_settings``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     # API configuration
     api_key: str = ""
@@ -612,7 +947,17 @@ class Settings(BaseModel):
     image_generation: ImageGenerationConfig = Field(default_factory=ImageGenerationConfig)
 
     def merged_profiles(self) -> dict[str, ProviderProfile]:
-        """Return the saved profiles merged over the built-in catalog."""
+        """Return the saved profiles merged over the built-in catalog.
+
+        Integration: Called by ``AuthManager.list_profiles``, ``AuthManager.use_profile`` and
+        collaborates with ``default_provider_profiles``, ``profiles.items``, ``merged.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         merged = default_provider_profiles()
         for name, raw_profile in self.profiles.items():
             profile = (
@@ -627,7 +972,18 @@ class Settings(BaseModel):
         return merged
 
     def resolve_profile(self, name: str | None = None) -> tuple[str, ProviderProfile]:
-        """Return the active provider profile."""
+        """Return the active provider profile.
+
+        Integration: Called by ``AuthManager._provider_from_settings``,
+        ``AuthManager.get_active_profile`` and collaborates with ``merged_profiles``, ``strip``,
+        ``_profile_from_flat_settings``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         profiles = self.merged_profiles()
         profile_name = (name or self.active_profile or os.environ.get("OPENHARNESS_PROFILE") or "").strip() or "claude-api"
         if profile_name not in profiles:
@@ -637,7 +993,17 @@ class Settings(BaseModel):
         return profile_name, profiles[profile_name].model_copy(deep=True)
 
     def materialize_active_profile(self) -> Settings:
-        """Project the active profile back onto legacy flat settings fields."""
+        """Project the active profile back onto legacy flat settings fields.
+
+        Integration: Called by ``AuthManager.use_profile``, ``AuthManager.upsert_profile`` and
+        collaborates with ``resolve_profile``, ``model_copy``, ``strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         profile_name, profile = self.resolve_profile()
         configured_model = (profile.last_model or "").strip() or profile.default_model
         return self.model_copy(
@@ -664,6 +1030,15 @@ class Settings(BaseModel):
         This preserves compatibility for callers that still construct `Settings`
         by setting top-level `provider` / `api_format` / `base_url` / `model`
         directly before the profile layer is used everywhere.
+
+        Integration: Called by ``Settings.merge_cli_overrides``, ``save_settings`` and
+        collaborates with ``resolve_profile``, ``strip``, ``resolve_model_setting``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         profile_name, profile = self.resolve_profile()
         profile_from_env = bool(os.environ.get("OPENHARNESS_PROFILE"))
@@ -728,6 +1103,14 @@ class Settings(BaseModel):
         ``oh auth copilot-login`` and this method is not called.
 
         Returns the API key string. Raises ValueError if no key is found.
+
+        Integration: Called by ``_run`` and collaborates with ``resolve_profile``,
+        ``resolve_auth_env_value``, ``ValueError``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         profile_name, profile = self.resolve_profile()
         del profile_name
@@ -757,7 +1140,16 @@ class Settings(BaseModel):
         )
 
     def resolve_auth(self) -> ResolvedAuth:
-        """Resolve auth for the current provider, including subscription bridges."""
+        """Resolve auth for the current provider, including subscription bridges.
+
+        Integration: Called by ``auth_status``, ``Settings.resolve_api_key`` and collaborates
+        with ``resolve_profile``, ``profile.provider.strip``, ``auth_source_provider_name``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         profile_name, profile = self.resolve_profile()
         provider = profile.provider.strip()
         auth_source = profile.auth_source.strip() or default_auth_source_for_provider(provider, profile.api_format)
@@ -866,11 +1258,32 @@ class Settings(BaseModel):
         )
 
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
-        """Return a new Settings with CLI overrides applied (non-None values only)."""
+        """Return a new Settings with CLI overrides applied (non-None values only).
+
+        Integration: Called by ``_run_scenario``, ``_run`` and collaborates with
+        ``updates.pop``, ``apply_permission_mode``, ``profile_keys.intersection``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         updates = {k: v for k, v in overrides.items() if v is not None}
         permission_mode = updates.pop("permission_mode", None)
 
         def apply_permission_mode(settings: Settings) -> Settings:
+            """Apply permission mode for the enclosing subsystem.
+
+            Integration: Called by ``Settings.merge_cli_overrides`` and collaborates with
+            ``settings.model_copy``, ``settings.permission.model_copy``, ``PermissionMode``.
+
+            Concurrency: This is synchronous; preserve deterministic behavior for its direct
+            callers.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             if permission_mode is None:
                 return settings
             return settings.model_copy(
@@ -932,6 +1345,14 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     ``OPENAI_BASE_URL``) only apply when the active profile does *not*
     explicitly configure the corresponding field.  ``OPENHARNESS_*`` env vars
     always override (explicit user intent).
+
+    Integration: Called by ``load_settings`` and collaborates with ``settings.resolve_profile``,
+    ``strip``, ``os.environ.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     updates: dict[str, Any] = {}
 
@@ -1040,7 +1461,16 @@ def _apply_env_overrides(settings: Settings) -> Settings:
 
 
 def _parse_bool_env(value: str) -> bool:
-    """Parse a boolean environment override."""
+    """Parse a boolean environment override.
+
+    Integration: Called by ``_apply_env_overrides`` and collaborates with ``lower``,
+    ``value.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -1052,6 +1482,15 @@ def load_settings(config_path: Path | None = None) -> Settings:
 
     Returns:
         Settings instance with file values merged over defaults.
+
+    Integration: Called by ``_prompt_provider_profile``, ``doctor_cmd`` and collaborates with
+    ``config_path.exists``, ``Settings``, ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
     """
     if config_path is None:
         from openharness.config.paths import get_config_file_path
@@ -1089,6 +1528,15 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
     Args:
         settings: Settings instance to save.
         config_path: Path to write. If None, uses the default location.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``materialize_active_profile``, ``config_path.with_suffix``, ``get_config_file_path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if config_path is None:
         from openharness.config.paths import get_config_file_path

@@ -1,4 +1,15 @@
-"""Auto-dream service."""
+"""Auto-dream service.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
+"""
 
 from __future__ import annotations
 
@@ -30,11 +41,30 @@ _listener_registered = False
 
 
 def _enabled(settings: Settings) -> bool:
+    """Determine whether enabled holds for the current inputs.
+
+    Integration: Called by ``execute_auto_dream``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return bool(settings.memory.enabled and settings.memory.auto_dream_enabled)
 
 
 def _has_dream_signal(session_ids: list[str], *, force: bool) -> bool:
-    """Return whether recent sessions are worth consolidating."""
+    """Return whether recent sessions are worth consolidating.
+
+    Integration: Called by ``start_dream_now``, ``execute_auto_dream``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if force:
         return True
@@ -42,6 +72,16 @@ def _has_dream_signal(session_ids: list[str], *, force: bool) -> bool:
 
 
 def _memory_files_mtime_snapshot(memory_dir: Path) -> dict[str, float]:
+    """Derive memory files mtime snapshot from the current inputs and subsystem state.
+
+    Integration: Called by ``start_dream_now`` and collaborates with ``memory_dir.glob``,
+    ``path.stat``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     snapshot: dict[str, float] = {}
     for path in memory_dir.glob("*.md"):
         try:
@@ -52,6 +92,16 @@ def _memory_files_mtime_snapshot(memory_dir: Path) -> dict[str, float]:
 
 
 def _files_changed_since(memory_dir: Path, before: dict[str, float]) -> list[str]:
+    """Derive files changed since from the current inputs and subsystem state.
+
+    Integration: Called by ``start_dream_now``, ``start_dream_now._mark_changed_on_completion``
+    and collaborates with ``memory_dir.glob``, ``before.get``, ``changed.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     changed: list[str] = []
     for path in sorted(memory_dir.glob("*.md")):
         try:
@@ -64,11 +114,32 @@ def _files_changed_since(memory_dir: Path, before: dict[str, float]) -> list[str
 
 
 def _ensure_listener_registered() -> None:
+    """Ensure listener registered for the enclosing subsystem.
+
+    Integration: Called by ``start_dream_now`` and collaborates with
+    ``register_completion_listener``, ``task.metadata.get``, ``rollback_consolidation_lock``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     global _listener_registered
     if _listener_registered:
         return
 
     async def _listener(task: TaskRecord) -> None:
+        """Run the listener workflow through its asynchronous collaborators.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``task.metadata.get``, ``rollback_consolidation_lock``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block; retain lock scope and release behavior.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if task.type != "dream":
             return
         prior_raw = task.metadata.get("prior_mtime", "")
@@ -87,10 +158,32 @@ def _ensure_listener_registered() -> None:
 
 
 def _resolve_memory_dir(cwd: str | Path, memory_dir: str | Path | None) -> Path:
+    """Resolve memory directory for the enclosing subsystem.
+
+    Integration: Called by ``start_dream_now``, ``execute_auto_dream`` and collaborates with
+    ``resolve``, ``get_project_memory_dir``, ``expanduser``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return Path(memory_dir).expanduser().resolve() if memory_dir is not None else get_project_memory_dir(cwd)
 
 
 def _resolve_session_dir(cwd: str | Path, session_dir: str | Path | None) -> Path:
+    """Resolve session directory for the enclosing subsystem.
+
+    Integration: Called by ``start_dream_now``, ``execute_auto_dream`` and collaborates with
+    ``resolve``, ``get_project_session_dir``, ``expanduser``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return Path(session_dir).expanduser().resolve() if session_dir is not None else get_project_session_dir(cwd)
 
 
@@ -107,7 +200,18 @@ async def start_dream_now(
     runner_module: str = "openharness",
     preview: bool = False,
 ) -> TaskRecord | None:
-    """Start a dream task immediately, optionally bypassing time/session gates."""
+    """Start a dream task immediately, optionally bypassing time/session gates.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._dream_handler`` and collaborates with ``os.environ.get``,
+    ``resolve``, ``_resolve_memory_dir``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O; retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     if os.environ.get(_CHILD_ENV):
         return None
@@ -229,6 +333,18 @@ async def start_dream_now(
     )
 
     async def _mark_changed_on_completion(done: TaskRecord) -> None:
+        """Mark changed on completion for the enclosing subsystem.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_files_changed_since``, ``diff_memory_dirs``, ``join``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if done.id != task.id or done.status != "completed":
             return
         changed = _files_changed_since(resolved_memory_dir, before)
@@ -257,7 +373,17 @@ async def execute_auto_dream(
     runner_module: str = "openharness",
     preview: bool = False,
 ) -> TaskRecord | None:
-    """Run the cheap auto-dream gates and start a background dream when eligible."""
+    """Run the cheap auto-dream gates and start a background dream when eligible.
+
+    Integration: Called by ``schedule_auto_dream`` and collaborates with ``os.environ.get``,
+    ``resolve``, ``_resolve_memory_dir``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if os.environ.get(_CHILD_ENV):
         return None
@@ -304,7 +430,15 @@ async def execute_auto_dream(
 
 
 def schedule_auto_dream(**kwargs: object) -> None:
-    """Fire-and-forget auto-dream scheduling."""
+    """Fire-and-forget auto-dream scheduling.
+
+    Integration: Called by ``QueryEngine._schedule_auto_dream`` and collaborates with
+    ``loop.create_task``, ``asyncio.get_running_loop``, ``execute_auto_dream``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     try:
         loop = asyncio.get_running_loop()

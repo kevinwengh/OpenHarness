@@ -1,4 +1,13 @@
-"""CLI entry point using typer."""
+"""CLI entry point using typer.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -43,6 +52,16 @@ _PREVIEW_STOPWORDS = {
 
 
 def _safe_short(text: str, *, limit: int = 140) -> str:
+    """Derive safe short from the current inputs and subsystem state.
+
+    Integration: Called by ``_build_dry_run_preview``, ``_format_dry_run_preview`` and
+    collaborates with ``join``, ``text.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = " ".join(text.split())
     if len(normalized) <= limit:
         return normalized
@@ -50,6 +69,16 @@ def _safe_short(text: str, *, limit: int = 140) -> str:
 
 
 def _schema_argument_preview(tool_schema: dict[str, object]) -> dict[str, object]:
+    """Derive schema argument preview from the current inputs and subsystem state.
+
+    Integration: Called by ``_build_dry_run_preview`` and collaborates with ``tool_schema.get``,
+    ``input_schema.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     input_schema = tool_schema.get("input_schema")
     if not isinstance(input_schema, dict):
         return {"required_args": [], "optional_args": []}
@@ -67,6 +96,16 @@ def _schema_argument_preview(tool_schema: dict[str, object]) -> dict[str, object
 
 
 def _mcp_transport_preview(config: object) -> dict[str, str]:
+    """Derive MCP transport preview from the current inputs and subsystem state.
+
+    Integration: Called by ``_validate_mcp_server`` and collaborates with ``strip``,
+    ``config.get``, ``join``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if hasattr(config, "type"):
         transport = str(getattr(config, "type") or "unknown")
     elif isinstance(config, dict):
@@ -87,6 +126,16 @@ def _mcp_transport_preview(config: object) -> dict[str, str]:
 
 
 def _validate_mcp_server(name: str, config: object) -> dict[str, object]:
+    """Validate MCP server for the enclosing subsystem.
+
+    Integration: Called by ``_build_dry_run_preview`` and collaborates with
+    ``_mcp_transport_preview``, ``strip``, ``config.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     preview = _mcp_transport_preview(config)
     issues: list[str] = []
     status = "ok"
@@ -122,6 +171,15 @@ def _validate_mcp_server(name: str, config: object) -> dict[str, object]:
 
 
 def _dry_run_command_behavior(name: str) -> dict[str, str]:
+    """Derive dry run command behavior from the current inputs and subsystem state.
+
+    Integration: Called by ``_build_dry_run_preview``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     read_only = {
         "help",
         "version",
@@ -202,6 +260,16 @@ def _dry_run_command_behavior(name: str) -> dict[str, str]:
 
 
 def _tokenize_preview_text(text: str) -> list[str]:
+    """Derive tokenize preview text from the current inputs and subsystem state.
+
+    Integration: Called by ``_score_candidate_match`` and collaborates with ``text.lower``,
+    ``re.findall``, ``token.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lowered = text.lower()
     ascii_tokens = re.findall(r"[a-z0-9_/-]+", lowered)
     cjk_tokens = [char for char in lowered if "\u4e00" <= char <= "\u9fff"]
@@ -220,6 +288,16 @@ def _tokenize_preview_text(text: str) -> list[str]:
 
 
 def _score_candidate_match(prompt: str, *fields: str) -> tuple[int, list[str]]:
+    """Derive score candidate match from the current inputs and subsystem state.
+
+    Integration: Called by ``_recommend_preview_candidates`` and collaborates with
+    ``prompt.lower``, ``_tokenize_preview_text``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     prompt_lower = prompt.lower()
     prompt_tokens = _tokenize_preview_text(prompt)
     haystack = " ".join(field.lower() for field in fields if field).strip()
@@ -242,6 +320,15 @@ def _score_candidate_match(prompt: str, *fields: str) -> tuple[int, list[str]]:
 
 
 def _candidate_entry(name: str, description: str, *, score: int, reasons: list[str]) -> dict[str, object]:
+    """Derive candidate entry from the current inputs and subsystem state.
+
+    Integration: Called by ``_recommend_preview_candidates``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         "name": name,
         "description": description,
@@ -257,6 +344,16 @@ def _recommend_preview_candidates(
     tool_schemas: list[dict[str, object]],
     command_entries: list[dict[str, object]],
 ) -> dict[str, list[dict[str, object]]]:
+    """Derive recommend preview candidates from the current inputs and subsystem state.
+
+    Integration: Called by ``_build_dry_run_preview`` and collaborates with ``prompt.strip``,
+    ``skill_matches.sort``, ``tool_matches.sort``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not prompt:
         return {"skills": [], "tools": [], "commands": []}
     stripped = prompt.strip()
@@ -336,6 +433,16 @@ def _evaluate_dry_run_readiness(
     entrypoint: dict[str, object],
     validation: dict[str, object],
 ) -> dict[str, object]:
+    """Derive evaluate dry run readiness from the current inputs and subsystem state.
+
+    Integration: Called by ``_build_dry_run_preview`` and collaborates with ``validation.get``,
+    ``entrypoint.get``, ``reasons.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     level = "ready"
     reasons: list[str] = []
     next_actions: list[str] = []
@@ -407,6 +514,15 @@ def _build_dry_run_preview(
     permission_mode: str | None,
     effort: str | None = None,
 ) -> dict[str, object]:
+    """Build dry run preview for the enclosing subsystem.
+
+    Integration: Called by ``main`` and collaborates with ``merge_cli_overrides``,
+    ``detect_provider``, ``auth_status``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.api.provider import auth_status, detect_provider
     from openharness.commands import create_default_command_registry
     from openharness.config import get_config_file_path, load_settings
@@ -598,6 +714,16 @@ def _build_dry_run_preview(
 
 
 def _format_dry_run_preview(preview: dict[str, object]) -> str:
+    """Format dry run preview for the enclosing subsystem.
+
+    Integration: Called by ``main`` and collaborates with ``readiness.get``, ``lines.extend``,
+    ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     settings = preview.get("settings") if isinstance(preview.get("settings"), dict) else {}
     validation = preview.get("validation") if isinstance(preview.get("validation"), dict) else {}
     entrypoint = preview.get("entrypoint") if isinstance(preview.get("entrypoint"), dict) else {}
@@ -743,6 +869,15 @@ def _format_dry_run_preview(preview: dict[str, object]) -> str:
 
 
 def _version_callback(value: bool) -> None:
+    """Apply version callback to the enclosing subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``typer.Exit``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if value:
         print(f"openharness {__version__}")
         raise typer.Exit()
@@ -785,7 +920,16 @@ app.add_typer(autopilot_app)
 
 @mcp_app.command("list")
 def mcp_list() -> None:
-    """List configured MCP servers."""
+    """List configured MCP servers.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``mcp_app.command``, ``load_settings``, ``load_plugins``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config import load_settings
     from openharness.mcp.config import load_mcp_server_configs
     from openharness.plugins import load_plugins
@@ -806,7 +950,15 @@ def mcp_add(
     name: str = typer.Argument(..., help="Server name"),
     config_json: str = typer.Argument(..., help="Server config as JSON string"),
 ) -> None:
-    """Add an MCP server configuration."""
+    """Add an MCP server configuration.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``mcp_app.command``, ``typer.Argument``, ``load_settings``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.config import load_settings, save_settings
 
     settings = load_settings()
@@ -826,7 +978,15 @@ def mcp_add(
 def mcp_remove(
     name: str = typer.Argument(..., help="Server name to remove"),
 ) -> None:
-    """Remove an MCP server configuration."""
+    """Remove an MCP server configuration.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``mcp_app.command``, ``typer.Argument``, ``load_settings``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.config import load_settings, save_settings
 
     settings = load_settings()
@@ -842,7 +1002,16 @@ def mcp_remove(
 
 @plugin_app.command("list")
 def plugin_list() -> None:
-    """List installed plugins."""
+    """List installed plugins.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``plugin_app.command``, ``load_settings``, ``load_plugins``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config import load_settings
     from openharness.plugins import load_plugins
 
@@ -860,7 +1029,16 @@ def plugin_list() -> None:
 def plugin_install(
     source: str = typer.Argument(..., help="Plugin source (path or URL)"),
 ) -> None:
-    """Install a plugin from a source path."""
+    """Install a plugin from a source path.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``plugin_app.command``, ``typer.Argument``, ``install_plugin_from_path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.plugins.installer import install_plugin_from_path
 
     result = install_plugin_from_path(source)
@@ -871,7 +1049,15 @@ def plugin_install(
 def plugin_uninstall(
     name: str = typer.Argument(..., help="Plugin name to uninstall"),
 ) -> None:
-    """Uninstall a plugin."""
+    """Uninstall a plugin.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``plugin_app.command``, ``typer.Argument``, ``uninstall_plugin``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.plugins.installer import uninstall_plugin
 
     try:
@@ -885,7 +1071,16 @@ def plugin_uninstall(
 
 @cron_app.command("start")
 def cron_start() -> None:
-    """Start the cron scheduler daemon."""
+    """Start the cron scheduler daemon.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``cron_app.command``, ``is_scheduler_running``, ``start_daemon``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.services.cron_scheduler import is_scheduler_running, start_daemon
 
     if is_scheduler_running():
@@ -897,7 +1092,16 @@ def cron_start() -> None:
 
 @cron_app.command("stop")
 def cron_stop() -> None:
-    """Stop the cron scheduler daemon."""
+    """Stop the cron scheduler daemon.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``cron_app.command``, ``stop_scheduler``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.services.cron_scheduler import stop_scheduler
 
     if stop_scheduler():
@@ -908,7 +1112,16 @@ def cron_stop() -> None:
 
 @cron_app.command("status")
 def cron_status_cmd() -> None:
-    """Show cron scheduler status and job summary."""
+    """Show cron scheduler status and job summary.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``cron_app.command``, ``scheduler_status``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.services.cron_scheduler import scheduler_status
 
     status = scheduler_status()
@@ -920,7 +1133,16 @@ def cron_status_cmd() -> None:
 
 @cron_app.command("list")
 def cron_list_cmd() -> None:
-    """List all registered cron jobs with schedule and status."""
+    """List all registered cron jobs with schedule and status.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``cron_app.command``, ``load_cron_jobs``, ``job.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.services.cron import load_cron_jobs
 
     jobs = load_cron_jobs()
@@ -956,7 +1178,15 @@ def cron_toggle_cmd(
     name: str = typer.Argument(..., help="Cron job name"),
     enabled: bool = typer.Argument(..., help="true to enable, false to disable"),
 ) -> None:
-    """Enable or disable a cron job."""
+    """Enable or disable a cron job.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``cron_app.command``, ``typer.Argument``, ``set_job_enabled``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.services.cron import set_job_enabled
 
     if not set_job_enabled(name, enabled):
@@ -971,7 +1201,16 @@ def cron_history_cmd(
     name: str | None = typer.Argument(None, help="Filter by job name"),
     limit: int = typer.Option(20, "--limit", "-n", help="Number of entries"),
 ) -> None:
-    """Show cron execution history."""
+    """Show cron execution history.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``cron_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.services.cron_scheduler import load_history
 
     entries = load_history(limit=limit, job_name=name)
@@ -993,7 +1232,16 @@ def cron_history_cmd(
 def cron_logs_cmd(
     lines: int = typer.Option(30, "--lines", "-n", help="Number of lines to show"),
 ) -> None:
-    """Show recent cron scheduler log output."""
+    """Show recent cron scheduler log output.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``cron_app.command``, ``typer.Option``, ``log_path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     from openharness.config.paths import get_logs_dir
 
     log_path = get_logs_dir() / "cron_scheduler.log"
@@ -1012,7 +1260,16 @@ def cron_logs_cmd(
 def autopilot_status_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
 ) -> None:
-    """Show repo autopilot queue status."""
+    """Show repo autopilot queue status.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Option``, ``RepoAutopilotStore``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     store = RepoAutopilotStore(cwd)
@@ -1047,7 +1304,16 @@ def autopilot_list_cmd(
     status: str | None = typer.Argument(None, help="Optional status filter"),
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
 ) -> None:
-    """List repo autopilot cards."""
+    """List repo autopilot cards.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     store = RepoAutopilotStore(cwd)
@@ -1069,7 +1335,15 @@ def autopilot_add_cmd(
     body: str = typer.Option("", "--body", help="Task body/details"),
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
 ) -> None:
-    """Add one repo autopilot card."""
+    """Add one repo autopilot card.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     source_map = {
@@ -1099,7 +1373,16 @@ def autopilot_add_cmd(
 def autopilot_context_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
 ) -> None:
-    """Print the synthesized active repo context."""
+    """Print the synthesized active repo context.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Option``, ``RepoAutopilotStore``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     store = RepoAutopilotStore(cwd)
@@ -1111,7 +1394,16 @@ def autopilot_journal_cmd(
     limit: int = typer.Option(12, "--limit", "-n", help="Number of entries"),
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
 ) -> None:
-    """Print the recent repo autopilot journal."""
+    """Print the recent repo autopilot journal.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Option``, ``RepoAutopilotStore``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     store = RepoAutopilotStore(cwd)
@@ -1129,7 +1421,15 @@ def autopilot_scan_cmd(
     limit: int = typer.Option(10, "--limit", "-n", help="Number of items"),
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
 ) -> None:
-    """Scan one or more autopilot intake sources."""
+    """Scan one or more autopilot intake sources.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     store = RepoAutopilotStore(cwd)
@@ -1156,7 +1456,15 @@ def autopilot_run_next_cmd(
     max_turns: int | None = typer.Option(None, "--max-turns", help="Override execution max turns"),
     permission_mode: str | None = typer.Option(None, "--permission-mode", help="Override execution permission mode"),
 ) -> None:
-    """Run the highest-priority queued autopilot card end-to-end."""
+    """Run the highest-priority queued autopilot card end-to-end.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Option``, ``asyncio.run``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     import asyncio
     from openharness.autopilot import RepoAutopilotStore
 
@@ -1184,7 +1492,15 @@ def autopilot_tick_cmd(
     permission_mode: str | None = typer.Option(None, "--permission-mode", help="Override execution permission mode"),
     limit: int = typer.Option(10, "--limit", "-n", help="Scan limit for issues/PRs"),
 ) -> None:
-    """Scan sources and, if idle, run the next queued autopilot task."""
+    """Scan sources and, if idle, run the next queued autopilot task.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Option``, ``asyncio.run``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     import asyncio
     from openharness.autopilot import RepoAutopilotStore
 
@@ -1213,7 +1529,16 @@ def autopilot_tick_cmd(
 def autopilot_install_cron_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
 ) -> None:
-    """Install default cron jobs for repo autopilot scan/tick."""
+    """Install default cron jobs for repo autopilot scan/tick.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Option``, ``install_default_cron``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     names = RepoAutopilotStore(cwd).install_default_cron()
@@ -1225,7 +1550,16 @@ def autopilot_export_dashboard_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
     output: str | None = typer.Option(None, "--output", help="Dashboard output directory"),
 ) -> None:
-    """Export a static autopilot kanban site for GitHub Pages."""
+    """Export a static autopilot kanban site for GitHub Pages.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``autopilot_app.command``, ``typer.Option``, ``export_dashboard``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.autopilot import RepoAutopilotStore
 
     path = RepoAutopilotStore(cwd).export_dashboard(output)
@@ -1267,7 +1601,15 @@ _AUTH_SOURCE_LABELS: dict[str, str] = {
 
 
 def _can_use_questionary() -> bool:
-    """Return True when a real interactive terminal is available."""
+    """Return True when a real interactive terminal is available.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``sys.stdin.isatty``, ``sys.stdout.isatty``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return False
     if sys.stdin is not sys.__stdin__ or sys.stdout is not sys.__stdout__:
@@ -1285,6 +1627,15 @@ def _select_with_questionary(
     *,
     default_value: str | None = None,
 ) -> str:
+    """Derive select with questionary from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``ask``, ``questionary.Choice``, ``typer.Abort``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     import questionary
 
     choices = [
@@ -1302,7 +1653,15 @@ def _select_with_questionary(
 
 
 def _text_prompt(message: str, *, default: str = "") -> str:
-    """Prompt for text input, preferring questionary in a real TTY."""
+    """Prompt for text input, preferring questionary in a real TTY.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_can_use_questionary``, ``typer.prompt``, ``ask``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if _can_use_questionary():
         import questionary
 
@@ -1314,7 +1673,15 @@ def _text_prompt(message: str, *, default: str = "") -> str:
 
 
 def _secret_prompt(message: str) -> str:
-    """Prompt for secret text, preferring questionary in a real TTY."""
+    """Prompt for secret text, preferring questionary in a real TTY.
+
+    Integration: Called by ``_prompt_api_key_for_profile`` and collaborates with
+    ``_can_use_questionary``, ``typer.prompt``, ``ask``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if _can_use_questionary():
         import questionary
 
@@ -1326,7 +1693,15 @@ def _secret_prompt(message: str) -> str:
 
 
 def _confirm_prompt(message: str, *, default: bool = False) -> bool:
-    """Prompt for a yes/no confirmation, preferring questionary in a real TTY."""
+    """Prompt for a yes/no confirmation, preferring questionary in a real TTY.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_can_use_questionary``, ``ask``, ``typer.confirm``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if _can_use_questionary():
         import questionary
 
@@ -1343,7 +1718,15 @@ def _select_from_menu(
     *,
     default_value: str | None = None,
 ) -> str:
-    """Render a simple numbered picker and return the selected value."""
+    """Render a simple numbered picker and return the selected value.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_can_use_questionary``, ``typer.prompt``, ``_select_with_questionary``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if _can_use_questionary():
         return _select_with_questionary(title, options, default_value=default_value)
     print(title, flush=True)
@@ -1362,6 +1745,16 @@ def _select_from_menu(
 
 
 def _prompt_model_for_profile(profile) -> str:
+    """Prompt for model for profile for the enclosing subsystem.
+
+    Integration: Called by ``setup_cmd`` and collaborates with ``display_model_setting``,
+    ``is_claude_family_provider``, ``_select_from_menu``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import (
         CLAUDE_MODEL_ALIAS_OPTIONS,
         display_model_setting,
@@ -1388,14 +1781,30 @@ def _prompt_model_for_profile(profile) -> str:
 
 
 def _format_profile_choice_label(info: dict[str, object]) -> str:
-    """Render a user-facing workflow label without leaking internal provider ids."""
+    """Render a user-facing workflow label without leaking internal provider ids.
+
+    Integration: Called by ``_select_setup_workflow``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     label = str(info["label"])
     state = "" if bool(info["configured"]) else f" ({info['auth_state']})"
     return f"{label}{state}"
 
 
 def _styled_missing_suffix(info: dict[str, object]) -> tuple[str, str] | None:
-    """Return a soft red missing-auth suffix for questionary titles."""
+    """Return a soft red missing-auth suffix for questionary titles.
+
+    Integration: Called by ``_select_setup_workflow``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if bool(info["configured"]):
         return None
     return (f" ({info['auth_state']})", "fg:#d3869b")
@@ -1406,7 +1815,15 @@ def _select_setup_workflow(
     *,
     default_value: str | None = None,
 ) -> str:
-    """Render the top-level `oh setup` workflow picker with richer hints."""
+    """Render the top-level `oh setup` workflow picker with richer hints.
+
+    Integration: Called by ``setup_cmd`` and collaborates with ``_can_use_questionary``,
+    ``statuses.items``, ``_select_from_menu``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     hints = {
         "claude-api": ("Claude / Kimi / GLM / MiniMax", "fg:#7aa2f7"),
         "openai-compatible": ("OpenAI / OpenRouter", "fg:#9ece6a"),
@@ -1459,6 +1876,16 @@ def _select_setup_workflow(
 
 
 def _default_credential_slot_for_profile(name: str, auth_source: str) -> str | None:
+    """Derive default credential slot for profile from the current inputs and subsystem state.
+
+    Integration: Called by ``_configure_custom_profile_via_setup``, ``_ensure_preset_profile``
+    and collaborates with ``builtin_provider_profile_names``, ``auth_source_uses_api_key``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import auth_source_uses_api_key, builtin_provider_profile_names
 
     if name in builtin_provider_profile_names():
@@ -1469,6 +1896,15 @@ def _default_credential_slot_for_profile(name: str, auth_source: str) -> str | N
 
 
 def _prompt_api_key_for_profile(label: str) -> str:
+    """Prompt for API key for profile for the enclosing subsystem.
+
+    Integration: Called by ``_configure_custom_profile_via_setup`` and collaborates with
+    ``strip``, ``typer.BadParameter``, ``_secret_prompt``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     key = _secret_prompt(f"Enter API key for {label}").strip()
     if not key:
         raise typer.BadParameter("API key cannot be empty.")
@@ -1476,6 +1912,15 @@ def _prompt_api_key_for_profile(label: str) -> str:
 
 
 def _configure_custom_profile_via_setup(manager) -> str:
+    """Derive configure custom profile via setup from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_select_from_menu``, ``strip``, ``default_auth_source_for_provider``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.config.settings import ProviderProfile, default_auth_source_for_provider
 
     family = _select_from_menu(
@@ -1528,6 +1973,16 @@ def _ensure_preset_profile(
     model: str,
     lock_model: bool,
 ) -> str:
+    """Ensure preset profile for the enclosing subsystem.
+
+    Integration: Called by ``_specialize_setup_target`` and collaborates with ``get``,
+    ``ProviderProfile``, ``manager.upsert_profile``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import ProviderProfile
 
     existing = manager.list_profiles().get(name)
@@ -1547,7 +2002,15 @@ def _ensure_preset_profile(
 
 
 def _specialize_setup_target(manager, target: str) -> str:
-    """Expand a top-level family choice into a concrete workflow profile."""
+    """Expand a top-level family choice into a concrete workflow profile.
+
+    Integration: Called by ``setup_cmd`` and collaborates with ``_select_from_menu``, ``strip``,
+    ``_ensure_preset_profile``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.config.settings import default_auth_source_for_provider
 
     if target == "claude-api":
@@ -1620,6 +2083,15 @@ def _specialize_setup_target(manager, target: str) -> str:
 
 
 def _ensure_profile_auth(manager, profile_name: str) -> None:
+    """Ensure profile auth for the enclosing subsystem.
+
+    Integration: Called by ``_maybe_update_profile_auth``, ``setup_cmd`` and collaborates with
+    ``ApiKeyFlow``, ``manager.store_profile_credential``, ``manager.list_profiles``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.flows import ApiKeyFlow
     from openharness.config.settings import auth_source_provider_name, auth_source_uses_api_key
 
@@ -1642,7 +2114,16 @@ def _ensure_profile_auth(manager, profile_name: str) -> None:
 
 
 def _maybe_update_profile_auth(manager, profile_name: str) -> bool:
-    """Ask whether to replace an already configured profile API key."""
+    """Ask whether to replace an already configured profile API key.
+
+    Integration: Called by ``setup_cmd`` and collaborates with ``_ensure_profile_auth``,
+    ``manager.list_profiles``, ``auth_source_uses_api_key``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import auth_source_uses_api_key
 
     profile = manager.list_profiles()[profile_name]
@@ -1655,7 +2136,16 @@ def _maybe_update_profile_auth(manager, profile_name: str) -> bool:
 
 
 def _maybe_update_default_model_for_provider(provider: str) -> None:
-    """Keep the active model in-family after switching auth providers."""
+    """Keep the active model in-family after switching auth providers.
+
+    Integration: Called by ``_bind_external_provider`` and collaborates with ``AuthManager``,
+    ``get``, ``profile.resolved_model.lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.auth.manager import AuthManager
 
     manager = AuthManager()
@@ -1678,7 +2168,16 @@ def _maybe_update_default_model_for_provider(provider: str) -> None:
 
 
 def _bind_external_provider(provider: str) -> None:
-    """Bind a provider to credentials managed by an external CLI."""
+    """Bind a provider to credentials managed by an external CLI.
+
+    Integration: Called by ``_login_provider``, ``auth_codex_login`` and collaborates with
+    ``default_binding_for_provider``, ``store_external_binding``,
+    ``_maybe_update_default_model_for_provider``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.external import default_binding_for_provider, load_external_credential
     from openharness.auth.storage import store_external_binding
 
@@ -1714,7 +2213,15 @@ def _bind_external_provider(provider: str) -> None:
 
 
 def _login_provider(provider: str) -> None:
-    """Authenticate or bind the given provider."""
+    """Authenticate or bind the given provider.
+
+    Integration: Called by ``_ensure_profile_auth``, ``auth_login`` and collaborates with
+    ``AuthManager``, ``typer.Exit``, ``_run_copilot_login``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.flows import ApiKeyFlow
     from openharness.auth.manager import AuthManager
     from openharness.auth.storage import store_credential
@@ -1753,7 +2260,15 @@ def _login_provider(provider: str) -> None:
 def setup_cmd(
     profile: str | None = typer.Argument(None, help="Provider profile name to configure"),
 ) -> None:
-    """Unified setup flow: choose workflow, authenticate if needed, then set the model."""
+    """Unified setup flow: choose workflow, authenticate if needed, then set the model.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``app.command``, ``typer.Argument``, ``AuthManager``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.manager import AuthManager
     from openharness.config.settings import display_model_setting
 
@@ -1814,7 +2329,15 @@ def auth_login(
     """Interactively authenticate with a provider.
 
     Run without arguments to choose a provider from a menu.
-    Supported providers: anthropic, anthropic_claude, openai, openai_codex, copilot, dashscope, bedrock, vertex, moonshot, minimax, modelscope.
+    Supported providers: anthropic, anthropic_claude, openai, openai_codex, copilot, dashscope,
+    bedrock, vertex, moonshot, minimax, modelscope.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``typer.Argument``, ``provider.lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     if provider is None:
         print("Select a provider to authenticate:", flush=True)
@@ -1838,7 +2361,16 @@ def auth_login(
 
 @auth_app.command("status")
 def auth_status_cmd() -> None:
-    """Show authentication source and provider profile status."""
+    """Show authentication source and provider profile status.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``AuthManager``, ``manager.get_auth_source_statuses``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.auth.manager import AuthManager
 
     manager = AuthManager()
@@ -1869,7 +2401,16 @@ def auth_status_cmd() -> None:
 def auth_logout(
     provider: Optional[str] = typer.Argument(None, help="Provider to log out (default: active provider)"),
 ) -> None:
-    """Clear stored authentication for a provider."""
+    """Clear stored authentication for a provider.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``typer.Argument``, ``AuthManager``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.auth.manager import AuthManager
 
     manager = AuthManager()
@@ -1886,7 +2427,15 @@ def auth_logout(
 def auth_switch(
     provider: str = typer.Argument(..., help="Auth source or profile to activate"),
 ) -> None:
-    """Switch the auth source for the active profile, or use a profile by name."""
+    """Switch the auth source for the active profile, or use a profile by name.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``typer.Argument``, ``AuthManager``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.manager import AuthManager
 
     manager = AuthManager()
@@ -1904,7 +2453,16 @@ def auth_switch(
 
 
 def _run_copilot_login() -> None:
-    """Run the GitHub Copilot device-code flow and persist the result."""
+    """Run the GitHub Copilot device-code flow and persist the result.
+
+    Integration: Called by ``_login_provider``, ``auth_copilot_login`` and collaborates with
+    ``typer.prompt``, ``DeviceCodeFlow``, ``save_copilot_auth``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract; preserve
+    exception and fallback behavior expected by callers.
+    """
     from openharness.api.copilot_auth import save_copilot_auth
     from openharness.auth.flows import DeviceCodeFlow
 
@@ -1944,25 +2502,61 @@ def _run_copilot_login() -> None:
 
 @auth_app.command("copilot-login")
 def auth_copilot_login() -> None:
-    """Authenticate with GitHub Copilot via device flow (alias for 'oh auth login copilot')."""
+    """Authenticate with GitHub Copilot via device flow (alias for 'oh auth login copilot').
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``_run_copilot_login``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _run_copilot_login()
 
 
 @auth_app.command("codex-login")
 def auth_codex_login() -> None:
-    """Bind OpenHarness to a local Codex CLI subscription session."""
+    """Bind OpenHarness to a local Codex CLI subscription session.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``_bind_external_provider``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _bind_external_provider("openai_codex")
 
 
 @auth_app.command("claude-login")
 def auth_claude_login() -> None:
-    """Bind OpenHarness to a local Claude CLI subscription session."""
+    """Bind OpenHarness to a local Claude CLI subscription session.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``_bind_external_provider``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _bind_external_provider("anthropic_claude")
 
 
 @auth_app.command("copilot-logout")
 def auth_copilot_logout() -> None:
-    """Remove stored GitHub Copilot authentication."""
+    """Remove stored GitHub Copilot authentication.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``auth_app.command``, ``clear_github_token``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.api.copilot_auth import clear_github_token
 
     clear_github_token()
@@ -1973,6 +2567,14 @@ def auth_copilot_logout() -> None:
 
 
 def _config_resolve_target(settings: object, key: str) -> tuple[object, str]:
+    """Derive config resolve target from the current inputs and subsystem state.
+
+    Integration: Called by ``config_set`` and collaborates with ``key.split``, ``KeyError``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     target = settings
     parts = key.split(".")
     for part in parts[:-1]:
@@ -1986,6 +2588,15 @@ def _config_resolve_target(settings: object, key: str) -> tuple[object, str]:
 
 
 def _config_coerce_value(current: object, raw: str) -> object:
+    """Derive config coerce value from the current inputs and subsystem state.
+
+    Integration: Called by ``config_set`` and collaborates with ``lower``, ``ValueError``,
+    ``entry.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if isinstance(current, bool):
         lowered = raw.strip().lower()
         if lowered in {"1", "true", "yes", "on"}:
@@ -2004,7 +2615,16 @@ def _config_coerce_value(current: object, raw: str) -> object:
 
 @config_app.command("show")
 def config_show() -> None:
-    """Print the resolved settings JSON."""
+    """Print the resolved settings JSON.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``config_app.command``, ``_settings_json_for_display``, ``load_settings``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.commands.registry import _settings_json_for_display
     from openharness.config.settings import load_settings
 
@@ -2016,7 +2636,15 @@ def config_set(
     key: str = typer.Argument(..., help="Setting key, including dotted nested keys"),
     value: str = typer.Argument(..., help="Value to store"),
 ) -> None:
-    """Persist one setting in ~/.openharness/settings.json."""
+    """Persist one setting in ~/.openharness/settings.json.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``config_app.command``, ``typer.Argument``, ``load_settings``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.config.settings import load_settings, save_settings
 
     settings = load_settings()
@@ -2040,7 +2668,16 @@ def config_set(
 
 @provider_app.command("list")
 def provider_list() -> None:
-    """List configured provider profiles."""
+    """List configured provider profiles.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``provider_app.command``, ``get_profile_statuses``, ``statuses.items``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.auth.manager import AuthManager
 
     statuses = AuthManager().get_profile_statuses()
@@ -2056,7 +2693,15 @@ def provider_list() -> None:
 def provider_use(
     name: str = typer.Argument(..., help="Provider profile name"),
 ) -> None:
-    """Activate a provider profile."""
+    """Activate a provider profile.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``provider_app.command``, ``typer.Argument``, ``AuthManager``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.manager import AuthManager
 
     manager = AuthManager()
@@ -2083,7 +2728,16 @@ def provider_add(
     context_window_tokens: int | None = typer.Option(None, "--context-window-tokens", help="Optional context window override for auto-compact"),
     auto_compact_threshold_tokens: int | None = typer.Option(None, "--auto-compact-threshold-tokens", help="Optional explicit auto-compact threshold override"),
 ) -> None:
-    """Create a provider profile."""
+    """Create a provider profile.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``provider_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.auth.manager import AuthManager
     from openharness.config.settings import ProviderProfile
 
@@ -2127,7 +2781,15 @@ def provider_edit(
     context_window_tokens: int | None = typer.Option(None, "--context-window-tokens", help="Optional context window override for auto-compact"),
     auto_compact_threshold_tokens: int | None = typer.Option(None, "--auto-compact-threshold-tokens", help="Optional explicit auto-compact threshold override"),
 ) -> None:
-    """Edit a provider profile."""
+    """Edit a provider profile.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``provider_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.manager import AuthManager
 
     manager = AuthManager()
@@ -2162,7 +2824,15 @@ def provider_edit(
 def provider_remove(
     name: str = typer.Argument(..., help="Provider profile name"),
 ) -> None:
-    """Remove a provider profile."""
+    """Remove a provider profile.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``provider_app.command``, ``typer.Argument``, ``AuthManager``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.auth.manager import AuthManager
 
     manager = AuthManager()
@@ -2365,7 +3035,15 @@ def main(
         hidden=True,
     ),
 ) -> None:
-    """Start an interactive session or run a single prompt."""
+    """Start an interactive session or run a single prompt.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``app.callback``, ``typer.Option``, ``asyncio.run``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if ctx.invoked_subcommand is not None:
         return
 

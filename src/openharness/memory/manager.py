@@ -1,4 +1,15 @@
-"""Helpers for managing memory files."""
+"""Helpers for managing memory files.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -28,11 +39,30 @@ from openharness.utils.fs import atomic_write_text
 
 
 def _memory_lock_path(cwd: str | Path) -> Path:
+    """Return the filesystem path for memory lock.
+
+    Integration: Called by ``remove_memory_entry`` and collaborates with
+    ``get_project_memory_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_project_memory_dir(cwd) / ".memory.lock"
 
 
 def list_memory_files(cwd: str | Path) -> list[Path]:
-    """List memory markdown files for the project."""
+    """List memory markdown files for the project.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``scan_memory_files``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return sorted(header.path for header in scan_memory_files(cwd, max_files=None))
 
 
@@ -46,7 +76,17 @@ def add_memory_entry(
     description: str = "",
     tags: tuple[str, ...] = (),
 ) -> Path:
-    """Create or refresh a memory file and append it to MEMORY.md."""
+    """Create or refresh a memory file and append it to MEMORY.md.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``check_team_memory_secrets``, ``ensure_team_memory_vault``, ``get_project_memory_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if scope == "team":
         from openharness.memory.team import check_team_memory_secrets, ensure_team_memory_vault
 
@@ -122,7 +162,17 @@ def add_memory_entry(
 
 
 def remove_memory_entry(cwd: str | Path, name: str) -> bool:
-    """Soft-delete a memory file and remove its index entry."""
+    """Soft-delete a memory file and remove its index entry.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``exclusive_file_lock``, ``path.exists``, ``get_memory_entrypoint``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     matches = [
         header
         for header in scan_memory_files(
@@ -160,6 +210,16 @@ def remove_memory_entry(cwd: str | Path, name: str) -> bool:
 
 
 def _next_memory_path(memory_dir: Path, slug: str) -> Path:
+    """Return the filesystem path for next memory.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``candidate.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     path = memory_dir / f"{slug}.md"
     if not path.exists():
         return path
@@ -172,6 +232,16 @@ def _next_memory_path(memory_dir: Path, slug: str) -> Path:
 
 
 def _effective_signature(path: Path, existing_signature: str) -> str:
+    """Derive effective signature from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``compute_memory_signature``, ``split_memory_file``, ``path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if existing_signature:
         return existing_signature
     try:

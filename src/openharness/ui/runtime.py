@@ -1,4 +1,20 @@
-"""Shared runtime assembly for headless and Textual UIs."""
+"""Compose and operate the shared runtime used by CLI, React, Textual, and ohmo.
+
+This module is the composition root: it resolves configuration/authentication,
+connects extension resources, builds the engine, and owns cross-subsystem startup,
+line handling, persistence, and cleanup. Keep domain logic in its owning subsystem
+and preserve the reusable OpenHarness-to-ohmo dependency direction.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -52,7 +68,22 @@ ClearHandler = Callable[[], Awaitable[None]]
 
 
 def _resolve_image_generation_config(settings) -> dict[str, str]:
-    """Resolve image generation configuration from settings, environment, and Codex auth."""
+    """Resolve image-generation settings plus optional Codex subscription auth.
+
+    Runtime composition stores this bounded mapping in tool metadata for the image
+    tool; it is not a provider-selection shortcut for the main model. Preserve
+    settings-over-environment precedence, keep auth failures best-effort, and never
+    emit the returned token in logs, UI state, or persisted documentation.
+
+    Integration: Called by ``build_runtime`` and collaborates with
+    ``ImageGenerationConfig.from_env``, ``materialize_active_profile``,
+    ``codex_settings.resolve_auth``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.config.settings import ImageGenerationConfig, ProviderProfile
 
     cfg = settings.image_generation
@@ -94,6 +125,18 @@ def _resolve_vision_config(settings) -> dict[str, str]:
     """Resolve the vision model configuration from settings or environment.
 
     Priority: settings.vision fields > environment variables > empty.
+    The query loop passes this mapping only to image preprocessing. Keep the
+    credential out of protocol snapshots and update the image-to-text contract if
+    field names change.
+
+    Integration: Called by ``build_runtime`` and collaborates with
+    ``VisionModelConfig.from_env``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     from openharness.config.settings import VisionModelConfig
 
@@ -119,7 +162,21 @@ def _resolve_vision_config(settings) -> dict[str, str]:
 
 @dataclass
 class RuntimeBundle:
-    """Shared runtime objects for one interactive session."""
+    """Own the services and mutable state that form one runtime session.
+
+    UI and ohmo adapters pass this bundle through shared lifecycle and line
+    handlers. API/MCP/sandbox resources are loop-bound and must be closed with
+    ``close_runtime``; new fields need explicit ownership, persistence, and cleanup
+    decisions rather than becoming an unstructured service locator.
+
+    Integration: Constructed or referenced by ``build_runtime``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     api_client: SupportsStreamingMessages
     cwd: str
@@ -148,11 +205,37 @@ class RuntimeBundle:
         the lifetime of the running process. Without this overlay, issuing any
         slash command (e.g. ``/fast``) would refresh UI state from disk and
         "snap back" the model/provider to whatever is stored in the config file.
+        This synchronous reload occurs between turns; changes to precedence must
+        be reflected in CLI, profile, runtime-refresh, and redaction tests.
+
+        Integration: Called by ``OhmoSessionRuntimePool._stream_command_result``,
+        ``OhmoSessionRuntimePool._save_snapshot`` and collaborates with ``merge_cli_overrides``,
+        ``load_settings``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         return load_settings().merge_cli_overrides(**self.settings_overrides)
 
     def current_plugins(self):
-        """Return currently visible plugins for the working tree."""
+        """Rediscover plugins visible under the session's effective settings.
+
+        Hook hot-reload and summary paths call this between turns. Preserve the
+        project-plugin trust gate and explicit extra-root ordering; plugin imports
+        remain a security boundary.
+
+        Integration: Called by ``RuntimeBundle.hook_summary``, ``RuntimeBundle.plugin_summary``
+        and collaborates with ``load_plugins``, ``current_settings``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return load_plugins(
             self.current_settings(),
             self.cwd,
@@ -160,11 +243,37 @@ class RuntimeBundle:
         )
 
     def hook_summary(self) -> str:
-        """Return the current hook summary."""
+        """Render the hook registry derived from current settings and plugins.
+
+        Command diagnostics use this snapshot; hook execution uses the separately
+        refreshed executor registry. Keep both discovery paths aligned.
+
+        Integration: Called by ``handle_line`` and collaborates with ``summary``,
+        ``load_hook_registry``, ``current_settings``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return load_hook_registry(self.current_settings(), self.current_plugins()).summary()
 
     def plugin_summary(self) -> str:
-        """Return the current plugin summary."""
+        """Render enabled/disabled plugin discovery state for slash-command output.
+
+        This is presentation-only and may run synchronously on the UI event loop;
+        avoid exposing plugin secrets or triggering long-lived resources here.
+
+        Integration: Called by ``handle_line`` and collaborates with ``current_plugins``,
+        ``join``, ``lines.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         plugins = self.current_plugins()
         if not plugins:
             return "No plugins discovered."
@@ -175,7 +284,20 @@ class RuntimeBundle:
         return "\n".join(lines)
 
     def mcp_summary(self) -> str:
-        """Return the current MCP summary."""
+        """Render live MCP connection, tool, and resource status for diagnostics.
+
+        ``McpClientManager`` remains authoritative and loop-owned. Keep this method
+        side-effect-free and names synchronized with registry exposure.
+
+        Integration: Called by ``handle_line``, ``OpenHarnessTerminalApp._refresh_sidebars`` and
+        collaborates with ``mcp_manager.list_statuses``, ``join``, ``lines.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         statuses = self.mcp_manager.list_statuses()
         if not statuses:
             return "No MCP servers configured."
@@ -191,11 +313,40 @@ class RuntimeBundle:
 
 
 def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
-    """Build the appropriate API client for the resolved settings."""
+    """Materialize a profile, resolve its auth, and construct the wire client.
+
+    ``build_runtime`` and runtime refresh call this boundary after configuration
+    precedence is settled. Selection depends on API format, provider, and auth
+    source—not provider name alone. New branches must preserve compatible custom
+    endpoints, subscription refresh behavior, timeouts, error guidance, tool-call
+    replay, and secret redaction.
+
+    Integration: Called by ``_build_dry_run_preview``, ``build_runtime`` and collaborates with
+    ``settings.materialize_active_profile``, ``_safe_resolve_auth``, ``AnthropicApiClient``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     # Ensure profile fields (base_url, model, api_format) are projected to settings
     settings = settings.materialize_active_profile()
 
     def _safe_resolve_auth():
+        """Resolve credentials or terminate startup with source-specific guidance.
+
+        This helper intentionally converts configuration/auth errors into the CLI
+        boundary's ``SystemExit`` before a client is exposed. Never include the
+        resolved credential in the rendered failure.
+
+        Integration: Called by ``_resolve_api_client_from_settings`` and collaborates with
+        ``settings.resolve_auth``, ``_print_auth_resolution_error``, ``SystemExit``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             return settings.resolve_auth()
         except Exception as exc:
@@ -239,7 +390,20 @@ def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
 
 
 def _print_auth_resolution_error(settings, exc: Exception) -> None:
-    """Render auth failures without collapsing subscription errors into API-key advice."""
+    """Render auth failures without collapsing subscription errors into key advice.
+
+    This is a stderr-only CLI diagnostic used during client construction. Keep
+    subscription login commands actionable, preserve generic API-key fallback,
+    and never stringify settings or credential values.
+
+    Integration: Called by ``_resolve_api_client_from_settings``,
+    ``_resolve_api_client_from_settings._safe_resolve_auth`` and collaborates with
+    ``settings.resolve_profile``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         profile_name, profile = settings.resolve_profile()
         auth_source = (getattr(profile, "auth_source", "") or "").strip()
@@ -298,7 +462,16 @@ async def build_runtime(
     include_project_memory: bool = True,
     autodream_context: dict[str, object] | None = None,
 ) -> RuntimeBundle:
-    """Build the shared runtime for an OpenHarness session."""
+    """Compose a complete, not-yet-started OpenHarness runtime session.
+
+    Ordering is contractual: merge settings/overrides, discover trusted plugins,
+    resolve auth/client, connect MCP, assemble tools/hooks/state/prompt, restore
+    sanitized messages and carryover, then start an optional Docker sandbox.
+    Callers must later pair the returned bundle with ``start_runtime`` and
+    ``close_runtime`` on the same event loop. Changes require tracing provider
+    selection, plugin trust, MCP/tool registration, permissions, hooks, session
+    schemas, prompt memory, sandbox cleanup, and ohmo injection boundaries.
+    """
     settings_overrides: dict[str, Any] = {
         "model": model,
         "max_turns": max_turns,
@@ -472,7 +645,11 @@ async def build_runtime(
 
 
 async def start_runtime(bundle: RuntimeBundle) -> None:
-    """Run session start hooks."""
+    """Fire session-start hooks after all runtime services are available.
+
+    UI hosts await this before announcing readiness. Keep hook execution on the
+    owning event loop and do not emit ready state if startup fails.
+    """
     await bundle.hook_executor.execute(
         HookEvent.SESSION_START,
         {"cwd": bundle.cwd, "event": HookEvent.SESSION_START.value},
@@ -480,7 +657,13 @@ async def start_runtime(bundle: RuntimeBundle) -> None:
 
 
 async def close_runtime(bundle: RuntimeBundle) -> None:
-    """Close runtime-owned resources."""
+    """Tear down sandbox, personalization, MCP, hooks, and the API client.
+
+    Every host calls this from ``finally`` on the runtime's event loop. Cleanup
+    order keeps tools isolated before session-end observers run; personalization
+    is best-effort, while owned clients must be awaited. External-client ownership
+    changes need an explicit close contract to avoid leaks or double close.
+    """
     from openharness.sandbox.session import stop_docker_sandbox
 
     await stop_docker_sandbox()
@@ -502,6 +685,21 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
 
 
 def _last_user_text(messages: list[ConversationMessage]) -> str:
+    """Return the latest non-empty user text for prompt-refresh relevance.
+
+    Runtime refresh and continuation use this without mutating history. Tool-result
+    messages with no text are skipped deliberately; keep behavior aligned with
+    memory selection semantics.
+
+    Integration: Called by ``OhmoSessionRuntimePool._stream_command_result``,
+    ``refresh_runtime_client`` and collaborates with ``reversed``, ``msg.text.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for msg in reversed(messages):
         if msg.role == "user" and msg.text.strip():
             return msg.text.strip()
@@ -509,13 +707,40 @@ def _last_user_text(messages: list[ConversationMessage]) -> str:
 
 
 def _truncate(text: str, limit: int) -> str:
+    """Bound diagnostic text while marking omitted content with an ellipsis.
+
+    Pending-continuation rendering uses this on model/tool text. Keep it
+    deterministic and avoid using it where exact persisted content is required.
+
+    Integration: Called by ``_format_pending_tool_results``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if len(text) <= limit:
         return text
     return text[:limit] + "…"
 
 
 def _format_pending_tool_results(messages: list[ConversationMessage]) -> str | None:
-    """Render a compact summary when we stop after tool execution but before the follow-up model turn."""
+    """Render recoverable tool results when a follow-up model turn did not run.
+
+    Max-turn handling calls this after provider-valid tool-use/result pairs are in
+    history. It finds the matching assistant call, bounds potentially large or
+    sensitive output, and points the user to ``/continue``; keep pairing logic
+    consistent with conversation sanitization and provider replay.
+
+    Integration: Called by ``submit_follow_up``, ``handle_line`` and collaborates with
+    ``reversed``, ``lines.append``, ``join``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not messages:
         return None
 
@@ -565,7 +790,21 @@ def _format_pending_tool_results(messages: list[ConversationMessage]) -> str | N
 
 
 def sync_app_state(bundle: RuntimeBundle) -> None:
-    """Refresh UI state from current settings and dynamic keybindings."""
+    """Refresh presentation state from effective settings and live managers.
+
+    Hosts call this between turns and after commands. It synchronizes the engine's
+    enforced turn cap and publishes non-secret provider/runtime status; additions
+    must also update protocol payloads and frontend types without doing remote I/O.
+
+    Integration: Called by ``refresh_runtime_client``, ``handle_line`` and collaborates with
+    ``bundle.current_settings``, ``detect_provider``, ``bundle.engine.set_max_turns``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     settings = bundle.current_settings()
     if bundle.enforce_max_turns:
         bundle.engine.set_max_turns(settings.max_turns)
@@ -594,7 +833,14 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
 
 
 def refresh_runtime_client(bundle: RuntimeBundle) -> None:
-    """Refresh the active runtime client after provider/auth/profile changes."""
+    """Apply provider/profile/settings changes to future engine turns.
+
+    Slash commands invoke this between async query streams. Internally owned
+    clients are reconstructed while injected clients remain untouched; then model,
+    effort, permission policy, hook context, system prompt, and UI state converge.
+    Client lifecycle changes must close replaced clients safely and preserve
+    external ownership and auth redaction.
+    """
     settings = bundle.current_settings()
     if not bundle.external_api_client:
         bundle.api_client = _resolve_api_client_from_settings(settings)
@@ -627,7 +873,16 @@ async def handle_line(
     clear_output: ClearHandler,
     user_message: ConversationMessage | None = None,
 ) -> bool:
-    """Handle one submitted line for either headless or TUI rendering."""
+    """Execute one command or prompt through shared runtime and persistence paths.
+
+    All UI/channel adapters enter here. Text-only input first resolves commands;
+    multimodal messages bypass slash parsing. Commands may refresh runtime, submit
+    generated model work, or continue pending tool results. Ordinary prompts
+    rebuild memory-aware system context, stream events, normalize max-turn exits,
+    save a sanitized snapshot, and refresh app state. Preserve callback ordering,
+    temporary model restoration, cancellation behavior, and snapshot coverage on
+    every exit path; do not block the caller's event loop with new external I/O.
+    """
     if not bundle.external_api_client:
         bundle.hook_executor.update_registry(
             load_hook_registry(bundle.current_settings(), bundle.current_plugins())
@@ -780,6 +1035,13 @@ async def _render_command_result(
     clear_output: ClearHandler,
     render_event: StreamRenderer | None = None,
 ) -> None:
+    """Apply a command result to the active renderer callbacks.
+
+    Clear/replay/message ordering reconstructs restored sessions without sending
+    replayed rows back through the model. This coroutine runs inline in
+    ``handle_line``; keep event types aligned with UI renderers and avoid altering
+    authoritative engine history here.
+    """
     if result.clear_screen:
         await clear_output()
     if result.replay_messages and render_event is not None:

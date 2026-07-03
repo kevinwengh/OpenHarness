@@ -1,4 +1,15 @@
-"""Slack channel implementation using Socket Mode."""
+"""Slack channel implementation using Socket Mode.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 import asyncio
 import re
@@ -19,11 +30,30 @@ logger = logging.getLogger(__name__)
 
 
 class SlackChannel(BaseChannel):
-    """Slack channel using Socket Mode."""
+    """Slack channel using Socket Mode.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``send``, ``_on_socket_request`` run on their
+    caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name = "slack"
 
     def __init__(self, config: SlackConfig, bus: MessageBus):
+        """Initialize ``SlackChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``SlackChannel``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: SlackConfig = config
         self._web_client: AsyncWebClient | None = None
@@ -31,7 +61,17 @@ class SlackChannel(BaseChannel):
         self._bot_user_id: str | None = None
 
     async def start(self) -> None:
-        """Start the Slack Socket Mode client."""
+        """Start the Slack Socket Mode client.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``AsyncWebClient``, ``SocketModeClient``,
+        ``_socket_client.socket_mode_request_listeners.append``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.config.bot_token or not self.config.app_token:
             logger.error("Slack bot/app token not configured")
             return
@@ -64,7 +104,16 @@ class SlackChannel(BaseChannel):
             await asyncio.sleep(1)
 
     async def stop(self) -> None:
-        """Stop the Slack client."""
+        """Stop the Slack client.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_socket_client.close``, ``logger.warning``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         self._running = False
         if self._socket_client:
             try:
@@ -74,7 +123,16 @@ class SlackChannel(BaseChannel):
             self._socket_client = None
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through Slack."""
+        """Send a message through Slack.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.warning``, ``slack_meta.get``, ``msg.metadata.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._web_client:
             logger.warning("Slack client not running")
             return
@@ -110,7 +168,16 @@ class SlackChannel(BaseChannel):
         client: SocketModeClient,
         req: SocketModeRequest,
     ) -> None:
-        """Handle incoming Socket Mode requests."""
+        """Handle incoming Socket Mode requests.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``event.get``, ``logger.debug``, ``_strip_bot_mention``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if req.type != "events_api":
             return
 
@@ -204,6 +271,16 @@ class SlackChannel(BaseChannel):
             logger.exception("Error handling Slack message from %s", sender_id)
 
     def _is_allowed(self, sender_id: str, chat_id: str, channel_type: str) -> bool:
+        """Return whether allowed for the enclosing subsystem.
+
+        Integration: Called by ``SlackChannel._on_socket_request``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if channel_type == "im":
             if not self.config.dm.enabled:
                 return False
@@ -217,6 +294,16 @@ class SlackChannel(BaseChannel):
         return True
 
     def _should_respond_in_channel(self, event_type: str, text: str, chat_id: str) -> bool:
+        """Return whether respond in channel for the enclosing subsystem.
+
+        Integration: Called by ``SlackChannel._on_socket_request``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self.config.group_policy == "open":
             return True
         if self.config.group_policy == "mention":
@@ -228,6 +315,17 @@ class SlackChannel(BaseChannel):
         return False
 
     def _strip_bot_mention(self, text: str) -> str:
+        """Strip bot mention for the enclosing subsystem.
+
+        Integration: Called by ``SlackChannel._on_socket_request`` and collaborates with
+        ``strip``, ``re.sub``, ``re.escape``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not text or not self._bot_user_id:
             return text
         return re.sub(rf"<@{re.escape(self._bot_user_id)}>\s*", "", text).strip()
@@ -241,7 +339,17 @@ class SlackChannel(BaseChannel):
 
     @classmethod
     def _to_mrkdwn(cls, text: str) -> str:
-        """Convert Markdown to Slack mrkdwn, including tables."""
+        """Convert Markdown to Slack mrkdwn, including tables.
+
+        Integration: Called by ``SlackChannel.send`` and collaborates with ``_TABLE_RE.sub``,
+        ``_fixup_mrkdwn``, ``slackify_markdown``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not text:
             return ""
         text = cls._TABLE_RE.sub(cls._convert_table, text)
@@ -249,10 +357,31 @@ class SlackChannel(BaseChannel):
 
     @classmethod
     def _fixup_mrkdwn(cls, text: str) -> str:
-        """Fix markdown artifacts that slackify_markdown misses."""
+        """Fix markdown artifacts that slackify_markdown misses.
+
+        Integration: Called by ``SlackChannel._to_mrkdwn`` and collaborates with
+        ``_CODE_FENCE_RE.sub``, ``_INLINE_CODE_RE.sub``, ``_LEFTOVER_BOLD_RE.sub``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         code_blocks: list[str] = []
 
         def _save_code(m: re.Match) -> str:
+            """Persist code for the enclosing subsystem.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``code_blocks.append``, ``m.group``.
+
+            Concurrency: This is synchronous; preserve deterministic behavior for its direct
+            callers; retain lock scope and release behavior.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             code_blocks.append(m.group(0))
             return f"\x00CB{len(code_blocks) - 1}\x00"
 
@@ -268,7 +397,17 @@ class SlackChannel(BaseChannel):
 
     @staticmethod
     def _convert_table(match: re.Match) -> str:
-        """Convert a Markdown table to a Slack-readable list."""
+        """Convert a Markdown table to a Slack-readable list.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``join``, ``ln.strip``, ``match.group``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lines = [ln.strip() for ln in match.group(0).strip().splitlines() if ln.strip()]
         if len(lines) < 2:
             return match.group(0)

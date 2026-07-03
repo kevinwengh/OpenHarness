@@ -1,4 +1,15 @@
-"""Durable memory extraction from completed turns."""
+"""Durable memory extraction from completed turns.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +42,16 @@ MEMORY_WRITE_TOOLS = {"write_file", "edit_file"}
 
 @dataclass(frozen=True)
 class ExtractionRecord:
-    """Structured memory record proposed by the extraction pass."""
+    """Structured memory record proposed by the extraction pass.
+
+    Integration: Constructed or referenced by ``parse_extraction_records``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     title: str
     body: str
@@ -43,7 +63,17 @@ class ExtractionRecord:
 
 @dataclass(frozen=True)
 class ExtractionResult:
-    """Outcome of a durable memory extraction run."""
+    """Outcome of a durable memory extraction run.
+
+    Integration: Constructed or referenced by ``extract_memories_from_turn``,
+    ``apply_extraction_records``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     skipped: bool
     reason: str = ""
@@ -57,7 +87,16 @@ def has_memory_writes_since(
     *,
     cwd: str | Path | None = None,
 ) -> bool:
-    """Return whether the visible turn already wrote memory files."""
+    """Return whether the visible turn already wrote memory files.
+
+    Integration: Called by ``extract_memories_from_turn`` and collaborates with ``resolve``,
+    ``expanduser``, ``block.input.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     root = Path(memory_dir).expanduser().resolve()
     write_base = Path(cwd).expanduser().resolve() if cwd is not None else root
@@ -89,7 +128,19 @@ async def extract_memories_from_turn(
     messages: list[ConversationMessage],
     max_records: int = 3,
 ) -> ExtractionResult:
-    """Ask the model for durable memory candidates and apply them."""
+    """Ask the model for durable memory candidates and apply them.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with
+    ``get_project_memory_dir``, ``has_memory_writes_since``, ``build_extraction_prompt``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     memory_dir = get_project_memory_dir(cwd)
     if len(messages) < 2:
@@ -118,7 +169,17 @@ async def extract_memories_from_turn(
 
 
 def build_extraction_prompt(cwd: str | Path, messages: list[ConversationMessage], *, max_records: int) -> str:
-    """Build the extraction request from recent messages and manifest."""
+    """Build the extraction request from recent messages and manifest.
+
+    Integration: Called by ``extract_memories_from_turn`` and collaborates with
+    ``build_memory_manifest``, ``join``, ``scan_memory_files``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     manifest = build_memory_manifest(scan_memory_files(cwd, max_files=80))
     transcript = "\n".join(_summarize_message(message) for message in messages[-12:])
@@ -142,7 +203,16 @@ over duplicating them. Do not save secrets. If nothing is worth saving, return
 
 
 def parse_extraction_records(text: str, *, max_records: int = 3) -> tuple[ExtractionRecord, ...]:
-    """Parse JSON memory extraction output."""
+    """Parse JSON memory extraction output.
+
+    Integration: Called by ``extract_memories_from_turn`` and collaborates with ``json.loads``,
+    ``payload.get``, ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     try:
         payload = json.loads(_extract_json_object(text))
@@ -177,7 +247,17 @@ def parse_extraction_records(text: str, *, max_records: int = 3) -> tuple[Extrac
 
 
 def apply_extraction_records(cwd: str | Path, records: tuple[ExtractionRecord, ...]) -> ExtractionResult:
-    """Write accepted records to durable memory."""
+    """Write accepted records to durable memory.
+
+    Integration: Called by ``extract_memories_from_turn`` and collaborates with
+    ``ExtractionResult``, ``written.append``, ``check_team_memory_secrets``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     written: list[Path] = []
     for record in records:
@@ -205,7 +285,15 @@ def apply_extraction_records(cwd: str | Path, records: tuple[ExtractionRecord, .
 
 
 def validate_extraction_tool_request(tool_name: str, tool_input: dict[str, Any], memory_dir: str | Path) -> tuple[bool, str]:
-    """Permission guard for extraction-like agents."""
+    """Permission guard for extraction-like agents.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_is_read_only_shell``, ``resolve``, ``expanduser``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     if tool_name in {"read_file", "grep", "glob"}:
         return True, ""
@@ -231,6 +319,16 @@ def validate_extraction_tool_request(tool_name: str, tool_input: dict[str, Any],
 
 
 def _extract_json_object(text: str) -> str:
+    """Extract JSON object for the enclosing subsystem.
+
+    Integration: Called by ``parse_extraction_records`` and collaborates with ``text.strip``,
+    ``stripped.find``, ``stripped.rfind``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     stripped = text.strip()
     if stripped.startswith("{") and stripped.endswith("}"):
         return stripped
@@ -242,6 +340,15 @@ def _extract_json_object(text: str) -> str:
 
 
 def _summarize_message(message: ConversationMessage) -> str:
+    """Summarize message for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     text = " ".join(message.text.split())
     if text:
         return f"{message.role}: {text[:1200]}"
@@ -251,6 +358,16 @@ def _summarize_message(message: ConversationMessage) -> str:
 
 
 def _is_read_only_shell(command: str) -> bool:
+    """Return whether read only shell for the enclosing subsystem.
+
+    Integration: Called by ``validate_extraction_tool_request`` and collaborates with ``lower``,
+    ``any``, ``lowered.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lowered = command.strip().lower()
     if not lowered:
         return False

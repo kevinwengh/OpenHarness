@@ -1,4 +1,14 @@
-"""Adapter around the ``srt`` sandbox-runtime CLI."""
+"""Adapter around the ``srt`` sandbox-runtime CLI.
+
+Integration: This module participates in isolated execution selected by runtime/tool adapters.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve path validation, container lifecycle, network/resource limits, command
+fidelity, and cleanup.
+"""
 
 from __future__ import annotations
 
@@ -15,12 +25,32 @@ from openharness.platforms import get_platform, get_platform_capabilities
 
 
 class SandboxUnavailableError(RuntimeError):
-    """Raised when sandboxing is required but unavailable."""
+    """Raised when sandboxing is required but unavailable.
+
+    Integration: Constructed or referenced by ``wrap_command_for_sandbox``,
+    ``DockerSandboxSession.start``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
 
 @dataclass(frozen=True)
 class SandboxAvailability:
-    """Computed sandbox-runtime availability for the current environment."""
+    """Computed sandbox-runtime availability for the current environment.
+
+    Integration: Constructed or referenced by ``get_sandbox_availability``,
+    ``get_docker_availability``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     enabled: bool
     available: bool
@@ -29,12 +59,29 @@ class SandboxAvailability:
 
     @property
     def active(self) -> bool:
-        """Return whether sandboxing should be applied to child processes."""
+        """Return whether sandboxing should be applied to child processes.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.enabled and self.available
 
 
 def build_sandbox_runtime_config(settings: Settings) -> dict[str, Any]:
-    """Convert OpenHarness settings into an ``srt`` settings payload."""
+    """Convert OpenHarness settings into an ``srt`` settings payload.
+
+    Integration: Called by ``wrap_command_for_sandbox``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         "network": {
             "allowedDomains": list(settings.sandbox.network.allowed_domains),
@@ -50,7 +97,16 @@ def build_sandbox_runtime_config(settings: Settings) -> dict[str, Any]:
 
 
 def get_sandbox_availability(settings: Settings | None = None) -> SandboxAvailability:
-    """Return whether ``srt`` can be used for the current runtime."""
+    """Return whether ``srt`` can be used for the current runtime.
+
+    Integration: Called by ``wrap_command_for_sandbox`` and collaborates with ``get_platform``,
+    ``get_platform_capabilities``, ``shutil.which``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     resolved_settings = settings or load_settings()
     if not resolved_settings.sandbox.enabled:
         return SandboxAvailability(enabled=False, available=False, reason="sandbox is disabled")
@@ -107,7 +163,16 @@ def wrap_command_for_sandbox(
     *,
     settings: Settings | None = None,
 ) -> tuple[list[str], Path | None]:
-    """Wrap an argv list with ``srt`` when sandboxing is active."""
+    """Wrap an argv list with ``srt`` when sandboxing is active.
+
+    Integration: Called by ``create_shell_subprocess`` and collaborates with
+    ``get_sandbox_availability``, ``_write_runtime_settings``, ``load_settings``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     resolved_settings = settings or load_settings()
     if resolved_settings.sandbox.backend == "docker":
         return command, None
@@ -132,7 +197,16 @@ def wrap_command_for_sandbox(
 
 
 def _write_runtime_settings(payload: dict[str, Any]) -> Path:
-    """Persist a temporary settings file for one sandboxed child process."""
+    """Persist a temporary settings file for one sandboxed child process.
+
+    Integration: Called by ``wrap_command_for_sandbox`` and collaborates with
+    ``tempfile.NamedTemporaryFile``, ``Path``, ``json.dump``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     tmp = tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",

@@ -10,6 +10,17 @@ Run directly:
 
 Or via pytest (skipped automatically when Docker is unavailable):
     uv run pytest scripts/test_docker_sandbox_e2e.py -v
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
 """
 
 from __future__ import annotations
@@ -60,7 +71,17 @@ pytestmark = pytest.mark.skipif(not _DOCKER_OK, reason=_SKIP_REASON)
 # ---------------------------------------------------------------------------
 
 def _settings(*, network_domains: list[str] | None = None, **docker_kw) -> Settings:
-    """Build a Settings object with Docker sandbox enabled."""
+    """Build a Settings object with Docker sandbox enabled.
+
+    Integration: Called by ``TestContainerLifecycle.test_start_and_stop``,
+    ``TestContainerLifecycle.test_stop_sync`` and collaborates with ``Settings``,
+    ``SandboxSettings``, ``SandboxNetworkSettings``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return Settings(
         sandbox=SandboxSettings(
             enabled=True,
@@ -79,7 +100,18 @@ def _settings(*, network_domains: list[str] | None = None, **docker_kw) -> Setti
 
 
 async def _run_and_capture(session: DockerSandboxSession, argv: list[str], cwd: Path) -> tuple[int, str, str]:
-    """Run a command inside the sandbox and return (returncode, stdout, stderr)."""
+    """Run a command inside the sandbox and return (returncode, stdout, stderr).
+
+    Integration: Called by ``TestCommandExecution.test_echo``,
+    ``TestCommandExecution.test_echo._run`` and collaborates with ``session.exec_command``,
+    ``proc.communicate``, ``strip``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     proc = await session.exec_command(
         argv,
         cwd=cwd,
@@ -100,7 +132,16 @@ async def _run_and_capture(session: DockerSandboxSession, argv: list[str], cwd: 
 
 @pytest.fixture(scope="module")
 def e2e_image():
-    """Ensure the E2E sandbox image exists (built once per module)."""
+    """Ensure the E2E sandbox image exists (built once per module).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``pytest.fixture``, ``asyncio.run``, ``ensure_image_available``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     ok = asyncio.run(ensure_image_available(_E2E_IMAGE, auto_build=True))
     if not ok:
         pytest.skip(f"Could not build Docker image {_E2E_IMAGE}")
@@ -109,7 +150,15 @@ def e2e_image():
 
 @pytest.fixture()
 def project_dir():
-    """Create a temporary project directory for one test."""
+    """Create a temporary project directory for one test.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``pytest.fixture``, ``tempfile.TemporaryDirectory``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve yield ordering and partial-consumption behavior expected by callers.
+    """
     with tempfile.TemporaryDirectory(prefix="oh-docker-e2e-") as tmpdir:
         yield Path(tmpdir)
 
@@ -119,8 +168,28 @@ def project_dir():
 # ---------------------------------------------------------------------------
 
 class TestImageManagement:
+    """Coordinate the test image management responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_image_build(self, e2e_image):
-        """Image should be available after the module fixture runs."""
+        """Image should be available after the module fixture runs.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``subprocess.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+        callers.
+        """
         result = subprocess.run(
             [_DOCKER, "image", "inspect", e2e_image],
             capture_output=True,
@@ -128,7 +197,17 @@ class TestImageManagement:
         assert result.returncode == 0, "E2E image should exist after build"
 
     def test_image_has_expected_tools(self, e2e_image):
-        """Image should contain bash, rg (ripgrep), and git."""
+        """Image should contain bash, rg (ripgrep), and git.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``subprocess.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+        callers.
+        """
         for tool in ("bash", "rg", "git"):
             result = subprocess.run(
                 [_DOCKER, "run", "--rm", e2e_image, "which", tool],
@@ -142,14 +221,45 @@ class TestImageManagement:
 # ---------------------------------------------------------------------------
 
 class TestContainerLifecycle:
+    """Coordinate the test container lifecycle responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_start_and_stop(self, e2e_image, project_dir):
-        """Container should start, appear in docker ps, then stop cleanly."""
+        """Container should start, appear in docker ps, then stop cleanly.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+        callers.
+        """
         settings = _settings()
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-lifecycle", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test container lifecycle.test start and stop lifecycle.
+
+            Integration: Exposed through ``TestContainerLifecycle.test_start_and_stop`` and
+            collaborates with ``subprocess.run``, ``session.start``, ``session.stop``.
+
+            Event loop: This coroutine awaits subprocess work; preserve process cleanup and
+            avoid shell-blocking operations.
+
+            Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+            callers.
+            """
             await session.start()
             assert session.is_running
 
@@ -175,13 +285,34 @@ class TestContainerLifecycle:
         asyncio.run(_run())
 
     def test_stop_sync(self, e2e_image, project_dir):
-        """Synchronous stop (atexit handler) should also clean up."""
+        """Synchronous stop (atexit handler) should also clean up.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-stopsync", cwd=project_dir,
         )
 
         async def _start():
+            """Start the test container lifecycle.test stop sync lifecycle.
+
+            Integration: Called by ``TestContainerLifecycle.test_stop_sync`` and collaborates
+            with ``session.start``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
 
         asyncio.run(_start())
@@ -191,7 +322,17 @@ class TestContainerLifecycle:
         assert not session.is_running
 
     def test_availability_check(self):
-        """get_docker_availability should return available=True when Docker is running."""
+        """get_docker_availability should return available=True when Docker is running.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``get_docker_availability``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()
         avail = get_docker_availability(settings)
         assert avail.enabled is True
@@ -204,14 +345,45 @@ class TestContainerLifecycle:
 # ---------------------------------------------------------------------------
 
 class TestCommandExecution:
+    """Coordinate the test command execution responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_echo(self, e2e_image, project_dir):
-        """Basic command should execute and return output."""
+        """Basic command should execute and return output.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-echo", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test command execution.test echo lifecycle.
+
+            Integration: Exposed through ``TestCommandExecution.test_echo`` and collaborates
+            with ``session.start``, ``_run_and_capture``, ``session.stop``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 rc, stdout, stderr = await _run_and_capture(
@@ -225,13 +397,34 @@ class TestCommandExecution:
         asyncio.run(_run())
 
     def test_exit_code_preserved(self, e2e_image, project_dir):
-        """Non-zero exit codes should propagate correctly."""
+        """Non-zero exit codes should propagate correctly.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-exitcode", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test command execution.test exit code preserved lifecycle.
+
+            Integration: Exposed through ``TestCommandExecution.test_exit_code_preserved`` and
+            collaborates with ``session.start``, ``_run_and_capture``, ``session.stop``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 rc, _, _ = await _run_and_capture(
@@ -244,13 +437,34 @@ class TestCommandExecution:
         asyncio.run(_run())
 
     def test_env_vars_passed(self, e2e_image, project_dir):
-        """Environment variables should be forwarded into the container."""
+        """Environment variables should be forwarded into the container.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-env", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test command execution.test env vars passed lifecycle.
+
+            Integration: Exposed through ``TestCommandExecution.test_env_vars_passed`` and
+            collaborates with ``session.start``, ``_run_and_capture``, ``session.exec_command``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 rc, stdout, _ = await _run_and_capture(
@@ -274,13 +488,34 @@ class TestCommandExecution:
         asyncio.run(_run())
 
     def test_working_directory(self, e2e_image, project_dir):
-        """Commands should run in the specified working directory."""
+        """Commands should run in the specified working directory.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-cwd", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test command execution.test working directory lifecycle.
+
+            Integration: Exposed through ``TestCommandExecution.test_working_directory`` and
+            collaborates with ``session.start``, ``_run_and_capture``, ``session.stop``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 rc, stdout, _ = await _run_and_capture(
@@ -299,8 +534,28 @@ class TestCommandExecution:
 # ---------------------------------------------------------------------------
 
 class TestFilesystemIsolation:
+    """Coordinate the test filesystem isolation responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_bind_mount_readable(self, e2e_image, project_dir):
-        """Files in the project directory should be readable from inside the container."""
+        """Files in the project directory should be readable from inside the container.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``marker.write_text``, ``_settings``, ``DockerSandboxSession``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         marker = project_dir / "test_marker.txt"
         marker.write_text("E2E_MARKER_OK", encoding="utf-8")
 
@@ -310,6 +565,17 @@ class TestFilesystemIsolation:
         )
 
         async def _run():
+            """Run one test filesystem isolation.test bind mount readable lifecycle.
+
+            Integration: Exposed through ``TestFilesystemIsolation.test_bind_mount_readable``
+            and collaborates with ``session.start``, ``_run_and_capture``, ``session.stop``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 rc, stdout, _ = await _run_and_capture(
@@ -323,7 +589,17 @@ class TestFilesystemIsolation:
         asyncio.run(_run())
 
     def test_bind_mount_writable(self, e2e_image, project_dir):
-        """Files written inside the container should appear on the host."""
+        """Files written inside the container should appear on the host.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         output_file = project_dir / "from_container.txt"
         settings = _settings()
         session = DockerSandboxSession(
@@ -331,6 +607,18 @@ class TestFilesystemIsolation:
         )
 
         async def _run():
+            """Run one test filesystem isolation.test bind mount writable lifecycle.
+
+            Integration: Exposed through ``TestFilesystemIsolation.test_bind_mount_writable``
+            and collaborates with ``session.start``, ``output_file.exists``,
+            ``_run_and_capture``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve path isolation, encoding, and persistence side effects
+            expected by callers.
+            """
             await session.start()
             try:
                 rc, _, _ = await _run_and_capture(
@@ -347,13 +635,35 @@ class TestFilesystemIsolation:
         asyncio.run(_run())
 
     def test_host_root_not_accessible(self, e2e_image, project_dir):
-        """The container should NOT be able to read host files outside the bind mount."""
+        """The container should NOT be able to read host files outside the bind mount.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-fsfence", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test filesystem isolation.test host root not accessible lifecycle.
+
+            Integration: Exposed through
+            ``TestFilesystemIsolation.test_host_root_not_accessible`` and collaborates with
+            ``session.start``, ``_run_and_capture``, ``session.stop``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 # /etc/hostname exists on the host but should not be the same inside
@@ -374,7 +684,17 @@ class TestFilesystemIsolation:
         asyncio.run(_run())
 
     def test_ripgrep_inside_container(self, e2e_image, project_dir):
-        """rg should work inside the container for glob/grep tool integration."""
+        """rg should work inside the container for glob/grep tool integration.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``write_text``, ``_settings``, ``DockerSandboxSession``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         (project_dir / "hello.py").write_text("print('hello world')\n", encoding="utf-8")
 
         settings = _settings()
@@ -383,6 +703,18 @@ class TestFilesystemIsolation:
         )
 
         async def _run():
+            """Run one test filesystem isolation.test ripgrep inside container lifecycle.
+
+            Integration: Exposed through
+            ``TestFilesystemIsolation.test_ripgrep_inside_container`` and collaborates with
+            ``session.start``, ``_run_and_capture``, ``session.stop``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 rc, stdout, _ = await _run_and_capture(
@@ -401,14 +733,46 @@ class TestFilesystemIsolation:
 # ---------------------------------------------------------------------------
 
 class TestNetworkIsolation:
+    """Coordinate the test network isolation responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_network_none_blocks_connectivity(self, e2e_image, project_dir):
-        """With --network=none, outbound connections should fail."""
+        """With --network=none, outbound connections should fail.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings()  # no allowed_domains -> --network=none
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-netblk", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test network isolation.test network none blocks connectivity lifecycle.
+
+            Integration: Exposed through
+            ``TestNetworkIsolation.test_network_none_blocks_connectivity`` and collaborates with
+            ``session.start``, ``_run_and_capture``, ``session.stop``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 # Try to reach an external host; should fail
@@ -424,13 +788,35 @@ class TestNetworkIsolation:
         asyncio.run(_run())
 
     def test_network_bridge_allows_connectivity(self, e2e_image, project_dir):
-        """With allowed_domains set, --network=bridge is used and DNS resolves."""
+        """With allowed_domains set, --network=bridge is used and DNS resolves.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         settings = _settings(network_domains=["github.com"])
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-netok", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test network isolation.test network bridge allows connectivity lifecycle.
+
+            Integration: Exposed through
+            ``TestNetworkIsolation.test_network_bridge_allows_connectivity`` and collaborates
+            with ``session.start``, ``_run_and_capture``, ``isdigit``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             await session.start()
             try:
                 # With bridge network, DNS resolution should work
@@ -461,14 +847,45 @@ class TestNetworkIsolation:
 # ---------------------------------------------------------------------------
 
 class TestResourceLimits:
+    """Coordinate the test resource limits responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_cpu_limit_applied(self, e2e_image, project_dir):
-        """Container should reflect the configured CPU limit."""
+        """Container should reflect the configured CPU limit.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+        callers.
+        """
         settings = _settings(cpu_limit=1.5)
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-cpu", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test resource limits.test cpu limit applied lifecycle.
+
+            Integration: Exposed through ``TestResourceLimits.test_cpu_limit_applied`` and
+            collaborates with ``session.start``, ``subprocess.run``, ``session.stop``.
+
+            Event loop: This coroutine awaits subprocess work; preserve process cleanup and
+            avoid shell-blocking operations.
+
+            Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+            callers.
+            """
             await session.start()
             try:
                 result = subprocess.run(
@@ -486,13 +903,34 @@ class TestResourceLimits:
         asyncio.run(_run())
 
     def test_memory_limit_applied(self, e2e_image, project_dir):
-        """Container should reflect the configured memory limit."""
+        """Container should reflect the configured memory limit.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``DockerSandboxSession``, ``asyncio.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+        callers.
+        """
         settings = _settings(memory_limit="256m")
         session = DockerSandboxSession(
             settings=settings, session_id="e2e-mem", cwd=project_dir,
         )
 
         async def _run():
+            """Run one test resource limits.test memory limit applied lifecycle.
+
+            Integration: Exposed through ``TestResourceLimits.test_memory_limit_applied`` and
+            collaborates with ``session.start``, ``subprocess.run``, ``session.stop``.
+
+            Event loop: This coroutine awaits subprocess work; preserve process cleanup and
+            avoid shell-blocking operations.
+
+            Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+            callers.
+            """
             await session.start()
             try:
                 result = subprocess.run(
@@ -515,8 +953,28 @@ class TestResourceLimits:
 # ---------------------------------------------------------------------------
 
 class TestSessionIntegration:
+    """Coordinate the test session integration responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_session_lifecycle(self, e2e_image, project_dir):
-        """start_docker_sandbox / stop_docker_sandbox should manage the global session."""
+        """start_docker_sandbox / stop_docker_sandbox should manage the global session.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``asyncio.run``, ``is_docker_sandbox_active``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         from openharness.sandbox.session import (
             get_docker_sandbox,
             is_docker_sandbox_active,
@@ -527,6 +985,18 @@ class TestSessionIntegration:
         settings = _settings()
 
         async def _run():
+            """Run one test session integration.test session lifecycle lifecycle.
+
+            Integration: Exposed through ``TestSessionIntegration.test_session_lifecycle`` and
+            collaborates with ``is_docker_sandbox_active``, ``get_docker_sandbox``,
+            ``start_docker_sandbox``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             assert not is_docker_sandbox_active()
 
             await start_docker_sandbox(settings, "e2e-session", project_dir)
@@ -553,8 +1023,28 @@ class TestSessionIntegration:
 # ---------------------------------------------------------------------------
 
 class TestShellIntegration:
+    """Coordinate the test shell integration responsibilities for this subsystem.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def test_create_shell_subprocess_routes_through_docker(self, e2e_image, project_dir):
-        """When Docker sandbox is active, create_shell_subprocess should exec inside container."""
+        """When Docker sandbox is active, create_shell_subprocess should exec inside container.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_settings``, ``asyncio.run``, ``_run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+        callers.
+        """
         from openharness.sandbox.session import (
             start_docker_sandbox,
             stop_docker_sandbox,
@@ -564,6 +1054,19 @@ class TestShellIntegration:
         settings = _settings()
 
         async def _run():
+            """Run one test shell integration.test create shell subprocess routes through docker lifecycle.
+
+            Integration: Exposed through
+            ``TestShellIntegration.test_create_shell_subprocess_routes_through_docker`` and
+            collaborates with ``start_docker_sandbox``, ``create_shell_subprocess``,
+            ``process.communicate``.
+
+            Event loop: This coroutine awaits subprocess work; preserve process cleanup and
+            avoid shell-blocking operations.
+
+            Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by
+            callers.
+            """
             await start_docker_sandbox(settings, "e2e-shell", project_dir)
             try:
                 process = await create_shell_subprocess(
@@ -586,7 +1089,15 @@ class TestShellIntegration:
 # ---------------------------------------------------------------------------
 
 def _main() -> int:
-    """Run all tests and report results."""
+    """Run all tests and report results.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``asyncio.run``, ``ensure_image_available``, ``cls``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not _DOCKER_OK:
         print(f"SKIP: {_SKIP_REASON}")
         return 0

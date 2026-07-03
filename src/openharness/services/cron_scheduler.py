@@ -4,6 +4,16 @@ Runs as a standalone process (``oh cron start``) or can be embedded via
 :func:`run_scheduler_loop`.  Every tick it reads the cron registry, checks
 which enabled jobs are due, executes them, and records results in a history
 log.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
 """
 
 from __future__ import annotations
@@ -52,12 +62,31 @@ TICK_INTERVAL_SECONDS = 30
 # ---------------------------------------------------------------------------
 
 def get_history_path() -> Path:
-    """Return the path to the cron execution history file."""
+    """Return the path to the cron execution history file.
+
+    Integration: Called by ``append_history``, ``load_history`` and collaborates with
+    ``get_data_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_data_dir() / "cron_history.jsonl"
 
 
 def append_history(entry: dict[str, Any]) -> None:
-    """Append one execution record to the history log."""
+    """Append one execution record to the history log.
+
+    Integration: Called by ``execute_job`` and collaborates with ``get_history_path``,
+    ``path.parent.mkdir``, ``path.open``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = get_history_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
@@ -65,7 +94,16 @@ def append_history(entry: dict[str, Any]) -> None:
 
 
 def load_history(*, limit: int = 50, job_name: str | None = None) -> list[dict[str, Any]]:
-    """Load the most recent execution history entries."""
+    """Load the most recent execution history entries.
+
+    Integration: Called by ``cron_history_cmd`` and collaborates with ``get_history_path``,
+    ``splitlines``, ``path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     path = get_history_path()
     if not path.exists():
         return []
@@ -89,12 +127,29 @@ def load_history(*, limit: int = 50, job_name: str | None = None) -> list[dict[s
 # ---------------------------------------------------------------------------
 
 def get_pid_path() -> Path:
-    """Return the scheduler PID file path."""
+    """Return the scheduler PID file path.
+
+    Integration: Called by ``read_pid``, ``write_pid`` and collaborates with ``get_data_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_data_dir() / "cron_scheduler.pid"
 
 
 def read_pid() -> int | None:
-    """Read the PID of a running scheduler, or None."""
+    """Read the PID of a running scheduler, or None.
+
+    Integration: Called by ``is_scheduler_running``, ``stop_scheduler`` and collaborates with
+    ``get_pid_path``, ``path.exists``, ``_pid_exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     path = get_pid_path()
     if not path.exists():
         return None
@@ -110,24 +165,62 @@ def read_pid() -> int | None:
 
 
 def write_pid() -> None:
-    """Write the current process PID."""
+    """Write the current process PID.
+
+    Integration: Called by ``run_scheduler_loop`` and collaborates with ``get_pid_path``,
+    ``path.parent.mkdir``, ``path.write_text``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = get_pid_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(str(os.getpid()) + "\n", encoding="utf-8")
 
 
 def remove_pid() -> None:
-    """Remove the PID file."""
+    """Remove the PID file.
+
+    Integration: Called by ``stop_scheduler``, ``run_scheduler_loop`` and collaborates with
+    ``unlink``, ``get_pid_path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     get_pid_path().unlink(missing_ok=True)
 
 
 def is_scheduler_running() -> bool:
-    """Return True if a scheduler process is alive."""
+    """Return True if a scheduler process is alive.
+
+    Integration: Called by ``cron_start``, ``CronListTool.execute`` and collaborates with
+    ``read_pid``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return read_pid() is not None
 
 
 def stop_scheduler() -> bool:
-    """Send SIGTERM to the running scheduler. Returns True if killed."""
+    """Send SIGTERM to the running scheduler. Returns True if killed.
+
+    Integration: Called by ``cron_stop`` and collaborates with ``read_pid``, ``remove_pid``,
+    ``_terminate_pid``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     pid = read_pid()
     if pid is None:
         return False
@@ -152,7 +245,15 @@ def stop_scheduler() -> bool:
 
 
 def _pid_exists(pid: int) -> bool:
-    """Return True when *pid* currently refers to a live process."""
+    """Return True when *pid* currently refers to a live process.
+
+    Integration: Called by ``read_pid``, ``stop_scheduler`` and collaborates with
+    ``get_platform``, ``_windows_pid_exists``, ``os.kill``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if pid <= 0:
         return False
     if get_platform() == "windows":
@@ -169,7 +270,15 @@ def _pid_exists(pid: int) -> bool:
 
 
 def _windows_pid_exists(pid: int) -> bool:
-    """Windows implementation of ``kill(pid, 0)`` without requiring psutil."""
+    """Windows implementation of ``kill(pid, 0)`` without requiring psutil.
+
+    Integration: Called by ``_pid_exists`` and collaborates with ``kernel32.OpenProcess``,
+    ``ctypes.WinDLL``, ``kernel32.CloseHandle``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         import ctypes
     except Exception:
@@ -198,6 +307,14 @@ def _windows_pid_exists(pid: int) -> bool:
 
 
 def _pid_exists_with_kill_zero(pid: int) -> bool:
+    """Determine whether pid exists with kill zero holds for the current inputs.
+
+    Integration: Called by ``_windows_pid_exists`` and collaborates with ``os.kill``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -210,10 +327,29 @@ def _pid_exists_with_kill_zero(pid: int) -> bool:
 
 
 def _terminate_pid(pid: int) -> None:
+    """Apply terminate pid to the enclosing subsystem state.
+
+    Integration: Called by ``stop_scheduler`` and collaborates with ``os.kill``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     os.kill(pid, signal.SIGTERM)
 
 
 def _kill_pid(pid: int) -> None:
+    """Apply kill pid to the enclosing subsystem state.
+
+    Integration: Called by ``stop_scheduler`` and collaborates with ``os.kill``,
+    ``get_platform``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if get_platform() == "windows":
         os.kill(pid, signal.SIGTERM)
         return
@@ -226,7 +362,17 @@ def _kill_pid(pid: int) -> None:
 
 
 def _format_notification(job: dict[str, Any], entry: dict[str, Any]) -> str:
-    """Build a concise notification body for a completed cron job."""
+    """Build a concise notification body for a completed cron job.
+
+    Integration: Called by ``_notify_job_result`` and collaborates with ``entry.get``,
+    ``strip``, ``join``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     status = entry.get("status", "?")
     rc = entry.get("returncode", "?")
     lines = [
@@ -247,7 +393,16 @@ def _format_notification(job: dict[str, Any], entry: dict[str, Any]) -> str:
 
 
 async def _notify_job_result(job: dict[str, Any], entry: dict[str, Any]) -> None:
-    """Deliver an optional post-run notification for a cron job."""
+    """Deliver an optional post-run notification for a cron job.
+
+    Integration: Called by ``execute_job`` and collaborates with ``job.get``, ``lower``,
+    ``payload.get``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     notify = job.get("notify")
     payload = job.get("payload")
     if not isinstance(notify, dict) and isinstance(payload, dict) and payload.get("deliver"):
@@ -281,7 +436,16 @@ async def _notify_job_result(job: dict[str, Any], entry: dict[str, Any]) -> None
 
 
 def _command_for_job(job: dict[str, Any]) -> str:
-    """Return the shell command used to execute a job."""
+    """Return the shell command used to execute a job.
+
+    Integration: Called by ``execute_job``, ``RemoteTriggerTool.execute`` and collaborates with
+    ``job.get``, ``strip``, ``parts.extend``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     command = job.get("command")
     if command:
         return str(command)
@@ -310,7 +474,17 @@ def _command_for_job(job: dict[str, Any]) -> str:
 
 
 async def execute_job(job: dict[str, Any]) -> dict[str, Any]:
-    """Run a single cron job and return a history entry."""
+    """Run a single cron job and return a history entry.
+
+    Integration: Called by ``run_scheduler_loop`` and collaborates with ``expanduser``,
+    ``datetime.now``, ``logger.info``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     name = job["name"]
     cwd = Path(job.get("cwd") or ".").expanduser()
     started_at = datetime.now(timezone.utc)
@@ -418,7 +592,17 @@ async def execute_job(job: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _jobs_due(jobs: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
-    """Return jobs whose next_run is at or before *now*."""
+    """Return jobs whose next_run is at or before *now*.
+
+    Integration: Called by ``run_scheduler_loop`` and collaborates with ``job.get``,
+    ``validate_cron_expression``, ``datetime.fromisoformat``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract; preserve
+    exception and fallback behavior expected by callers.
+    """
     due: list[dict[str, Any]] = []
     for job in jobs:
         if not job.get("enabled", True):
@@ -441,7 +625,16 @@ def _jobs_due(jobs: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]
 
 
 async def run_scheduler_loop(*, once: bool = False) -> None:
-    """Main scheduler loop.  Runs until SIGTERM or *once* is True (test mode)."""
+    """Main scheduler loop.  Runs until SIGTERM or *once* is True (test mode).
+
+    Integration: Called by ``_run_daemon`` and collaborates with ``asyncio.Event``,
+    ``asyncio.get_running_loop``, ``_install_shutdown_signal_handlers``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     shutdown = asyncio.Event()
 
     loop = asyncio.get_running_loop()
@@ -483,10 +676,31 @@ def _install_shutdown_signal_handlers(
     loop: asyncio.AbstractEventLoop,
     shutdown: asyncio.Event,
 ) -> Callable[[], None]:
-    """Install portable signal handlers and return a restore callback."""
+    """Install portable signal handlers and return a restore callback.
+
+    Integration: Called by ``run_scheduler_loop`` and collaborates with ``logger.info``,
+    ``signals.append``, ``previous_handlers.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     previous_handlers: list[tuple[signal.Signals, Any]] = []
 
     def _on_signal(signum: int, frame: FrameType | None) -> None:
+        """Handle the signal lifecycle event.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``logger.info``, ``contextlib.suppress``,
+        ``loop.call_soon_threadsafe``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         del frame
         logger.info("Received shutdown signal (%s)", signum)
         with contextlib.suppress(RuntimeError):
@@ -506,6 +720,17 @@ def _install_shutdown_signal_handlers(
         previous_handlers.append((sig, previous))
 
     def _restore() -> None:
+        """Apply restore to the enclosing subsystem state.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``reversed``, ``contextlib.suppress``, ``signal.signal``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for sig, previous in reversed(previous_handlers):
             with contextlib.suppress(OSError, RuntimeError, ValueError):
                 signal.signal(sig, previous)
@@ -518,7 +743,16 @@ def _install_shutdown_signal_handlers(
 # ---------------------------------------------------------------------------
 
 def _run_daemon() -> None:
-    """Entry point for the scheduler subprocess."""
+    """Entry point for the scheduler subprocess.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``log_file.parent.mkdir``, ``logging.basicConfig``, ``asyncio.run``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     log_file = get_logs_dir() / "cron_scheduler.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -530,7 +764,15 @@ def _run_daemon() -> None:
 
 
 def start_daemon() -> int:
-    """Start the scheduler daemon and return its PID."""
+    """Start the scheduler daemon and return its PID.
+
+    Integration: Called by ``cron_start`` and collaborates with ``read_pid``,
+    ``_spawn_scheduler_process``, ``RuntimeError``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     existing = read_pid()
     if existing is not None:
         raise RuntimeError(f"Scheduler already running (pid={existing})")
@@ -552,7 +794,15 @@ def start_daemon() -> int:
 
 
 def _spawn_scheduler_process() -> subprocess.Popen[bytes]:
-    """Spawn a detached scheduler subprocess on Unix and Windows."""
+    """Spawn a detached scheduler subprocess on Unix and Windows.
+
+    Integration: Called by ``start_daemon`` and collaborates with ``subprocess.Popen``,
+    ``get_platform``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     popen_kwargs: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
@@ -576,7 +826,16 @@ def _spawn_scheduler_process() -> subprocess.Popen[bytes]:
 
 
 def scheduler_status() -> dict[str, Any]:
-    """Return a status dict about the scheduler."""
+    """Return a status dict about the scheduler.
+
+    Integration: Called by ``cron_status_cmd`` and collaborates with ``read_pid``,
+    ``load_cron_jobs``, ``get_logs_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     pid = read_pid()
     log_path = get_logs_dir() / "cron_scheduler.log"
     jobs = load_cron_jobs()

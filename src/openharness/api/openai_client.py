@@ -1,4 +1,15 @@
-"""OpenAI-compatible API client for providers like Alibaba DashScope, GitHub Models, etc."""
+"""OpenAI-compatible API client for providers like Alibaba DashScope, GitHub Models, etc.
+
+Integration: This module participates in provider streaming clients and normalized request/event
+contracts.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve request conversion, streamed tool calls, usage/errors, auth secrecy,
+retries, and multi-turn replay.
+"""
 
 from __future__ import annotations
 
@@ -48,6 +59,15 @@ def _token_limit_param_for_model(model: str, max_tokens: int) -> dict[str, int]:
 
     GPT-5 and the current reasoning-model families reject ``max_tokens`` and
     require ``max_completion_tokens`` instead.
+
+    Integration: Called by ``OpenAICompatibleClient._stream_once`` and collaborates with
+    ``lower``, ``normalized.startswith``, ``model.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     normalized = model.strip().lower()
     if "/" in normalized:
@@ -63,7 +83,17 @@ def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]
     Anthropic format:
         {"name": "...", "description": "...", "input_schema": {...}}
     OpenAI format:
-        {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
+        {"type": "function", "function": {"name": "...", "description": "...", "parameters":
+    {...}}}
+
+    Integration: Called by ``OpenAICompatibleClient._stream_once`` and collaborates with
+    ``result.append``, ``tool.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     result = []
     for tool in tools:
@@ -89,6 +119,16 @@ def _convert_messages_to_openai(
     - OpenAI: system prompt is a message with role="system"
     - Anthropic: tool_use / tool_result are content blocks
     - OpenAI: tool_calls on assistant message, tool results are separate messages
+
+    Integration: Called by ``OpenAICompatibleClient._stream_once`` and collaborates with
+    ``openai_messages.append``, ``_convert_assistant_message``,
+    ``_convert_user_content_to_openai``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     openai_messages: list[dict[str, Any]] = []
 
@@ -127,7 +167,16 @@ def _convert_messages_to_openai(
 
 
 def _convert_user_content_to_openai(blocks: list[ContentBlock]) -> str | list[dict[str, Any]]:
-    """Convert user text/image blocks into OpenAI chat content."""
+    """Convert user text/image blocks into OpenAI chat content.
+
+    Integration: Called by ``_convert_messages_to_openai`` and collaborates with ``any``,
+    ``join``, ``content.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     has_image = any(isinstance(block, ImageBlock) for block in blocks)
     if not has_image:
         return "".join(block.text for block in blocks if isinstance(block, TextBlock))
@@ -154,6 +203,14 @@ def _empty_reasoning_required() -> bool:
     ``reasoning_content`` field on tool-using assistant messages
     (Kimi-on-Anthropic style). Default off — strict-OpenAI providers
     reject the field outright.
+
+    Integration: Called by ``_convert_assistant_message`` and collaborates with ``lower``,
+    ``strip``, ``os.environ.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     raw = os.environ.get(_EMPTY_REASONING_ENV, "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
@@ -183,6 +240,14 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
     The opt-in default keeps strict-OpenAI providers (Cerebras, NVIDIA NIM,
     OpenAI direct, etc.) working out-of-the-box; Kimi-on-Anthropic users
     set the env var in their dotfiles or settings.
+
+    Integration: Called by ``_convert_messages_to_openai`` and collaborates with ``join``,
+    ``_empty_reasoning_required``, ``json.dumps``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     text_parts = [b.text for b in msg.content if isinstance(b, TextBlock)]
     tool_uses = [b for b in msg.content if isinstance(b, ToolUseBlock)]
@@ -218,7 +283,16 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
 
 
 def _parse_assistant_response(response: Any) -> ConversationMessage:
-    """Parse an OpenAI ChatCompletion response into a ConversationMessage."""
+    """Parse an OpenAI ChatCompletion response into a ConversationMessage.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``ConversationMessage``, ``content.append``, ``TextBlock``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     choice = response.choices[0]
     message = choice.message
     content: list[ContentBlock] = []
@@ -242,7 +316,18 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
 
 
 def _normalize_openai_base_url(base_url: str | None) -> str | None:
-    """Normalize custom OpenAI-compatible base URLs without dropping API path segments."""
+    """Normalize custom OpenAI-compatible base URLs without dropping API path segments.
+
+    Integration: Called by ``OpenAICompatibleClient.__init__``,
+    ``ImageGenerationTool._generate_images`` and collaborates with ``base_url.strip``,
+    ``urlsplit``, ``parts.path.rstrip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not base_url:
         return None
     trimmed = base_url.strip()
@@ -262,9 +347,29 @@ class OpenAICompatibleClient:
 
     Implements the same SupportsStreamingMessages protocol as AnthropicApiClient
     so it can be used as a drop-in replacement in the agent loop.
+
+    Integration: Constructed or referenced by ``CopilotClient.__init__``,
+    ``ImageToTextTool._call_vision_model``.
+
+    Event loop: Async methods ``close``, ``stream_message``, ``_stream_once`` run on their
+    caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self, api_key: str, *, base_url: str | None = None, timeout: float | None = None) -> None:
+        """Initialize ``OpenAICompatibleClient`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``OpenAICompatibleClient`` and collaborates with
+        ``_normalize_openai_base_url``, ``AsyncOpenAI``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         kwargs: dict[str, Any] = {
             "api_key": api_key,
             "default_headers": {"Authorization": f"Bearer {api_key}"},
@@ -277,11 +382,37 @@ class OpenAICompatibleClient:
         self._client = AsyncOpenAI(**kwargs)
 
     async def close(self) -> None:
-        """Close the underlying HTTP client."""
+        """Close the underlying HTTP client.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await self._client.close()
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
-        """Yield text deltas and the final message, matching the Anthropic client interface."""
+        """Stream one provider response as normalized API events.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_translate_error``, ``_stream_once``, ``log.warning``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         last_error: Exception | None = None
 
         for attempt in range(MAX_RETRIES + 1):
@@ -313,7 +444,25 @@ class OpenAICompatibleClient:
             raise self._translate_error(last_error) from last_error
 
     async def _stream_once(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
-        """Single attempt: stream an OpenAI chat completion."""
+        """Perform one underlying provider streaming attempt.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_convert_messages_to_openai``, ``params.update``,
+        ``ConversationMessage``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation; retain lock scope and release behavior.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         openai_messages = _convert_messages_to_openai(request.messages, request.system_prompt)
         openai_tools = _convert_tools_to_openai(request.tools) if request.tools else None
 
@@ -435,6 +584,16 @@ class OpenAICompatibleClient:
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
+        """Return whether retryable for the enclosing subsystem.
+
+        Integration: Exposed through ``OpenAICompatibleClient``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         status = getattr(exc, "status_code", None)
         if status and status in {429, 500, 502, 503}:
             return True
@@ -444,6 +603,24 @@ class OpenAICompatibleClient:
 
     @staticmethod
     def _translate_error(exc: Exception) -> OpenHarnessApiError:
+        """Translate a provider failure into the OpenHarness API error model.
+
+        Integration: Exposed through ``OpenAICompatibleClient`` and collaborates with
+        ``RequestFailure``, ``AuthenticationFailure``, ``RateLimitFailure``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         status = getattr(exc, "status_code", None)
         msg = str(exc)
         if status == 401 or status == 403:
@@ -464,6 +641,15 @@ def _strip_think_blocks(buf: str) -> tuple[str, str]:
     Complete pairs are removed via regex.  An unclosed ``<think>`` is held in
     *leftover* so it can be re-evaluated once the closing tag arrives in the
     next streaming chunk.
+
+    Integration: Called by ``OpenAICompatibleClient._stream_once`` and collaborates with
+    ``_THINK_RE.sub``, ``cleaned.find``, ``_THINK_OPEN_TAG.startswith``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     # Remove fully-closed blocks.
     cleaned = _THINK_RE.sub("", buf)

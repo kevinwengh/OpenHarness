@@ -1,4 +1,15 @@
-"""API exports."""
+"""API exports.
+
+Integration: This module participates in provider streaming clients and normalized request/event
+contracts.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve request conversion, streamed tool calls, usage/errors, auth secrecy,
+retries, and multi-turn replay.
+"""
 
 from openharness.api.client import AnthropicApiClient
 from openharness.api.codex_client import CodexApiClient

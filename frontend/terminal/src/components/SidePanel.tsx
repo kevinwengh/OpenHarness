@@ -1,8 +1,32 @@
+/**
+ * Render and coordinate the `SidePanel` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
 import type {BridgeSessionSnapshot, McpServerSnapshot, TaskSnapshot} from '../types.js';
 
+/**
+ * Render the SidePanel React component.
+ *
+ * Integration: Owned by `SidePanel.tsx` and invoked through its surrounding React or module
+ * boundary.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function SidePanel({
 	status,
 	tasks,
@@ -29,6 +53,16 @@ export function SidePanel({
 	);
 }
 
+/**
+ * Render the StatusPanel React component.
+ *
+ * Integration: Owned by `SidePanel.tsx` and collaborates with `String`, `Boolean`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function StatusPanel({status}: {status: Record<string, unknown>}): React.JSX.Element {
 	return (
 		<>
@@ -50,6 +84,16 @@ function StatusPanel({status}: {status: Record<string, unknown>}): React.JSX.Ele
 	);
 }
 
+/**
+ * Render the TaskPanel React component.
+ *
+ * Integration: Owned by `SidePanel.tsx` and collaborates with `slice`, `map`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function TaskPanel({tasks}: {tasks: TaskSnapshot[]}): React.JSX.Element {
 	const visible = tasks.slice(0, 6);
 	return (
@@ -59,7 +103,10 @@ function TaskPanel({tasks}: {tasks: TaskSnapshot[]}): React.JSX.Element {
 				{visible.length === 0 ? (
 					<Text>(none)</Text>
 				) : (
-					visible.map((task) => (
+					visible.map(/*
+					 * map callback: computes its callback result; keep event-loop work bounded and preserve
+					 * the callback's return contract.
+					 */ (task) => (
 						<Box key={task.id} flexDirection="column">
 							<Text>
 								{task.id} [{task.status}] {task.description}
@@ -75,6 +122,16 @@ function TaskPanel({tasks}: {tasks: TaskSnapshot[]}): React.JSX.Element {
 	);
 }
 
+/**
+ * Render the McpPanel React component.
+ *
+ * Integration: Owned by `SidePanel.tsx` and collaborates with `map`, `slice`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function McpPanel({servers}: {servers: McpServerSnapshot[]}): React.JSX.Element {
 	return (
 		<>
@@ -83,7 +140,10 @@ function McpPanel({servers}: {servers: McpServerSnapshot[]}): React.JSX.Element 
 				{servers.length === 0 ? (
 					<Text>(none)</Text>
 				) : (
-					servers.slice(0, 5).map((server) => (
+					servers.slice(0, 5).map(/*
+					 * map callback: uses String, Boolean; keep event-loop work bounded and preserve the
+					 * callback's return contract.
+					 */ (server) => (
 						<Box key={server.name} flexDirection="column">
 							<Text>
 								{server.name} [{server.state}] {server.transport ?? 'unknown'}
@@ -101,6 +161,16 @@ function McpPanel({servers}: {servers: McpServerSnapshot[]}): React.JSX.Element 
 	);
 }
 
+/**
+ * Render the BridgePanel React component.
+ *
+ * Integration: Owned by `SidePanel.tsx` and collaborates with `map`, `slice`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function BridgePanel({sessions}: {sessions: BridgeSessionSnapshot[]}): React.JSX.Element {
 	return (
 		<>
@@ -109,7 +179,10 @@ function BridgePanel({sessions}: {sessions: BridgeSessionSnapshot[]}): React.JSX
 				{sessions.length === 0 ? (
 					<Text>(none)</Text>
 				) : (
-					sessions.slice(0, 4).map((session) => (
+					sessions.slice(0, 4).map(/*
+					 * map callback: computes its callback result; keep event-loop work bounded and preserve
+					 * the callback's return contract.
+					 */ (session) => (
 						<Box key={session.session_id} flexDirection="column">
 							<Text>
 								{session.session_id} [{session.status}] pid={session.pid}
@@ -123,6 +196,16 @@ function BridgePanel({sessions}: {sessions: BridgeSessionSnapshot[]}): React.JSX
 	);
 }
 
+/**
+ * Render the CommandPanel React component.
+ *
+ * Integration: Owned by `SidePanel.tsx` and collaborates with `map`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function CommandPanel({
 	commands,
 	hints,
@@ -135,7 +218,10 @@ function CommandPanel({
 			<Text bold>Commands</Text>
 			<Box flexDirection="column" borderStyle="round" paddingX={1}>
 				{hints.length > 0 ? (
-					hints.map((command, index) => (
+					hints.map(/*
+					 * map callback: computes its callback result; keep event-loop work bounded and preserve
+					 * the callback's return contract.
+					 */ (command, index) => (
 						<Text key={command} color={index === 0 ? 'cyan' : undefined}>
 							{command}
 							{index === 0 ? '  [tab]' : ''}

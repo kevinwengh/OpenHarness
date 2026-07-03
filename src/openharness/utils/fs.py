@@ -23,6 +23,14 @@ For read-modify-write sequences on shared files (credentials, settings, cron
 registry), pair atomic writes with :func:`exclusive_file_lock` from
 :mod:`openharness.swarm.lockfile` so two concurrent ``oh`` processes cannot
 clobber each other's updates.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
 """
 
 from __future__ import annotations
@@ -44,6 +52,14 @@ def atomic_write_bytes(path: str | os.PathLike[str], data: bytes, *, mode: int |
     existing file's mode is preserved; for new files the current umask
     determines the mode, matching the historical behaviour of
     :meth:`pathlib.Path.write_text`.
+
+    Integration: Called by ``atomic_write_text`` and collaborates with ``Path``,
+    ``dst.parent.mkdir``, ``_resolve_target_mode``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
     """
     dst = Path(path)
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -73,11 +89,30 @@ def atomic_write_text(
     encoding: str = "utf-8",
     mode: int | None = None,
 ) -> None:
-    """Text variant of :func:`atomic_write_bytes`."""
+    """Text variant of :func:`atomic_write_bytes`.
+
+    Integration: Called by ``add_memory_entry``, ``remove_memory_entry`` and collaborates with
+    ``atomic_write_bytes``, ``data.encode``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     atomic_write_bytes(path, data.encode(encoding), mode=mode)
 
 
 def _resolve_target_mode(path: Path, explicit_mode: int | None) -> int:
+    """Resolve target mode for the enclosing subsystem.
+
+    Integration: Called by ``atomic_write_bytes`` and collaborates with ``stat.S_IMODE``,
+    ``path.stat``, ``os.umask``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if explicit_mode is not None:
         return explicit_mode
     try:
@@ -90,6 +125,14 @@ def _resolve_target_mode(path: Path, explicit_mode: int | None) -> int:
 
 
 def _apply_mode(path: Path, target_mode: int) -> None:
+    """Apply mode for the enclosing subsystem.
+
+    Integration: Called by ``atomic_write_bytes`` and collaborates with ``os.chmod``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         os.chmod(path, target_mode)
     except OSError:

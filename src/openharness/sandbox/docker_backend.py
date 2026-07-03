@@ -1,4 +1,14 @@
-"""Docker-based sandbox backend for isolated tool execution."""
+"""Docker-based sandbox backend for isolated tool execution.
+
+Integration: This module participates in isolated execution selected by runtime/tool adapters.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve path validation, container lifecycle, network/resource limits, command
+fidelity, and cleanup.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +27,18 @@ logger = logging.getLogger(__name__)
 
 
 def get_docker_availability(settings: Settings) -> SandboxAvailability:
-    """Check whether Docker can be used as a sandbox backend."""
+    """Check whether Docker can be used as a sandbox backend.
+
+    Integration: Called by ``TestContainerLifecycle.test_availability_check``,
+    ``start_docker_sandbox`` and collaborates with ``get_platform``,
+    ``get_platform_capabilities``, ``shutil.which``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     if not settings.sandbox.enabled or settings.sandbox.backend != "docker":
         return SandboxAvailability(
             enabled=False, available=False, reason="Docker sandbox is not enabled"
@@ -60,7 +81,17 @@ def get_docker_availability(settings: Settings) -> SandboxAvailability:
 
 @dataclass
 class DockerSandboxSession:
-    """Manages a long-running Docker container for one OpenHarness session."""
+    """Manages a long-running Docker container for one OpenHarness session.
+
+    Integration: Constructed or referenced by ``TestContainerLifecycle.test_start_and_stop``,
+    ``TestContainerLifecycle.test_stop_sync``.
+
+    Event loop: Async methods ``start``, ``stop``, ``exec_command`` run on their caller's loop;
+    instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     settings: Settings
     session_id: str
@@ -69,18 +100,58 @@ class DockerSandboxSession:
     _running: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
+        """Apply post init to the enclosing subsystem state.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._container_name = f"openharness-sandbox-{self.session_id}"
 
     @property
     def container_name(self) -> str:
+        """Derive container name from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._container_name
 
     @property
     def is_running(self) -> bool:
+        """Return whether running for the enclosing subsystem.
+
+        Integration: Exposed through ``DockerSandboxSession``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._running
 
     def _build_run_argv(self) -> list[str]:
-        """Build the ``docker run`` argv for container creation."""
+        """Build the ``docker run`` argv for container creation.
+
+        Integration: Called by ``DockerSandboxSession.start`` and collaborates with
+        ``argv.extend``, ``docker_cfg.extra_env.items``, ``shutil.which``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         docker = shutil.which("docker") or "docker"
         sandbox = self.settings.sandbox
         docker_cfg = sandbox.docker
@@ -128,7 +199,17 @@ class DockerSandboxSession:
         return argv
 
     async def start(self) -> None:
-        """Create and start the sandbox container."""
+        """Create and start the sandbox container.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_build_run_argv``, ``logger.info``, ``ensure_image_available``.
+
+        Event loop: This coroutine awaits subprocess work; preserve process cleanup and avoid
+        shell-blocking operations.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         from openharness.sandbox.docker_image import ensure_image_available
 
         docker_cfg = self.settings.sandbox.docker
@@ -158,7 +239,17 @@ class DockerSandboxSession:
         logger.info("Docker sandbox started: %s", self._container_name)
 
     async def stop(self) -> None:
-        """Stop and remove the sandbox container."""
+        """Stop and remove the sandbox container.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``shutil.which``, ``logger.info``, ``asyncio.create_subprocess_exec``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         if not self._running:
             return
         docker = shutil.which("docker") or "docker"
@@ -180,7 +271,17 @@ class DockerSandboxSession:
             logger.info("Docker sandbox stopped: %s", self._container_name)
 
     def stop_sync(self) -> None:
-        """Synchronous stop for use in atexit handlers."""
+        """Synchronous stop for use in atexit handlers.
+
+        Integration: Called by ``TestContainerLifecycle.test_stop_sync`` and collaborates with
+        ``shutil.which``, ``subprocess.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         if not self._running:
             return
         docker = shutil.which("docker") or "docker"
@@ -209,6 +310,16 @@ class DockerSandboxSession:
 
         Returns an ``asyncio.subprocess.Process`` with the same interface as
         ``asyncio.create_subprocess_exec``.
+
+        Integration: Called by ``_run_and_capture``,
+        ``TestCommandExecution.test_env_vars_passed`` and collaborates with ``cmd.extend``,
+        ``cmd.append``, ``SandboxUnavailableError``.
+
+        Event loop: This coroutine awaits subprocess work; preserve process cleanup and avoid
+        shell-blocking operations.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
         """
         if not self._running:
             raise SandboxUnavailableError("Docker sandbox session is not running")

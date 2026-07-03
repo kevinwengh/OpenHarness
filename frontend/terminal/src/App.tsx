@@ -1,3 +1,16 @@
+/**
+ * Own the terminal frontend's app boundary.
+ *
+ * Integration: Connects the Ink application to shared TypeScript types and the Python backend
+ * protocol.
+ *
+ * Event loop: Process I/O, React effects, input events, and buffered rendering coexist on Node's
+ * event loop; preserve cleanup and backpressure.
+ *
+ * Change safety: Coordinate protocol, process lifecycle, terminal restoration, and packaging
+ * changes with the Python host and UI tests.
+ */
+
 import React, {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 
@@ -15,14 +28,20 @@ import {ThemeProvider, useTheme} from './theme/ThemeContext.js';
 import type {FrontendConfig, ImageAttachmentPayload} from './types.js';
 
 const rawReturnSubmit = process.env.OPENHARNESS_FRONTEND_RAW_RETURN === '1';
-const scriptedSteps = (() => {
+const scriptedSteps = (/*
+ * callback at line 18: uses parse, isArray, filter; keep event-loop work bounded and preserve
+ * surrounding control flow.
+ */ () => {
 	const raw = process.env.OPENHARNESS_FRONTEND_SCRIPT;
 	if (!raw) {
 		return [] as string[];
 	}
 	try {
 		const parsed = JSON.parse(raw);
-		return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+		return Array.isArray(parsed) ? parsed.filter(/*
+		 * filter callback: computes its callback result; keep event-loop work bounded and preserve
+		 * the callback's return contract.
+		 */ (item): item is string => typeof item === 'string') : [];
 	} catch {
 		return [];
 	}
@@ -49,6 +68,16 @@ type SelectModalState = {
 	onSelect: (value: string) => void;
 } | null;
 
+/**
+ * Render the App React component.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `String`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 	const initialTheme = String((config as Record<string, unknown>).theme ?? 'default');
 	return (
@@ -58,6 +87,16 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 	);
 }
 
+/**
+ * Render the AppInner React component.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `useApp`, `useTheme`, `useState`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const {exit} = useApp();
 	const {theme, setThemeName} = useTheme();
@@ -72,7 +111,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [pickerIndex, setPickerIndex] = useState(0);
 	const [selectModal, setSelectModal] = useState<SelectModalState>(null);
 	const [selectIndex, setSelectIndex] = useState(0);
-	const session = useBackendSession(config, () => exit());
+	const session = useBackendSession(config, /*
+	 * useBackendSession callback: uses exit; keep event-loop work bounded and preserve the
+	 * callback's return contract.
+	 */ () => exit());
 	const deferredTranscript = useDeferredValue(session.transcript);
 	const deferredAssistantBuffer = useDeferredValue(session.assistantBuffer);
 	const deferredStatus = useDeferredValue(session.status);
@@ -82,56 +124,115 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const deferredSwarmNotifications = useDeferredValue(session.swarmNotifications);
 	const clipboardStatusTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses setThemeName after render; keep dependencies, asynchronous work, and
+	 * returned cleanup synchronized.
+	 */ () => {
 		const nextTheme = session.status.theme;
 		if (typeof nextTheme === 'string' && nextTheme) {
 			setThemeName(nextTheme);
 		}
 	}, [session.status.theme, setThemeName]);
 
-	useEffect(() => {
-		return () => {
+	useEffect(/*
+	 * React effect: computes its callback result after render; keep dependencies, asynchronous
+	 * work, and returned cleanup synchronized.
+	 */ () => {
+		return /*
+		 * Effect cleanup: uses clearTimeout; keep it paired with every resource acquired by the
+		 * effect.
+		 */ () => {
 			if (clipboardStatusTimerRef.current) {
 				clearTimeout(clipboardStatusTimerRef.current);
 			}
 		};
 	}, []);
 
-	const setTemporaryClipboardStatus = (message: string): void => {
+	 /**
+  * Derive set temporary clipboard status from the current frontend state and inputs.
+  *
+  * Integration: Owned by `AppInner` and collaborates with `setClipboardStatus`, `clearTimeout`,
+  * `setTimeout`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Preserve React state ownership, functional-update semantics, and render ordering;
+  * review every dependent effect and component.
+  */
+ const setTemporaryClipboardStatus = (message: string): void => {
 		setClipboardStatus(message);
 		if (clipboardStatusTimerRef.current) {
 			clearTimeout(clipboardStatusTimerRef.current);
 		}
-		clipboardStatusTimerRef.current = setTimeout(() => {
+		clipboardStatusTimerRef.current = setTimeout(/*
+		 * Timer callback: uses setClipboardStatus on Node's event loop; keep work bounded and
+		 * preserve matching cleanup.
+		 */ () => {
 			setClipboardStatus(null);
 			clipboardStatusTimerRef.current = null;
 		}, 2500);
 	};
 
-	const attachClipboardImage = (): void => {
-		void (async () => {
+	 /**
+  * Derive attach clipboard image from the current frontend state and inputs.
+  *
+  * Integration: Owned by `AppInner` and collaborates with `catch`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+  */
+ const attachClipboardImage = (): void => {
+		void (/*
+		 * callback at line 112: uses readClipboardImage, setTemporaryClipboardStatus,
+		 * setImageAttachments; keep event-loop work bounded and preserve surrounding control flow.
+		 */ async () => {
 			const image = await readClipboardImage();
 			if (!image) {
 				setTemporaryClipboardStatus('No image found in clipboard');
 				return;
 			}
-			setImageAttachments((items) => [...items, image]);
+			setImageAttachments(/*
+			 * Functional state update: computes its callback result from prior React state; keep the
+			 * calculation pure and immutable.
+			 */ (items) => [...items, image]);
 			setTemporaryClipboardStatus(`Attached ${image.label}`);
-		})().catch((error: unknown) => {
+		})().catch(/*
+		 * catch callback: uses String, setTemporaryClipboardStatus; keep event-loop work bounded and
+		 * preserve the callback's return contract.
+		 */ (error: unknown) => {
 			const message = error instanceof Error ? error.message : String(error);
 			setTemporaryClipboardStatus(`Clipboard image unavailable: ${message}`);
 		});
 	};
 
-	const imagePayloads = (): ImageAttachmentPayload[] =>
-		imageAttachments.map((image) => ({
+	 /**
+  * Derive image payloads from the current frontend state and inputs.
+  *
+  * Integration: Owned by `AppInner` and collaborates with `map`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+  */
+ const imagePayloads = (): ImageAttachmentPayload[] =>
+		imageAttachments.map(/*
+		 * map callback: computes its callback result; keep event-loop work bounded and preserve the
+		 * callback's return contract.
+		 */ (image) => ({
 			media_type: image.media_type,
 			data: image.data,
 			source_path: image.source_path,
 		}));
 
 	// Current tool name for spinner
-	const currentToolName = useMemo(() => {
+	const currentToolName = useMemo(/*
+	 * React useMemo callback: computes its callback result; keep dependencies synchronized with
+	 * captured values and preserve purity.
+	 */ () => {
 		for (let i = deferredTranscript.length - 1; i >= 0; i--) {
 			const item = deferredTranscript[i];
 			if (item.role === 'tool') {
@@ -145,23 +246,35 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	}, [deferredTranscript]);
 
 	// Command hints
-	const commandHints = useMemo(() => {
+	const commandHints = useMemo(/*
+	 * React useMemo callback: uses trim, startsWith, slice; keep dependencies synchronized with
+	 * captured values and preserve purity.
+	 */ () => {
 		const value = input.trim();
 		if (!value.startsWith('/')) {
 			return [] as string[];
 		}
-		return session.commands.filter((cmd) => cmd.startsWith(value)).slice(0, 10);
+		return session.commands.filter(/*
+		 * filter callback: uses startsWith; keep event-loop work bounded and preserve the callback's
+		 * return contract.
+		 */ (cmd) => cmd.startsWith(value)).slice(0, 10);
 	}, [session.commands, input]);
 
 	const showPicker = commandHints.length > 0 && !session.busy && !session.modal && !selectModal;
 	const outputStyle = String(session.status.output_style ?? 'default');
 
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses setPickerIndex after render; keep dependencies, asynchronous work, and
+	 * returned cleanup synchronized.
+	 */ () => {
 		setPickerIndex(0);
 	}, [commandHints.length, input]);
 
 	// Handle backend-initiated select requests (e.g. /resume session list)
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses setSelectRequest, findIndex, setSelectIndex after render; keep
+	 * dependencies, asynchronous work, and returned cleanup synchronized.
+	 */ () => {
 		if (!session.selectRequest) {
 			return;
 		}
@@ -170,12 +283,30 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			session.setSelectRequest(null);
 			return;
 		}
-		const initialIndex = req.options.findIndex((option) => option.active);
+		const initialIndex = req.options.findIndex(/*
+		 * findIndex callback: computes its callback result; keep event-loop work bounded and preserve
+		 * the callback's return contract.
+		 */ (option) => option.active);
 		setSelectIndex(initialIndex >= 0 ? initialIndex : 0);
 		setSelectModal({
 			title: req.title,
-			options: req.options.map((o) => ({value: o.value, label: o.label, description: o.description, active: o.active})),
-			onSelect: (value) => {
+			options: req.options.map(/*
+			 * map callback: computes its callback result; keep event-loop work bounded and preserve the
+			 * callback's return contract.
+			 */ (o) => ({value: o.value, label: o.label, description: o.description, active: o.active})),
+			   /**
+    * Handle select for the owning UI boundary.
+    *
+    * Integration: Owned by `useEffect callback 1` and collaborates with `sendRequest`, `setBusy`,
+    * `setSelectModal`.
+    *
+    * Event loop: Runs from an input or UI event; keep synchronous work bounded and order state
+    * updates before asynchronous follow-up.
+    *
+    * Change safety: Preserve React state ownership, functional-update semantics, and render
+    * ordering; review every dependent effect and component.
+    */
+   onSelect: (value) => {
 				session.sendRequest({type: 'apply_select_command', command: req.command, value});
 				session.setBusy(true);
 				setSelectModal(null);
@@ -185,7 +316,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	}, [session.selectRequest]);
 
 	// Intercept special commands that need interactive UI
-	const handleCommand = (cmd: string): boolean => {
+	 /**
+  * Handle command for the owning UI boundary.
+  *
+  * Integration: Owned by `AppInner` and collaborates with `trim`, `has`, `sendRequest`.
+  *
+  * Event loop: Runs from an input or UI event; keep synchronous work bounded and order state
+  * updates before asynchronous follow-up.
+  *
+  * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+  */
+ const handleCommand = (cmd: string): boolean => {
 		const trimmed = cmd.trim();
 
 		if (SELECTABLE_COMMANDS.has(trimmed)) {
@@ -220,7 +361,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		return false;
 	};
 
-	useInput((chunk, key) => {
+	useInput(/*
+	 * useInput callback: uses sendRequest, setBusyLabel, exit; keep event-loop work bounded and
+	 * preserve the callback's return contract.
+	 */ (chunk, key) => {
 		const isPaste = chunk.length > 1 && !key.ctrl && !key.meta;
 		const isEscape = key.escape || chunk === '\u001B';
 
@@ -249,11 +393,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// --- Select modal (permissions picker etc.) ---
 		if (selectModal) {
 			if (key.upArrow) {
-				setSelectIndex((i) => Math.max(0, i - 1));
+				setSelectIndex(/*
+				 * Functional state update: uses max from prior React state; keep the calculation pure and
+				 * immutable.
+				 */ (i) => Math.max(0, i - 1));
 				return;
 			}
 			if (key.downArrow) {
-				setSelectIndex((i) => Math.min(selectModal.options.length - 1, i + 1));
+				setSelectIndex(/*
+				 * Functional state update: uses min from prior React state; keep the calculation pure and
+				 * immutable.
+				 */ (i) => Math.min(selectModal.options.length - 1, i + 1));
 				return;
 			}
 			if (key.return) {
@@ -381,11 +531,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// --- Command picker ---
 		if (showPicker) {
 			if (key.upArrow) {
-				setPickerIndex((i) => Math.max(0, i - 1));
+				setPickerIndex(/*
+				 * Functional state update: uses max from prior React state; keep the calculation pure and
+				 * immutable.
+				 */ (i) => Math.max(0, i - 1));
 				return;
 			}
 			if (key.downArrow) {
-				setPickerIndex((i) => Math.min(commandHints.length - 1, i + 1));
+				setPickerIndex(/*
+				 * Functional state update: uses min from prior React state; keep the calculation pure and
+				 * immutable.
+				 */ (i) => Math.min(commandHints.length - 1, i + 1));
 				return;
 			}
 			if (key.return) {
@@ -448,7 +604,19 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// PromptInput.  Do NOT duplicate it here — that causes double requests.
 	});
 
-	const onSubmit = (value: string): void => {
+	 /**
+  * Handle submit for the owning UI boundary.
+  *
+  * Integration: Owned by `AppInner` and collaborates with `sendRequest`, `setModal`,
+  * `setModalInput`.
+  *
+  * Event loop: Runs from an input or UI event; keep synchronous work bounded and order state
+  * updates before asynchronous follow-up.
+  *
+  * Change safety: Preserve React state ownership, functional-update semantics, and render ordering;
+  * review every dependent effect and component.
+  */
+ const onSubmit = (value: string): void => {
 		if (session.modal?.kind === 'question') {
 			session.sendRequest({
 				type: 'question_response',
@@ -469,14 +637,20 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		}
 		// Check if it's an interactive command
 		if (imageAttachments.length === 0 && handleCommand(value)) {
-			setHistory((items) => [...items, value]);
+			setHistory(/*
+			 * Functional state update: computes its callback result from prior React state; keep the
+			 * calculation pure and immutable.
+			 */ (items) => [...items, value]);
 			setHistoryIndex(-1);
 			setInput('');
 			return;
 		}
 		session.sendRequest({type: 'submit_line', line: value, images: imagePayloads()});
 		if (value.trim()) {
-			setHistory((items) => [...items, value]);
+			setHistory(/*
+			 * Functional state update: computes its callback result from prior React state; keep the
+			 * calculation pure and immutable.
+			 */ (items) => [...items, value]);
 		}
 		setHistoryIndex(-1);
 		setInput('');
@@ -485,7 +659,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	};
 
 	// Scripted automation
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses setTimeout after render; keep dependencies, asynchronous work, and
+	 * returned cleanup synchronized.
+	 */ () => {
 		if (scriptIndex >= scriptedSteps.length) {
 			return;
 		}
@@ -493,11 +670,20 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 		const step = scriptedSteps[scriptIndex];
-		const timer = setTimeout(() => {
+		const timer = setTimeout(/*
+		 * Timer callback: uses onSubmit, setScriptIndex on Node's event loop; keep work bounded and
+		 * preserve matching cleanup.
+		 */ () => {
 			onSubmit(step);
-			setScriptIndex((index) => index + 1);
+			setScriptIndex(/*
+			 * Functional state update: computes its callback result from prior React state; keep the
+			 * calculation pure and immutable.
+			 */ (index) => index + 1);
 		}, 200);
-		return () => clearTimeout(timer);
+		return /*
+		 * Effect cleanup: uses clearTimeout; keep it paired with every resource acquired by the
+		 * effect.
+		 */ () => clearTimeout(timer);
 	}, [scriptIndex, session.busy, session.modal, selectModal]);
 
 	return (
@@ -565,7 +751,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					toolName={session.busy ? currentToolName : undefined}
 					statusLabel={session.busy ? (session.busyLabel ?? (currentToolName ? `Running ${currentToolName}...` : 'Running agent loop...')) : undefined}
 					suppressSubmit={showPicker}
-					imageAttachmentLabels={imageAttachments.map((image) => image.label)}
+					imageAttachmentLabels={imageAttachments.map(/*
+					 * map callback: computes its callback result; keep event-loop work bounded and preserve
+					 * the callback's return contract.
+					 */ (image) => image.label)}
 					clipboardStatus={clipboardStatus}
 				/>
 			)}

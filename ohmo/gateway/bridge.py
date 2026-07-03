@@ -1,4 +1,15 @@
-"""Gateway bridge connecting channel bus traffic to ohmo runtimes."""
+"""Gateway bridge connecting channel bus traffic to ohmo runtimes.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +30,16 @@ logger = logging.getLogger(__name__)
 
 
 def _content_snippet(text: str, *, limit: int = 160) -> str:
-    """Return a single-line preview suitable for logs."""
+    """Return a single-line preview suitable for logs.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``join``, ``text.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = " ".join(text.split())
     if len(normalized) <= limit:
         return normalized
@@ -27,7 +47,17 @@ def _content_snippet(text: str, *, limit: int = 160) -> str:
 
 
 def _format_gateway_error(exc: Exception) -> str:
-    """Return a short, user-facing gateway error message."""
+    """Return a short, user-facing gateway error message.
+
+    Integration: Called by ``OhmoGatewayBridge._process_message`` and collaborates with
+    ``message.lower``, ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     message = str(exc).strip() or exc.__class__.__name__
     lowered = message.lower()
     if "claude oauth refresh failed" in lowered:
@@ -54,7 +84,17 @@ def _format_gateway_error(exc: Exception) -> str:
 
 
 class OhmoGatewayBridge:
-    """Consume inbound messages and publish assistant replies."""
+    """Consume inbound messages and publish assistant replies.
+
+    Integration: Constructed or referenced by ``OhmoGatewayService.__init__``.
+
+    Event loop: Async methods ``run``, ``_handle_stop``, ``_handle_restart``,
+    ``_prepare_group_prompt_message`` run on their caller's loop; instances must retain clear
+    task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(
         self,
@@ -65,6 +105,17 @@ class OhmoGatewayBridge:
         workspace: str | Path | None = None,
         feishu_group_policy: str = "open",
     ) -> None:
+        """Initialize ``OhmoGatewayBridge`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``OhmoGatewayBridge`` and collaborates with
+        ``_normalize_feishu_group_policy``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._bus = bus
         self._runtime_pool = runtime_pool
         self._restart_gateway = restart_gateway
@@ -75,6 +126,16 @@ class OhmoGatewayBridge:
         self._session_cancel_reasons: dict[str, str] = {}
 
     async def run(self) -> None:
+        """Run one ohmo gateway bridge lifecycle.
+
+        Integration: Exposed through ``OhmoGatewayBridge`` and collaborates with
+        ``session_key_for_message``, ``logger.info``, ``_parse_group_command``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         self._running = True
         while self._running:
             try:
@@ -135,12 +196,34 @@ class OhmoGatewayBridge:
             task.add_done_callback(lambda finished, key=session_key: self._cleanup_task(key, finished))
 
     def stop(self) -> None:
+        """Stop the active ohmo gateway bridge lifecycle.
+
+        Integration: Exposed through ``OhmoGatewayBridge`` and collaborates with
+        ``task.cancel``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._running = False
         for session_key, task in list(self._session_tasks.items()):
             self._session_cancel_reasons[session_key] = "gateway stopping"
             task.cancel()
 
     async def _handle_stop(self, message, session_key: str) -> None:
+        """Handle stop for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayBridge.run`` and collaborates with
+        ``_interrupt_session``, ``_bus.publish_outbound``, ``OutboundMessage``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         stopped = await self._interrupt_session(
             session_key,
             reason="stopped by user command",
@@ -156,6 +239,17 @@ class OhmoGatewayBridge:
         )
 
     async def _handle_restart(self, message, session_key: str) -> None:
+        """Handle restart for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayBridge.run`` and collaborates with
+        ``_interrupt_session``, ``_bus.publish_outbound``, ``_restart_gateway``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await self._interrupt_session(
             session_key,
             reason="restarting gateway by user command",
@@ -179,7 +273,17 @@ class OhmoGatewayBridge:
         session_key: str,
         args: str,
     ) -> InboundMessage | None:
-        """Convert a private /group command into an agent task."""
+        """Convert a private /group command into an agent task.
+
+        Integration: Called by ``OhmoGatewayBridge.run`` and collaborates with ``lower``,
+        ``_build_group_agent_prompt``, ``InboundMessage``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if message.channel != "feishu":
             await self._publish_command_reply(
                 message,
@@ -216,6 +320,17 @@ class OhmoGatewayBridge:
         )
 
     async def _publish_command_reply(self, message, session_key: str, content: str) -> None:
+        """Publish command reply for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayBridge._prepare_group_prompt_message`` and
+        collaborates with ``_bus.publish_outbound``, ``OutboundMessage``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         await self._bus.publish_outbound(
             OutboundMessage(
                 channel=message.channel,
@@ -232,6 +347,16 @@ class OhmoGatewayBridge:
         reason: str,
         notify: OutboundMessage | None = None,
     ) -> bool:
+        """Interrupt session for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayBridge.run``, ``OhmoGatewayBridge._handle_stop`` and
+        collaborates with ``_session_tasks.get``, ``task.cancel``, ``task.done``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         task = self._session_tasks.get(session_key)
         if task is None or task.done():
             return False
@@ -248,6 +373,16 @@ class OhmoGatewayBridge:
     async def _process_message(self, message, session_key: str) -> None:
         # Preserve thread metadata only for shared chats. Feishu p2p replies
         # should stay as normal private messages, not topic replies.
+        """Process message for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayBridge.run`` and collaborates with ``lower``,
+        ``logger.info``, ``inbound_meta.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         inbound_meta = {
             k: message.metadata[k] for k in ("thread_id",) if k in message.metadata
         }
@@ -329,12 +464,34 @@ class OhmoGatewayBridge:
         )
 
     def _cleanup_task(self, session_key: str, task: asyncio.Task[None]) -> None:
+        """Clean up task for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayBridge.run`` and collaborates with
+        ``_session_tasks.get``, ``_session_cancel_reasons.pop``, ``_session_tasks.pop``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         current = self._session_tasks.get(session_key)
         if current is task:
             self._session_tasks.pop(session_key, None)
         self._session_cancel_reasons.pop(session_key, None)
 
     def _should_process_message(self, message: InboundMessage) -> bool:
+        """Return whether process message for the enclosing subsystem.
+
+        Integration: Exposed through ``OhmoGatewayBridge`` and collaborates with
+        ``_message_mentions_bot``, ``_is_managed_feishu_group``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if message.channel != "feishu":
             return True
         chat_type = str(message.metadata.get("chat_type") or "").strip().lower()
@@ -353,6 +510,16 @@ class OhmoGatewayBridge:
         return mentioned
 
     def _is_managed_feishu_group(self, chat_id: str) -> bool:
+        """Return whether managed feishu group for the enclosing subsystem.
+
+        Integration: Called by ``OhmoGatewayBridge._should_process_message`` and collaborates
+        with ``load_managed_group_record``, ``logger.exception``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             return load_managed_group_record(
                 workspace=self._workspace,
@@ -365,6 +532,17 @@ class OhmoGatewayBridge:
 
 
 def _parse_group_command(content: str) -> str | None:
+    """Parse group command for the enclosing subsystem.
+
+    Integration: Called by ``OhmoGatewayBridge.run`` and collaborates with ``content.strip``,
+    ``stripped.split``, ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     stripped = content.strip()
     parts = stripped.split(maxsplit=1)
     if not parts or parts[0] != "/group":
@@ -375,6 +553,17 @@ def _parse_group_command(content: str) -> str | None:
 
 
 def _build_group_agent_prompt(raw_request: str) -> str:
+    """Build group agent prompt for the enclosing subsystem.
+
+    Integration: Called by ``OhmoGatewayBridge._prepare_group_prompt_message`` and collaborates
+    with ``raw_request.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     request = raw_request.strip() or "(user did not provide details)"
     return (
         "The user invoked `/group` from a Feishu private chat.\n"
@@ -389,6 +578,15 @@ def _build_group_agent_prompt(raw_request: str) -> str:
 
 
 def _normalize_feishu_group_policy(value: str | None) -> str:
+    """Normalize feishu group policy for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = str(value or "").strip().lower().replace("-", "_")
     aliases = {
         "all": "open",
@@ -406,6 +604,16 @@ def _normalize_feishu_group_policy(value: str | None) -> str:
 
 
 def _message_mentions_bot(message: InboundMessage) -> bool:
+    """Determine whether message mentions bot holds for the current inputs.
+
+    Integration: Called by ``OhmoGatewayBridge._should_process_message`` and collaborates with
+    ``message.metadata.get``, ``lower``, ``value.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     value = message.metadata.get("mentions_bot")
     if isinstance(value, bool):
         return value

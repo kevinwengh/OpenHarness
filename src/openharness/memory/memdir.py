@@ -1,4 +1,15 @@
-"""Memory prompt helpers."""
+"""Memory prompt helpers.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +29,16 @@ def load_memory_prompt(
     max_entrypoint_lines: int = 200,
     max_entrypoint_bytes: int = MAX_ENTRYPOINT_BYTES,
 ) -> str | None:
-    """Return the memory prompt section for the current project."""
+    """Return the memory prompt section for the current project.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_project_memory_dir``, ``get_memory_entrypoint``, ``entrypoint.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     memory_dir = get_project_memory_dir(cwd)
     entrypoint = get_memory_entrypoint(cwd)
     lines = [

@@ -1,4 +1,15 @@
-"""Local cron-style registry helpers."""
+"""Local cron-style registry helpers.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
+"""
 
 from __future__ import annotations
 
@@ -16,12 +27,32 @@ from openharness.utils.fs import atomic_write_text
 
 
 def _cron_lock_path() -> Path:
+    """Return the filesystem path for cron lock.
+
+    Integration: Called by ``upsert_cron_job``, ``delete_cron_job`` and collaborates with
+    ``get_cron_registry_path``, ``path.with_suffix``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     path = get_cron_registry_path()
     return path.with_suffix(path.suffix + ".lock")
 
 
 def load_cron_jobs() -> list[dict[str, Any]]:
-    """Load stored cron jobs."""
+    """Load stored cron jobs.
+
+    Integration: Called by ``cron_list_cmd``, ``upsert_cron_job`` and collaborates with
+    ``get_cron_registry_path``, ``path.exists``, ``json.loads``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     path = get_cron_registry_path()
     if not path.exists():
         return []
@@ -33,7 +64,16 @@ def load_cron_jobs() -> list[dict[str, Any]]:
 
 
 def save_cron_jobs(jobs: list[dict[str, Any]]) -> None:
-    """Persist cron jobs to disk."""
+    """Persist cron jobs to disk.
+
+    Integration: Called by ``upsert_cron_job``, ``delete_cron_job`` and collaborates with
+    ``atomic_write_text``, ``get_cron_registry_path``, ``json.dumps``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     atomic_write_text(
         get_cron_registry_path(),
         json.dumps(jobs, indent=2) + "\n",
@@ -41,12 +81,30 @@ def save_cron_jobs(jobs: list[dict[str, Any]]) -> None:
 
 
 def validate_cron_expression(expression: str) -> bool:
-    """Return True if the expression is a valid cron schedule."""
+    """Return True if the expression is a valid cron schedule.
+
+    Integration: Called by ``upsert_cron_job``, ``mark_job_run`` and collaborates with
+    ``croniter.is_valid``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return croniter.is_valid(expression)
 
 
 def validate_timezone(tz: str | None) -> bool:
-    """Return True if *tz* is a valid IANA timezone or empty."""
+    """Return True if *tz* is a valid IANA timezone or empty.
+
+    Integration: Called by ``CronCreateTool.execute`` and collaborates with ``ZoneInfo``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not tz:
         return True
     try:
@@ -61,6 +119,14 @@ def next_run_time(expression: str, base: datetime | None = None, tz: str | None 
 
     The returned datetime is always UTC. If *tz* is provided, the cron expression
     is interpreted in that IANA timezone.
+
+    Integration: Called by ``upsert_cron_job``, ``mark_job_run`` and collaborates with
+    ``get_next``, ``datetime.now``, ``base.astimezone``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     base = base or datetime.now(timezone.utc)
     if tz:
@@ -75,6 +141,16 @@ def upsert_cron_job(job: dict[str, Any]) -> None:
 
     Automatically sets ``enabled`` to True and computes ``next_run`` when the
     schedule is a valid cron expression.
+
+    Integration: Called by ``RepoAutopilotStore.install_default_cron``,
+    ``CronCreateTool.execute`` and collaborates with ``job.setdefault``, ``job.get``,
+    ``validate_cron_expression``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     job.setdefault("enabled", True)
     job.setdefault("created_at", datetime.now(timezone.utc).isoformat())
@@ -91,7 +167,17 @@ def upsert_cron_job(job: dict[str, Any]) -> None:
 
 
 def delete_cron_job(name: str) -> bool:
-    """Delete one cron job by name."""
+    """Delete one cron job by name.
+
+    Integration: Called by ``CronDeleteTool.execute`` and collaborates with
+    ``exclusive_file_lock``, ``load_cron_jobs``, ``save_cron_jobs``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     with exclusive_file_lock(_cron_lock_path()):
         jobs = load_cron_jobs()
         filtered = [job for job in jobs if job.get("name") != name]
@@ -102,7 +188,17 @@ def delete_cron_job(name: str) -> bool:
 
 
 def get_cron_job(name: str) -> dict[str, Any] | None:
-    """Return one cron job by name."""
+    """Return one cron job by name.
+
+    Integration: Called by ``RemoteTriggerTool.execute`` and collaborates with
+    ``load_cron_jobs``, ``job.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for job in load_cron_jobs():
         if job.get("name") == name:
             return job
@@ -110,7 +206,17 @@ def get_cron_job(name: str) -> dict[str, Any] | None:
 
 
 def set_job_enabled(name: str, enabled: bool) -> bool:
-    """Enable or disable a cron job. Returns False if job not found."""
+    """Enable or disable a cron job. Returns False if job not found.
+
+    Integration: Called by ``cron_toggle_cmd``, ``CronToggleTool.execute`` and collaborates with
+    ``exclusive_file_lock``, ``load_cron_jobs``, ``_cron_lock_path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     with exclusive_file_lock(_cron_lock_path()):
         jobs = load_cron_jobs()
         for job in jobs:
@@ -122,7 +228,17 @@ def set_job_enabled(name: str, enabled: bool) -> bool:
 
 
 def mark_job_run(name: str, *, success: bool) -> None:
-    """Update last_run and recompute next_run after a job executes."""
+    """Update last_run and recompute next_run after a job executes.
+
+    Integration: Called by ``execute_job`` and collaborates with ``exclusive_file_lock``,
+    ``load_cron_jobs``, ``datetime.now``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     with exclusive_file_lock(_cron_lock_path()):
         jobs = load_cron_jobs()
         now = datetime.now(timezone.utc)

@@ -4,6 +4,16 @@ Faithfully translated from Claude Code's compaction system:
 - Microcompact: clear old tool result content to reduce token count cheaply
 - Full compact: call the LLM to produce a structured summary of older messages
 - Auto-compact: trigger compaction automatically when token count exceeds threshold
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
 """
 
 from __future__ import annotations
@@ -87,7 +97,16 @@ CompactionKind = Literal["full", "session_memory"]
 
 @dataclass
 class CompactAttachment:
-    """Structured compact asset carried across a compaction boundary."""
+    """Structured compact asset carried across a compaction boundary.
+
+    Integration: Constructed or referenced by ``_create_attachment``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     kind: str
     title: str
@@ -97,7 +116,17 @@ class CompactAttachment:
 
 @dataclass
 class CompactionResult:
-    """Structured compaction result, inspired by Claude Code's result shape."""
+    """Structured compaction result, inspired by Claude Code's result shape.
+
+    Integration: Constructed or referenced by ``_build_passthrough_compaction_result``,
+    ``try_session_memory_compaction``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     trigger: CompactTrigger
     compact_kind: CompactionKind
@@ -114,7 +143,16 @@ class CompactionResult:
 # ---------------------------------------------------------------------------
 
 def estimate_message_tokens(messages: list[ConversationMessage]) -> int:
-    """Estimate total tokens for a conversation, including the 4/3 padding."""
+    """Estimate total tokens for a conversation, including the 4/3 padding.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_vision_token_budget_per_image``, ``estimate_tokens``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     total = 0
     image_token_estimate = _vision_token_budget_per_image()
     for msg in messages:
@@ -132,11 +170,31 @@ def estimate_message_tokens(messages: list[ConversationMessage]) -> int:
 
 
 def estimate_conversation_tokens(messages: list[ConversationMessage]) -> int:
-    """Alias kept for backward compatibility."""
+    """Alias kept for backward compatibility.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._usage_handler`` and collaborates with
+    ``estimate_message_tokens``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return estimate_message_tokens(messages)
 
 
 def _vision_token_budget_per_image() -> int:
+    """Derive vision token budget per image from the current inputs and subsystem state.
+
+    Integration: Called by ``estimate_message_tokens`` and collaborates with ``strip``,
+    ``os.environ.get``, ``log.warning``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     raw = os.environ.get("OPENHARNESS_IMAGE_TOKEN_ESTIMATE", "").strip()
     if raw:
         try:
@@ -149,7 +207,17 @@ def _vision_token_budget_per_image() -> int:
 def _replace_images_with_compaction_placeholders(
     messages: list[ConversationMessage],
 ) -> list[ConversationMessage]:
-    """Strip image payloads from summarizer-only compact requests."""
+    """Strip image payloads from summarizer-only compact requests.
+
+    Integration: Called by ``compact_conversation``, ``compact_conversation._collect_summary``
+    and collaborates with ``replaced.append``, ``next_content.append``, ``message.model_copy``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     replaced: list[ConversationMessage] = []
     for message in messages:
         next_content: list[ContentBlock] = []
@@ -173,6 +241,16 @@ def _replace_images_with_compaction_placeholders(
 
 
 def _sanitize_metadata(value: Any) -> Any:
+    """Sanitize metadata for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     if isinstance(value, Path):
@@ -194,6 +272,17 @@ def _record_compact_checkpoint(
     attempt: int | None = None,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Derive record compact checkpoint from the current inputs and subsystem state.
+
+    Integration: Called by ``compact_conversation``, ``auto_compact_if_needed`` and collaborates
+    with ``payload.update``, ``carryover_metadata.setdefault``, ``_sanitize_metadata``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     payload: dict[str, Any] = {
         "checkpoint": checkpoint,
         "trigger": trigger,
@@ -232,6 +321,17 @@ async def _emit_progress(
     checkpoint: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
+    """Emit progress for the enclosing subsystem.
+
+    Integration: Called by ``compact_conversation``, ``auto_compact_if_needed`` and collaborates
+    with ``callback``, ``CompactProgressEvent``, ``_sanitize_metadata``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if callback is None:
         return
     await callback(
@@ -247,6 +347,17 @@ async def _emit_progress(
 
 
 def _is_prompt_too_long_error(exc: Exception) -> bool:
+    """Return whether prompt too long error for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``any``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     text = str(exc).lower()
     return any(
         needle in text
@@ -273,6 +384,16 @@ def _is_prompt_too_long_error(exc: Exception) -> bool:
 def _group_messages_by_prompt_round(
     messages: list[ConversationMessage],
 ) -> list[list[ConversationMessage]]:
+    """Derive group messages by prompt round from the current inputs and subsystem state.
+
+    Integration: Called by ``truncate_head_for_ptl_retry`` and collaborates with
+    ``current.append``, ``groups.append``, ``any``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     groups: list[list[ConversationMessage]] = []
     current: list[ConversationMessage] = []
     for message in messages:
@@ -291,6 +412,16 @@ def _group_messages_by_prompt_round(
 
 
 def _collapse_text(text: str) -> str:
+    """Derive collapse text from the current inputs and subsystem state.
+
+    Integration: Called by ``try_context_collapse`` and collaborates with ``rstrip``,
+    ``lstrip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if len(text) <= CONTEXT_COLLAPSE_TEXT_CHAR_LIMIT:
         return text
     omitted = len(text) - CONTEXT_COLLAPSE_HEAD_CHARS - CONTEXT_COLLAPSE_TAIL_CHARS
@@ -304,7 +435,17 @@ def try_context_collapse(
     *,
     preserve_recent: int,
 ) -> list[ConversationMessage] | None:
-    """Deterministically shrink oversized text blocks before full compact."""
+    """Deterministically shrink oversized text blocks before full compact.
+
+    Integration: Called by ``auto_compact_if_needed`` and collaborates with
+    ``_split_preserving_tool_pairs``, ``collapsed_older.append``, ``estimate_message_tokens``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if len(messages) <= preserve_recent + 2:
         return None
 
@@ -346,7 +487,17 @@ def try_context_collapse(
 def truncate_head_for_ptl_retry(
     messages: list[ConversationMessage],
 ) -> list[ConversationMessage] | None:
-    """Drop the oldest prompt rounds when the compact request itself is too large."""
+    """Drop the oldest prompt rounds when the compact request itself is too large.
+
+    Integration: Called by ``compact_conversation`` and collaborates with
+    ``_group_messages_by_prompt_round``, ``ConversationMessage.from_user_text``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     groups = _group_messages_by_prompt_round(messages)
     if len(groups) < 2:
         return None
@@ -362,6 +513,17 @@ def truncate_head_for_ptl_retry(
 
 
 def _extract_attachment_paths(messages: list[ConversationMessage]) -> list[str]:
+    """Extract attachment paths for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments``, ``try_session_memory_compaction`` and
+    collaborates with ``re.compile``, ``expanduser``, ``seen.add``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     found: list[str] = []
     seen: set[str] = set()
     path_pattern = re.compile(r"path:\s*([^)\\n]+)")
@@ -390,6 +552,17 @@ def _extract_attachment_paths(messages: list[ConversationMessage]) -> list[str]:
 
 
 def _extract_discovered_tools(messages: list[ConversationMessage]) -> list[str]:
+    """Extract discovered tools for the enclosing subsystem.
+
+    Integration: Called by ``try_session_memory_compaction``, ``compact_conversation`` and
+    collaborates with ``seen.add``, ``discovered.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     discovered: list[str] = []
     seen: set[str] = set()
     for message in messages:
@@ -403,6 +576,17 @@ def _extract_discovered_tools(messages: list[ConversationMessage]) -> list[str]:
 
 
 def _create_attachment(kind: str, title: str, lines: list[str], *, metadata: dict[str, Any] | None = None) -> CompactAttachment | None:
+    """Create attachment for the enclosing subsystem.
+
+    Integration: Called by ``_create_recent_attachments_attachment_if_needed``,
+    ``create_recent_files_attachment_if_needed`` and collaborates with ``CompactAttachment``,
+    ``line.rstrip``, ``join``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     filtered = [line.rstrip() for line in lines if line and line.strip()]
     if not filtered:
         return None
@@ -415,14 +599,34 @@ def _create_attachment(kind: str, title: str, lines: list[str], *, metadata: dic
 
 
 def render_compact_attachment(attachment: CompactAttachment) -> ConversationMessage:
-    """Serialize a structured compact attachment into a conversation message."""
+    """Serialize a structured compact attachment into a conversation message.
+
+    Integration: Called by ``build_post_compact_messages`` and collaborates with ``strip``,
+    ``ConversationMessage.from_user_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     header = f"[Compact attachment: {attachment.kind}] {attachment.title}".strip()
     text = f"{header}\n{attachment.body}".strip()
     return ConversationMessage.from_user_text(text)
 
 
 def create_compact_boundary_message(metadata: dict[str, Any]) -> ConversationMessage:
-    """Create a boundary marker message for post-compact conversation rebuild."""
+    """Create a boundary marker message for post-compact conversation rebuild.
+
+    Integration: Called by ``_finalize_compaction_result``,
+    ``_build_passthrough_compaction_result`` and collaborates with ``strip``, ``metadata.get``,
+    ``ConversationMessage.from_user_text``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lines = [
         "[Compact boundary marker]",
         "Earlier conversation was compacted. Use the summary and preserved assets below as the continuity boundary.",
@@ -456,7 +660,18 @@ def create_compact_boundary_message(metadata: dict[str, Any]) -> ConversationMes
 
 
 def build_post_compact_messages(result: CompactionResult) -> list[ConversationMessage]:
-    """Rebuild the post-compact message list in Claude Code's ordering."""
+    """Rebuild the post-compact message list in Claude Code's ordering.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._compact_handler`` and collaborates with
+    ``render_compact_attachment``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     attachment_messages = [render_compact_attachment(attachment) for attachment in result.attachments]
     hook_messages = [render_compact_attachment(attachment) for attachment in result.hook_results]
     return [
@@ -469,7 +684,15 @@ def build_post_compact_messages(result: CompactionResult) -> list[ConversationMe
 
 
 def _boundary_crosses_tool_pair(previous: ConversationMessage, current: ConversationMessage) -> bool:
-    """Return True when a preserve boundary would split a tool_use/result pair."""
+    """Return True when a preserve boundary would split a tool_use/result pair.
+
+    Integration: Called by ``_split_preserving_tool_pairs``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if previous.role != "assistant" or current.role != "user":
         return False
@@ -489,6 +712,15 @@ def _split_preserving_tool_pairs(
 
     The preserved segment is also sanitized so trailing orphan tool_use blocks
     never survive the compaction boundary.
+
+    Integration: Called by ``try_context_collapse``, ``try_session_memory_compaction`` and
+    collaborates with ``sanitize_conversation_messages``, ``_boundary_crosses_tool_pair``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     if len(messages) <= preserve_recent:
@@ -504,7 +736,16 @@ def _split_preserving_tool_pairs(
 
 
 def _sanitize_compaction_segments(result: CompactionResult) -> None:
-    """Normalize summary+preserved messages into a provider-safe sequence."""
+    """Normalize summary+preserved messages into a provider-safe sequence.
+
+    Integration: Called by ``_finalize_compaction_result`` and collaborates with
+    ``sanitize_conversation_messages``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if not result.summary_messages and not result.messages_to_keep:
         return
@@ -518,6 +759,16 @@ def _sanitize_compaction_segments(result: CompactionResult) -> None:
 def _create_recent_attachments_attachment_if_needed(
     attachment_paths: list[str],
 ) -> CompactAttachment | None:
+    """Create recent attachments attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with
+    ``_create_attachment``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not attachment_paths:
         return None
     return _create_attachment(
@@ -531,6 +782,16 @@ def _create_recent_attachments_attachment_if_needed(
 def create_recent_files_attachment_if_needed(
     read_file_state: Any,
 ) -> CompactAttachment | None:
+    """Create recent files attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with
+    ``normalized_entries.sort``, ``_create_attachment``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(read_file_state, list) or not read_file_state:
         return None
     lines = ["Recently read files that may still matter:"]
@@ -566,6 +827,16 @@ def create_recent_files_attachment_if_needed(
 def create_task_focus_attachment_if_needed(
     metadata: dict[str, Any],
 ) -> CompactAttachment | None:
+    """Create task focus attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with
+    ``metadata.get``, ``strip``, ``_create_attachment``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     state = metadata.get("task_focus_state")
     if not isinstance(state, dict):
         return None
@@ -619,6 +890,16 @@ def create_task_focus_attachment_if_needed(
 def create_recent_verified_work_attachment_if_needed(
     verified_work: Any,
 ) -> CompactAttachment | None:
+    """Create recent verified work attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with
+    ``_create_attachment``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(verified_work, list) or not verified_work:
         return None
     entries = [str(entry).strip() for entry in verified_work[-8:] if str(entry).strip()]
@@ -633,6 +914,16 @@ def create_recent_verified_work_attachment_if_needed(
 
 
 def create_plan_attachment_if_needed(metadata: dict[str, Any]) -> CompactAttachment | None:
+    """Create plan attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with ``lower``,
+    ``strip``, ``_create_attachment``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     permission_mode = str(metadata.get("permission_mode") or "").strip().lower()
     if permission_mode != "plan":
         return None
@@ -654,6 +945,16 @@ def create_plan_attachment_if_needed(metadata: dict[str, Any]) -> CompactAttachm
 def create_invoked_skills_attachment_if_needed(
     invoked_skills: Any,
 ) -> CompactAttachment | None:
+    """Create invoked skills attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with
+    ``_create_attachment``, ``strip``, ``join``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(invoked_skills, list) or not invoked_skills:
         return None
     normalized = [str(skill).strip() for skill in invoked_skills[-8:] if str(skill).strip()]
@@ -670,6 +971,16 @@ def create_invoked_skills_attachment_if_needed(
 def create_async_agent_attachment_if_needed(
     async_agent_state: Any,
 ) -> CompactAttachment | None:
+    """Create async agent attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with
+    ``_create_attachment``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(async_agent_state, list) or not async_agent_state:
         return None
     entries = [str(entry).strip() for entry in async_agent_state[-6:] if str(entry).strip()]
@@ -686,6 +997,16 @@ def create_async_agent_attachment_if_needed(
 def create_work_log_attachment_if_needed(
     recent_work_log: Any,
 ) -> CompactAttachment | None:
+    """Create work log attachment if needed for the enclosing subsystem.
+
+    Integration: Called by ``_build_compact_attachments`` and collaborates with
+    ``_create_attachment``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(recent_work_log, list) or not recent_work_log:
         return None
     entries = [str(entry).strip() for entry in recent_work_log[-8:] if str(entry).strip()]
@@ -700,6 +1021,17 @@ def create_work_log_attachment_if_needed(
 
 
 def _create_hook_attachments(hook_note: str | None) -> list[CompactAttachment]:
+    """Create hook attachments for the enclosing subsystem.
+
+    Integration: Called by ``compact_conversation`` and collaborates with
+    ``_create_attachment``, ``hook_note.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not hook_note or not hook_note.strip():
         return []
     attachment = _create_attachment(
@@ -716,6 +1048,18 @@ def _build_compact_attachments(
     *,
     metadata: dict[str, Any] | None,
 ) -> list[CompactAttachment]:
+    """Build compact attachments for the enclosing subsystem.
+
+    Integration: Called by ``try_session_memory_compaction``, ``compact_conversation`` and
+    collaborates with ``_extract_attachment_paths``, ``attachments.extend``,
+    ``create_task_focus_attachment_if_needed``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     metadata = metadata or {}
     attachments: list[CompactAttachment] = []
     attachment_paths = _extract_attachment_paths(messages)
@@ -734,6 +1078,18 @@ def _build_compact_attachments(
 
 
 def _finalize_compaction_result(result: CompactionResult) -> CompactionResult:
+    """Derive finalize compaction result from the current inputs and subsystem state.
+
+    Integration: Called by ``_build_passthrough_compaction_result``,
+    ``try_session_memory_compaction`` and collaborates with ``_sanitize_compaction_segments``,
+    ``build_post_compact_messages``, ``result.compact_metadata.setdefault``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _sanitize_compaction_segments(result)
     messages = build_post_compact_messages(result)
     result.compact_metadata.setdefault("post_compact_message_count", len(messages))
@@ -743,6 +1099,17 @@ def _finalize_compaction_result(result: CompactionResult) -> CompactionResult:
 
 
 def _metadata_has_checkpoint(metadata: dict[str, Any] | None, checkpoint: str) -> bool:
+    """Return whether metadata has checkpoint.
+
+    Integration: Called by ``compact_conversation`` and collaborates with ``metadata.get``,
+    ``any``, ``entry.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if metadata is None:
         return False
     checkpoints = metadata.get("compact_checkpoints")
@@ -758,6 +1125,17 @@ def _build_passthrough_compaction_result(
     compact_kind: CompactionKind,
     metadata: dict[str, Any] | None = None,
 ) -> CompactionResult:
+    """Build passthrough compaction result for the enclosing subsystem.
+
+    Integration: Called by ``compact_conversation`` and collaborates with ``CompactionResult``,
+    ``_finalize_compaction_result``, ``estimate_message_tokens``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     compact_metadata = {
         "trigger": trigger,
         "compact_kind": compact_kind,
@@ -783,7 +1161,16 @@ def _build_passthrough_compaction_result(
 # ---------------------------------------------------------------------------
 
 def _collect_compactable_tool_ids(messages: list[ConversationMessage]) -> list[str]:
-    """Walk messages and collect tool_use IDs whose results are compactable."""
+    """Walk messages and collect tool_use IDs whose results are compactable.
+
+    Integration: Called by ``microcompact_messages`` and collaborates with
+    ``ordered_ids.append``, ``is_microcompactable_tool_result``, ``tool_names.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     ordered_ids: list[str] = []
     tool_names: dict[str, str] = {}
     result_content: dict[str, str] = {}
@@ -817,6 +1204,15 @@ def microcompact_messages(
 
     Returns:
         (messages, tokens_saved) — messages are mutated in place for efficiency.
+
+    Integration: Called by ``compact_conversation``, ``auto_compact_if_needed`` and collaborates
+    with ``_collect_compactable_tool_ids``, ``log.info``, ``estimate_tokens``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     keep_recent = max(1, keep_recent)  # never clear ALL results
     all_ids = _collect_compactable_tool_ids(messages)
@@ -857,6 +1253,16 @@ def microcompact_messages(
 
 
 def _summarize_message_for_memory(message: ConversationMessage) -> str:
+    """Summarize message for memory for the enclosing subsystem.
+
+    Integration: Called by ``_build_session_memory_message`` and collaborates with ``join``,
+    ``any``, ``message.text.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     text = " ".join(message.text.split())
     if text:
         text = text[:160]
@@ -870,6 +1276,16 @@ def _summarize_message_for_memory(message: ConversationMessage) -> str:
 
 
 def _build_session_memory_message(messages: list[ConversationMessage]) -> ConversationMessage | None:
+    """Build session memory message for the enclosing subsystem.
+
+    Integration: Called by ``try_session_memory_compaction`` and collaborates with ``join``,
+    ``ConversationMessage.from_user_text``, ``_summarize_message_for_memory``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lines: list[str] = []
     total_chars = 0
     for message in messages:
@@ -891,7 +1307,16 @@ def _build_session_memory_message(messages: list[ConversationMessage]) -> Conver
 
 
 def _build_file_session_memory_message(metadata: dict[str, Any] | None) -> ConversationMessage | None:
-    """Build a compaction message from the persisted session-memory file."""
+    """Build a compaction message from the persisted session-memory file.
+
+    Integration: Called by ``try_session_memory_compaction`` and collaborates with
+    ``metadata.get``, ``ConversationMessage.from_user_text``,
+    ``session_memory_to_compact_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     if not metadata:
         return None
@@ -919,7 +1344,18 @@ def try_session_memory_compaction(
     trigger: CompactTrigger = "auto",
     metadata: dict[str, Any] | None = None,
 ) -> CompactionResult | None:
-    """Cheap deterministic compaction for long chats before full LLM compaction."""
+    """Cheap deterministic compaction for long chats before full LLM compaction.
+
+    Integration: Called by ``auto_compact_if_needed`` and collaborates with
+    ``_split_preserving_tool_pairs``, ``_build_file_session_memory_message``,
+    ``CompactionResult``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if len(messages) <= preserve_recent + 4:
         return None
     older, newer = _split_preserving_tool_pairs(messages, preserve_recent=preserve_recent)
@@ -999,7 +1435,17 @@ REMINDER: Do NOT call any tools. Respond with plain text only — an <analysis> 
 
 
 def get_compact_prompt(custom_instructions: str | None = None) -> str:
-    """Build the full compaction prompt sent to the model."""
+    """Build the full compaction prompt sent to the model.
+
+    Integration: Called by ``compact_conversation`` and collaborates with
+    ``custom_instructions.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     prompt = NO_TOOLS_PREAMBLE + BASE_COMPACT_PROMPT
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nAdditional Instructions:\n{custom_instructions}"
@@ -1008,7 +1454,16 @@ def get_compact_prompt(custom_instructions: str | None = None) -> str:
 
 
 def format_compact_summary(raw_summary: str) -> str:
-    """Strip the <analysis> scratchpad and extract the <summary> content."""
+    """Strip the <analysis> scratchpad and extract the <summary> content.
+
+    Integration: Called by ``build_compact_summary_message`` and collaborates with ``re.sub``,
+    ``re.search``, ``text.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     text = re.sub(r"<analysis>[\s\S]*?</analysis>", "", raw_summary)
     m = re.search(r"<summary>([\s\S]*?)</summary>", text)
     if m:
@@ -1023,7 +1478,17 @@ def build_compact_summary_message(
     suppress_follow_up: bool = False,
     recent_preserved: bool = False,
 ) -> str:
-    """Create the injected user message that replaces compacted history."""
+    """Create the injected user message that replaces compacted history.
+
+    Integration: Called by ``compact_conversation`` and collaborates with
+    ``format_compact_summary``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     formatted = format_compact_summary(summary)
     text = (
         "This session is being continued from a previous conversation that ran "
@@ -1050,7 +1515,16 @@ def build_compact_summary_message(
 
 @dataclass
 class AutoCompactState:
-    """Mutable state that persists across query loop turns."""
+    """Mutable state that persists across query loop turns.
+
+    Integration: Constructed or referenced by ``run_query``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     compacted: bool = False
     turn_counter: int = 0
@@ -1063,7 +1537,15 @@ class AutoCompactState:
 # ---------------------------------------------------------------------------
 
 def get_context_window(model: str, *, context_window_tokens: int | None = None) -> int:
-    """Return the context window size for a model (conservative defaults)."""
+    """Return the context window size for a model (conservative defaults).
+
+    Integration: Called by ``get_autocompact_threshold`` and collaborates with ``model.lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if context_window_tokens is not None and context_window_tokens > 0:
         return int(context_window_tokens)
     m = model.lower()
@@ -1083,7 +1565,15 @@ def get_autocompact_threshold(
     context_window_tokens: int | None = None,
     auto_compact_threshold_tokens: int | None = None,
 ) -> int:
-    """Calculate the token count at which auto-compact fires."""
+    """Calculate the token count at which auto-compact fires.
+
+    Integration: Called by ``should_autocompact`` and collaborates with ``get_context_window``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if auto_compact_threshold_tokens is not None and auto_compact_threshold_tokens > 0:
         return int(auto_compact_threshold_tokens)
     context_window = get_context_window(model, context_window_tokens=context_window_tokens)
@@ -1100,7 +1590,17 @@ def should_autocompact(
     context_window_tokens: int | None = None,
     auto_compact_threshold_tokens: int | None = None,
 ) -> bool:
-    """Return True when the conversation should be auto-compacted."""
+    """Return True when the conversation should be auto-compacted.
+
+    Integration: Called by ``auto_compact_if_needed`` and collaborates with
+    ``estimate_message_tokens``, ``get_autocompact_threshold``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if state.consecutive_failures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES:
         return False
     token_count = estimate_message_tokens(messages)
@@ -1149,6 +1649,15 @@ async def compact_conversation(
 
     Returns:
         Structured compaction result that can be rebuilt into post-compact messages.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._compact_handler`` and collaborates with
+    ``microcompact_messages``, ``estimate_message_tokens``, ``log.info``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     from openharness.api.client import ApiMessageRequest, ApiMessageCompleteEvent
 
@@ -1256,6 +1765,17 @@ async def compact_conversation(
     ptl_retries = 0
 
     async def _collect_summary(summary_request_messages: list[ConversationMessage]) -> str:
+        """Format a concise summary of collect.
+
+        Integration: Called by ``compact_conversation`` and collaborates with
+        ``_replace_images_with_compaction_placeholders``, ``api_client.stream_message``,
+        ``inspect.isawaitable``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         collected = ""
         summary_request_messages = _replace_images_with_compaction_placeholders(
             summary_request_messages
@@ -1501,6 +2021,14 @@ async def auto_compact_if_needed(
 
     Returns:
         (messages, was_compacted) — if compacted, messages is the new list.
+
+    Integration: Called by ``run_query``, ``run_query._stream_compaction`` and collaborates with
+    ``log.info``, ``_record_compact_checkpoint``, ``microcompact_messages``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     if not force and not should_autocompact(
         messages,
@@ -1669,7 +2197,18 @@ def summarize_messages(
     *,
     max_messages: int = 8,
 ) -> str:
-    """Produce a compact textual summary of recent messages (legacy)."""
+    """Produce a compact textual summary of recent messages (legacy).
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._summary_handler`` and collaborates with ``join``,
+    ``message.text.strip``, ``lines.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     selected = messages[-max_messages:]
     lines: list[str] = []
     for message in selected:
@@ -1685,7 +2224,19 @@ def compact_messages(
     *,
     preserve_recent: int = 6,
 ) -> list[ConversationMessage]:
-    """Replace older conversation history with a synthetic summary (legacy)."""
+    """Replace older conversation history with a synthetic summary (legacy).
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._compact_handler`` and collaborates with
+    ``_split_preserving_tool_pairs``, ``summarize_messages``,
+    ``sanitize_conversation_messages``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if len(messages) <= preserve_recent:
         return sanitize_conversation_messages(list(messages))
     older, newer = _split_preserving_tool_pairs(messages, preserve_recent=preserve_recent)

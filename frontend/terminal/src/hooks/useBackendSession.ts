@@ -1,3 +1,16 @@
+/**
+ * Own the terminal frontend's use backend session boundary.
+ *
+ * Integration: Connects the Ink application to shared TypeScript types and the Python backend
+ * protocol.
+ *
+ * Event loop: Process I/O, React effects, input events, and buffered rendering coexist on Node's
+ * event loop; preserve cleanup and backpressure.
+ *
+ * Change safety: Coordinate protocol, process lifecycle, terminal restoration, and packaging
+ * changes with the Python host and UI tests.
+ */
+
 import {startTransition, useEffect, useMemo, useRef, useState} from 'react';
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import readline from 'node:readline';
@@ -19,8 +32,31 @@ const ASSISTANT_DELTA_FLUSH_MS = 50;
 const ASSISTANT_DELTA_FLUSH_CHARS = 384;
 const TRANSCRIPT_EVENT_FLUSH_MS = 50;
 
+/**
+ * Derive stable stringify from the current frontend state and inputs.
+ *
+ * Integration: Owned by `useBackendSession.ts` and collaborates with `stringify`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+ * consumers synchronized.
+ */
 const stableStringify = (value: unknown): string => JSON.stringify(value);
 
+/**
+ * Provide the backend session React hook.
+ *
+ * Integration: Owned by `useBackendSession.ts` and collaborates with `useState`, `useRef`,
+ * `useEffect`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+ * consumers synchronized.
+ */
 export function useBackendSession(config: FrontendConfig, onExit: (code?: number | null) => void) {
 	const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
 	const [assistantBuffer, setAssistantBuffer] = useState('');
@@ -53,40 +89,97 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const pendingTranscriptItemsRef = useRef<TranscriptItem[]>([]);
 	const transcriptFlushTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-	const flushAssistantDelta = (): void => {
+	 /**
+  * Derive flush assistant delta from the current frontend state and inputs.
+  *
+  * Integration: Owned by `useBackendSession` and collaborates with `startTransition`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+  * consumers synchronized.
+  */
+ const flushAssistantDelta = (): void => {
 		const pending = pendingAssistantDeltaRef.current;
 		if (!pending) {
 			return;
 		}
 		pendingAssistantDeltaRef.current = '';
 		assistantBufferRef.current += pending;
-		startTransition(() => {
+		startTransition(/*
+		 * startTransition callback: uses setAssistantBuffer; keep event-loop work bounded and
+		 * preserve the callback's return contract.
+		 */ () => {
 			setAssistantBuffer(assistantBufferRef.current);
 		});
 	};
 
-	const flushTranscriptItems = (): void => {
+	 /**
+  * Derive flush transcript items from the current frontend state and inputs.
+  *
+  * Integration: Owned by `useBackendSession` and collaborates with `startTransition`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+  * consumers synchronized.
+  */
+ const flushTranscriptItems = (): void => {
 		const pending = pendingTranscriptItemsRef.current;
 		if (pending.length === 0) {
 			return;
 		}
 		pendingTranscriptItemsRef.current = [];
-		startTransition(() => {
-			setTranscript((items) => [...items, ...pending]);
+		startTransition(/*
+		 * startTransition callback: uses setTranscript; keep event-loop work bounded and preserve the
+		 * callback's return contract.
+		 */ () => {
+			setTranscript(/*
+			 * Functional state update: computes its callback result from prior React state; keep the
+			 * calculation pure and immutable.
+			 */ (items) => [...items, ...pending]);
 		});
 	};
 
-	const queueTranscriptItem = (item: TranscriptItem): void => {
+	 /**
+  * Derive queue transcript item from the current frontend state and inputs.
+  *
+  * Integration: Owned by `useBackendSession` and collaborates with `push`, `setTimeout`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+  * consumers synchronized.
+  */
+ const queueTranscriptItem = (item: TranscriptItem): void => {
 		pendingTranscriptItemsRef.current.push(item);
 		if (!transcriptFlushTimerRef.current) {
-			transcriptFlushTimerRef.current = setTimeout(() => {
+			transcriptFlushTimerRef.current = setTimeout(/*
+			 * Timer callback: uses flushTranscriptItems on Node's event loop; keep work bounded and
+			 * preserve matching cleanup.
+			 */ () => {
 				transcriptFlushTimerRef.current = null;
 				flushTranscriptItems();
 			}, TRANSCRIPT_EVENT_FLUSH_MS);
 		}
 	};
 
-	const clearAssistantDelta = (): void => {
+	 /**
+  * Derive clear assistant delta from the current frontend state and inputs.
+  *
+  * Integration: Owned by `useBackendSession` and collaborates with `clearTimeout`,
+  * `setAssistantBuffer`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+  * consumers synchronized.
+  */
+ const clearAssistantDelta = (): void => {
 		pendingAssistantDeltaRef.current = '';
 		assistantBufferRef.current = '';
 		if (assistantFlushTimerRef.current) {
@@ -96,7 +189,18 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		setAssistantBuffer('');
 	};
 
-	const clearPendingTranscriptItems = (): void => {
+	 /**
+  * Derive clear pending transcript items from the current frontend state and inputs.
+  *
+  * Integration: Owned by `useBackendSession` and collaborates with `clearTimeout`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+  * consumers synchronized.
+  */
+ const clearPendingTranscriptItems = (): void => {
 		pendingTranscriptItemsRef.current = [];
 		if (transcriptFlushTimerRef.current) {
 			clearTimeout(transcriptFlushTimerRef.current);
@@ -104,7 +208,18 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 	};
 
-	const sendRequest = (payload: Record<string, unknown>): void => {
+	 /**
+  * Derive send request from the current frontend state and inputs.
+  *
+  * Integration: Owned by `useBackendSession` and collaborates with `write`, `stringify`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+  * consumers synchronized.
+  */
+ const sendRequest = (payload: Record<string, unknown>): void => {
 		const child = childRef.current;
 		if (!child || child.stdin.destroyed) {
 			return;
@@ -112,7 +227,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		child.stdin.write(JSON.stringify(payload) + '\n');
 	};
 
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses spawn, createInterface, on after render; keep dependencies, asynchronous
+	 * work, and returned cleanup synchronized.
+	 */ () => {
 		const [command, ...args] = config.backend_command;
 		const useDetachedGroup = process.platform !== 'win32';
 		const child = spawn(command, args, {
@@ -126,7 +244,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		childRef.current = child;
 
 		const reader = readline.createInterface({input: child.stdout});
-		reader.on('line', (line) => {
+		reader.on('line', /*
+		 * on callback: uses startsWith, queueTranscriptItem, parse; keep event-loop work bounded and
+		 * preserve the callback's return contract.
+		 */ (line) => {
 			if (!line.startsWith(PROTOCOL_PREFIX)) {
 				queueTranscriptItem({role: 'log', text: line});
 				return;
@@ -135,7 +256,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			handleEvent(event);
 		});
 
-		child.on('exit', (code) => {
+		child.on('exit', /*
+		 * on callback: uses flushTranscriptItems, queueTranscriptItem, onExit; keep event-loop work
+		 * bounded and preserve the callback's return contract.
+		 */ (code) => {
 			flushTranscriptItems();
 			queueTranscriptItem({role: 'system', text: `backend exited with code ${code ?? 0}`});
 			process.exitCode = code ?? 0;
@@ -143,7 +267,18 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		});
 
 		// Ensure child processes are killed on parent exit (prevents stale processes)
-		const killChild = (): void => {
+		  /**
+   * Derive kill child from the current frontend state and inputs.
+   *
+   * Integration: Owned by `useEffect callback 1` and collaborates with `kill`, `clearTimeout`,
+   * `clearPendingTranscriptItems`.
+   *
+   * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+   * unless asynchronous ownership is explicit.
+   *
+   * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+   */
+  const killChild = (): void => {
 			if (!child.killed) {
 				// Kill the whole process group on POSIX. On Windows, terminate the
 				// direct child to avoid relying on negative PIDs.
@@ -167,7 +302,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		process.on('SIGINT', killChild);
 		process.on('SIGTERM', killChild);
 
-		return () => {
+		return /*
+		 * Effect cleanup: uses close, killChild, removeListener; keep it paired with every resource
+		 * acquired by the effect.
+		 */ () => {
 			reader.close();
 			killChild();
 			process.removeListener('exit', killChild);
@@ -176,30 +314,54 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		};
 	}, []);
 
-	const handleEvent = (event: BackendEvent): void => {
+	 /**
+  * Handle event for the owning UI boundary.
+  *
+  * Integration: Owned by `useBackendSession` and collaborates with `setReady`, `stableStringify`,
+  * `startTransition`.
+  *
+  * Event loop: Runs from an input or UI event; keep synchronous work bounded and order state
+  * updates before asynchronous follow-up.
+  *
+  * Change safety: Keep Python protocol fields, event ordering, process cleanup, and TypeScript
+  * consumers synchronized.
+  */
+ const handleEvent = (event: BackendEvent): void => {
 		if (event.type === 'ready') {
 			setReady(true);
 			const statusSnapshot = stableStringify(event.state ?? {});
 			lastStatusSnapshotRef.current = statusSnapshot;
 			const nextStatus = event.state ?? {};
 			statusRef.current = nextStatus;
-			startTransition(() => {
+			startTransition(/*
+			 * startTransition callback: uses setStatus; keep event-loop work bounded and preserve the
+			 * callback's return contract.
+			 */ () => {
 				setStatus(nextStatus);
 			});
 			const tasksSnapshot = stableStringify(event.tasks ?? []);
 			lastTasksSnapshotRef.current = tasksSnapshot;
-			startTransition(() => {
+			startTransition(/*
+			 * startTransition callback: uses setTasks; keep event-loop work bounded and preserve the
+			 * callback's return contract.
+			 */ () => {
 				setTasks(event.tasks ?? []);
 			});
 			setCommands(event.commands ?? []);
 			const mcpSnapshot = stableStringify(event.mcp_servers ?? []);
 			lastMcpSnapshotRef.current = mcpSnapshot;
-			startTransition(() => {
+			startTransition(/*
+			 * startTransition callback: uses setMcpServers; keep event-loop work bounded and preserve
+			 * the callback's return contract.
+			 */ () => {
 				setMcpServers(event.mcp_servers ?? []);
 			});
 			const bridgeSnapshot = stableStringify(event.bridge_sessions ?? []);
 			lastBridgeSnapshotRef.current = bridgeSnapshot;
-			startTransition(() => {
+			startTransition(/*
+			 * startTransition callback: uses setBridgeSessions; keep event-loop work bounded and
+			 * preserve the callback's return contract.
+			 */ () => {
 				setBridgeSessions(event.bridge_sessions ?? []);
 			});
 			if (config.initial_prompt && !sentInitialPrompt.current) {
@@ -215,21 +377,30 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				lastStatusSnapshotRef.current = statusSnapshot;
 				const nextStatus = event.state ?? {};
 				statusRef.current = nextStatus;
-				startTransition(() => {
+				startTransition(/*
+				 * startTransition callback: uses setStatus; keep event-loop work bounded and preserve the
+				 * callback's return contract.
+				 */ () => {
 					setStatus(nextStatus);
 				});
 			}
 			const mcpSnapshot = stableStringify(event.mcp_servers ?? []);
 			if (mcpSnapshot !== lastMcpSnapshotRef.current) {
 				lastMcpSnapshotRef.current = mcpSnapshot;
-				startTransition(() => {
+				startTransition(/*
+				 * startTransition callback: uses setMcpServers; keep event-loop work bounded and preserve
+				 * the callback's return contract.
+				 */ () => {
 					setMcpServers(event.mcp_servers ?? []);
 				});
 			}
 			const bridgeSnapshot = stableStringify(event.bridge_sessions ?? []);
 			if (bridgeSnapshot !== lastBridgeSnapshotRef.current) {
 				lastBridgeSnapshotRef.current = bridgeSnapshot;
-				startTransition(() => {
+				startTransition(/*
+				 * startTransition callback: uses setBridgeSessions; keep event-loop work bounded and
+				 * preserve the callback's return contract.
+				 */ () => {
 					setBridgeSessions(event.bridge_sessions ?? []);
 				});
 			}
@@ -239,7 +410,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			const tasksSnapshot = stableStringify(event.tasks ?? []);
 			if (tasksSnapshot !== lastTasksSnapshotRef.current) {
 				lastTasksSnapshotRef.current = tasksSnapshot;
-				startTransition(() => {
+				startTransition(/*
+				 * startTransition callback: uses setTasks; keep event-loop work bounded and preserve the
+				 * callback's return contract.
+				 */ () => {
 					setTasks(event.tasks ?? []);
 				});
 			}
@@ -312,7 +486,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				return;
 			}
 			if (!assistantFlushTimerRef.current) {
-				assistantFlushTimerRef.current = setTimeout(() => {
+				assistantFlushTimerRef.current = setTimeout(/*
+				 * Timer callback: uses flushAssistantDelta on Node's event loop; keep work bounded and
+				 * preserve matching cleanup.
+				 */ () => {
 					assistantFlushTimerRef.current = null;
 					flushAssistantDelta();
 				}, ASSISTANT_DELTA_FLUSH_MS);
@@ -335,8 +512,14 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				flushAssistantDelta();
 			}
 			const text = event.message ?? assistantBufferRef.current;
-			startTransition(() => {
-				setTranscript((items) => [...items, {role: 'assistant', text}]);
+			startTransition(/*
+			 * startTransition callback: uses setTranscript; keep event-loop work bounded and preserve
+			 * the callback's return contract.
+			 */ () => {
+				setTranscript(/*
+				 * Functional state update: computes its callback result from prior React state; keep the
+				 * calculation pure and immutable.
+				 */ (items) => [...items, {role: 'assistant', text}]);
 			});
 			clearAssistantDelta();
 			// Do NOT reset busy here: tool calls may follow this event.
@@ -398,7 +581,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if (event.type === 'todo_update') {
 			if (event.todo_markdown != null) {
-				startTransition(() => {
+				startTransition(/*
+				 * startTransition callback: uses setTodoMarkdown; keep event-loop work bounded and preserve
+				 * the callback's return contract.
+				 */ () => {
 					setTodoMarkdown(event.todo_markdown);
 				});
 			}
@@ -406,21 +592,36 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if (event.type === 'swarm_status') {
 			if (event.swarm_teammates != null) {
-				startTransition(() => {
+				startTransition(/*
+				 * startTransition callback: uses setSwarmTeammates; keep event-loop work bounded and
+				 * preserve the callback's return contract.
+				 */ () => {
 					setSwarmTeammates(event.swarm_teammates);
 				});
 			}
 			if (event.swarm_notifications != null) {
-				startTransition(() => {
-					setSwarmNotifications((prev) => [...prev, ...event.swarm_notifications!].slice(-20));
+				startTransition(/*
+				 * startTransition callback: uses setSwarmNotifications; keep event-loop work bounded and
+				 * preserve the callback's return contract.
+				 */ () => {
+					setSwarmNotifications(/*
+					 * Functional state update: uses slice from prior React state; keep the calculation pure
+					 * and immutable.
+					 */ (prev) => [...prev, ...event.swarm_notifications!].slice(-20));
 				});
 			}
 			return;
 		}
 		if (event.type === 'plan_mode_change') {
 			if (event.plan_mode != null) {
-				startTransition(() => {
-					setStatus((s) => {
+				startTransition(/*
+				 * startTransition callback: uses setStatus; keep event-loop work bounded and preserve the
+				 * callback's return contract.
+				 */ () => {
+					setStatus(/*
+					 * Functional state update: computes its callback result from prior React state; keep the
+					 * calculation pure and immutable.
+					 */ (s) => {
 						const next = {...s, permission_mode: event.plan_mode};
 						statusRef.current = next;
 						return next;
@@ -435,7 +636,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	};
 
 	return useMemo(
-		() => ({
+		/*
+		 * React useMemo callback: computes its callback result; keep dependencies synchronized with
+		 * captured values and preserve purity.
+		 */ () => ({
 			transcript,
 			assistantBuffer,
 			status,

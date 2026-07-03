@@ -1,5 +1,4 @@
-"""
-LLM Provider Registry — single source of truth for provider metadata.
+"""LLM Provider Registry — single source of truth for provider metadata.
 
 Adding a new provider:
   1. Add a ProviderSpec to PROVIDERS below.
@@ -7,6 +6,16 @@ Adding a new provider:
 
 Order matters — it controls match priority. Gateways and cloud providers first,
 standard providers by keyword, local/special providers last.
+
+Integration: This module participates in provider streaming clients and normalized request/event
+contracts.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve request conversion, streamed tool calls, usage/errors, auth secrecy,
+retries, and multi-turn replay.
 """
 
 from __future__ import annotations
@@ -22,6 +31,14 @@ class ProviderSpec:
       "anthropic"    — Anthropic SDK (default for claude-* models)
       "openai_compat" — OpenAI-compatible REST API
       "copilot"      — GitHub Copilot OAuth flow
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     # Identity
@@ -45,6 +62,17 @@ class ProviderSpec:
 
     @property
     def label(self) -> str:
+        """Derive label from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``name.title``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.display_name or self.name.title()
 
 
@@ -374,7 +402,15 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
 
 
 def find_by_name(name: str) -> ProviderSpec | None:
-    """Find a provider spec by canonical name, e.g. "dashscope"."""
+    """Find a provider spec by canonical name, e.g. "dashscope".
+
+    Integration: Exposed as a public entrypoint for this subsystem.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for spec in PROVIDERS:
         if spec.name == name:
             return spec
@@ -382,7 +418,16 @@ def find_by_name(name: str) -> ProviderSpec | None:
 
 
 def _match_by_model(model: str) -> ProviderSpec | None:
-    """Match a standard/gateway provider by model-name keyword (case-insensitive)."""
+    """Match a standard/gateway provider by model-name keyword (case-insensitive).
+
+    Integration: Called by ``detect_provider_from_registry`` and collaborates with
+    ``model.lower``, ``model_lower.replace``, ``model_prefix.replace``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     model_lower = model.lower()
     model_normalized = model_lower.replace("-", "_")
     model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
@@ -416,6 +461,14 @@ def detect_provider_from_registry(
       1. api_key prefix  (e.g. "sk-or-" → OpenRouter)
       2. base_url keyword (e.g. "aihubmix" in URL → AiHubMix)
       3. model name keyword (e.g. "qwen" → DashScope)
+
+    Integration: Called by ``detect_provider`` and collaborates with ``base_url.lower``,
+    ``_match_by_model``, ``api_key.startswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     # 1. api_key prefix
     if api_key:

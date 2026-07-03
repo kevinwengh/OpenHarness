@@ -1,4 +1,15 @@
-"""Channel manager for coordinating chat channels."""
+"""Channel manager for coordinating chat channels.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 from __future__ import annotations
 
@@ -15,16 +26,35 @@ logger = logging.getLogger(__name__)
 
 
 class ChannelManager:
-    """
-    Manages chat channels and coordinates message routing.
+    """Manages chat channels and coordinates message routing.
 
     Responsibilities:
     - Initialize enabled channels (Telegram, WhatsApp, etc.)
     - Start/stop channels
     - Route outbound messages
+
+    Integration: Constructed or referenced by ``OhmoGatewayService.__init__``.
+
+    Event loop: Async methods ``_start_channel``, ``start_all``, ``stop_all``,
+    ``_dispatch_outbound`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self, config: Config, bus: MessageBus):
+        """Initialize ``ChannelManager`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``ChannelManager`` and collaborates with
+        ``_init_channels``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.config = config
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
@@ -33,7 +63,16 @@ class ChannelManager:
         self._init_channels()
 
     def _init_channels(self) -> None:
-        """Initialize channels based on config."""
+        """Initialize channels based on config.
+
+        Integration: Called by ``ChannelManager.__init__`` and collaborates with
+        ``_validate_allow_from``, ``TelegramChannel``, ``logger.info``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
 
         # Telegram channel
         if self.config.channels.telegram.enabled:
@@ -153,6 +192,17 @@ class ChannelManager:
         self._validate_allow_from()
 
     def _validate_allow_from(self) -> None:
+        """Validate allow from for the enclosing subsystem.
+
+        Integration: Called by ``ChannelManager._init_channels`` and collaborates with
+        ``channels.items``, ``logger.warning``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for name, ch in self.channels.items():
             if getattr(ch.config, "allow_from", None) == []:
                 logger.warning(
@@ -161,7 +211,16 @@ class ChannelManager:
                 )
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
-        """Start a channel and log any exceptions."""
+        """Start a channel and log any exceptions.
+
+        Integration: Called by ``ChannelManager.start_all`` and collaborates with
+        ``channel.start``, ``logger.exception``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             await channel.start()
         except Exception as e:
@@ -169,7 +228,17 @@ class ChannelManager:
             logger.exception("Failed to start channel %s", name)
 
     async def start_all(self) -> None:
-        """Start all channels and the outbound dispatcher."""
+        """Start all channels and the outbound dispatcher.
+
+        Integration: Called by ``OhmoGatewayService.run_foreground`` and collaborates with
+        ``asyncio.create_task``, ``channels.items``, ``logger.warning``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self.channels:
             logger.warning("No channels enabled")
             return
@@ -187,7 +256,16 @@ class ChannelManager:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def stop_all(self) -> None:
-        """Stop all channels and the dispatcher."""
+        """Stop all channels and the dispatcher.
+
+        Integration: Called by ``OhmoGatewayService.run_foreground`` and collaborates with
+        ``logger.info``, ``channels.items``, ``_dispatch_task.cancel``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         logger.info("Stopping all channels...")
 
         # Stop dispatcher
@@ -207,7 +285,16 @@ class ChannelManager:
                 logger.error("Error stopping %s: %s", name, e)
 
     async def _dispatch_outbound(self) -> None:
-        """Dispatch outbound messages to the appropriate channel."""
+        """Dispatch outbound messages to the appropriate channel.
+
+        Integration: Called by ``ChannelManager.start_all`` and collaborates with
+        ``logger.info``, ``msg.metadata.get``, ``channels.get``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         logger.info("Outbound dispatcher started")
 
         while True:
@@ -238,11 +325,31 @@ class ChannelManager:
                 break
 
     def get_channel(self, name: str) -> BaseChannel | None:
-        """Get a channel by name."""
+        """Get a channel by name.
+
+        Integration: Called by ``OhmoGatewayService.create_group_for_user`` and collaborates
+        with ``channels.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.channels.get(name)
 
     def get_status(self) -> dict[str, Any]:
-        """Get status of all channels."""
+        """Get status of all channels.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``channels.items``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return {
             name: {
                 "enabled": True,
@@ -253,5 +360,15 @@ class ChannelManager:
 
     @property
     def enabled_channels(self) -> list[str]:
-        """Get list of enabled channel names."""
+        """Get list of enabled channel names.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``channels.keys``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return list(self.channels.keys())

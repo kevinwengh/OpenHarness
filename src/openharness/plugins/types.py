@@ -1,4 +1,15 @@
-"""Plugin runtime types."""
+"""Plugin runtime types.
+
+Integration: This module participates in manifest-driven discovery of optional skills, commands,
+agents, tools, hooks, and MCP servers.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project-plugin opt-in trust, import isolation, precedence, namespacing,
+and actionable load failures.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +28,17 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PluginCommandDefinition:
-    """A slash command contributed by a plugin."""
+    """A slash command contributed by a plugin.
+
+    Integration: Constructed or referenced by ``_load_plugin_commands``,
+    ``_load_commands_from_directory``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     description: str
@@ -38,7 +59,16 @@ class PluginCommandDefinition:
 
 @dataclass(frozen=True)
 class LoadedPlugin:
-    """A loaded plugin and its contributed artifacts."""
+    """A loaded plugin and its contributed artifacts.
+
+    Integration: Constructed or referenced by ``load_plugin``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     manifest: PluginManifest
     path: Path
@@ -52,8 +82,29 @@ class LoadedPlugin:
 
     @property
     def name(self) -> str:
+        """Derive name from the current inputs and subsystem state.
+
+        Integration: Called by ``FeishuChannel._create_managed_group_sync``,
+        ``FeishuChannel._rename_group_sync``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.manifest.name
 
     @property
     def description(self) -> str:
+        """Derive description from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.manifest.description

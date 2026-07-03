@@ -1,4 +1,16 @@
 /**
+ * Implement the autopilot dashboard's hero background module.
+ *
+ * Integration: Consumed by the Vite/React dashboard and its generated autopilot snapshot data.
+ *
+ * Event loop: Rendering and animation callbacks run in the browser event loop; avoid blocking
+ * frames or leaking scheduled work.
+ *
+ * Change safety: Preserve component props, snapshot-data assumptions, responsive rendering, and the
+ * dashboard build contract.
+ */
+
+/**
  * CyberHeroBackground — full-bleed animated SVG background for the kanban hero.
  *
  * Layers (back → front):
@@ -11,6 +23,16 @@
  *  7. Horizontal scan-line
  *
  * All SMIL-based — no JS animation loops needed.
+ */
+/**
+ * Render the HeroBackground React component.
+ *
+ * Integration: Owned by `HeroBackground.tsx` and collaborates with `map`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
  */
 export function HeroBackground() {
   const glyphs = [
@@ -111,17 +133,26 @@ export function HeroBackground() {
 
       <g mask="url(#bg-mask)">
         {/* 1. Perspective grid */}
-        {gridY.map((y, i) => (
+        {gridY.map(/*
+         * map callback: computes its callback result; keep event-loop work bounded and preserve
+         * the callback's return contract.
+         */ (y, i) => (
           <line key={`hg${i}`} x1="50" y1={y} x2="1150" y2={y}
             stroke="#00d4aa" strokeOpacity={0.025 + i * 0.012} strokeWidth="1" />
         ))}
-        {radials.map((n) => (
+        {radials.map(/*
+         * map callback: computes its callback result; keep event-loop work bounded and preserve
+         * the callback's return contract.
+         */ (n) => (
           <line key={`vg${n}`} x1={vx} y1={vy} x2={vx + n * 130} y2="460"
             stroke="#00d4aa" strokeOpacity="0.025" strokeWidth="1" />
         ))}
 
         {/* 2. Data streams */}
-        {streams.map((s, i) => (
+        {streams.map(/*
+         * map callback: computes its callback result; keep event-loop work bounded and preserve
+         * the callback's return contract.
+         */ (s, i) => (
           <line key={`ds${i}`} x1="0" y1={s.y} x2="1200" y2={s.y}
             stroke="#00d4aa" strokeOpacity={s.op} strokeWidth="1" strokeDasharray={s.dash}>
             <animate attributeName="stroke-dashoffset" from="0" to={`-${s.tot}`}
@@ -130,13 +161,19 @@ export function HeroBackground() {
         ))}
 
         {/* 3. Constellation edges */}
-        {ce.map(([a, b], i) => (
+        {ce.map(/*
+         * map callback: computes its callback result; keep event-loop work bounded and preserve
+         * the callback's return contract.
+         */ ([a, b], i) => (
           <line key={`ce${i}`} x1={cn[a].x} y1={cn[a].y} x2={cn[b].x} y2={cn[b].y}
             stroke="#00d4aa" strokeOpacity="0.06" strokeWidth="1" />
         ))}
 
         {/* 4. Constellation nodes */}
-        {cn.map((n, i) => (
+        {cn.map(/*
+         * map callback: computes its callback result; keep event-loop work bounded and preserve
+         * the callback's return contract.
+         */ (n, i) => (
           <circle key={`cn${i}`} cx={n.x} cy={n.y} r="2" fill="#00d4aa">
             <animate attributeName="fill-opacity" values="0.1;0.35;0.1"
               dur={`${2 + (i % 4) * 0.5}s`} begin={`${i * 0.3}s`} repeatCount="indefinite" />
@@ -146,7 +183,10 @@ export function HeroBackground() {
         ))}
 
         {/* 5. Data fragments */}
-        {frags.map((f, i) => (
+        {frags.map(/*
+         * map callback: computes its callback result; keep event-loop work bounded and preserve
+         * the callback's return contract.
+         */ (f, i) => (
           <line key={`fr${i}`} x1={f.x} y1={f.y} x2={f.x + f.w} y2={f.y}
             stroke={i % 3 === 0 ? "#8b5cf6" : "#00d4aa"} strokeOpacity="0.08"
             strokeWidth="1" strokeLinecap="round">
@@ -156,7 +196,10 @@ export function HeroBackground() {
         ))}
 
         {/* 6. Binary / hex rain */}
-        {glyphs.map((g, i) => (
+        {glyphs.map(/*
+         * map callback: computes its callback result; keep event-loop work bounded and preserve
+         * the callback's return contract.
+         */ (g, i) => (
           <text key={`gl${i}`} x={g.x} y={-10} fontSize={g.sz}
             fill={i % 7 === 0 ? "#8b5cf6" : i % 11 === 0 ? "#ff6b35" : "#00d4aa"}
             fillOpacity="0" fontFamily="JetBrains Mono, monospace" fontWeight="600" letterSpacing="0.6">

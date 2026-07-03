@@ -8,6 +8,16 @@ Usage::
 The bridge continuously consumes inbound messages from the bus, feeds them
 to QueryEngine.submit_message(), and publishes the assembled reply as an
 OutboundMessage back to the bus for delivery by ChannelManager.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
 """
 
 from __future__ import annotations
@@ -31,9 +41,27 @@ class ChannelBridge:
 
     One bridge instance should be created per QueryEngine.  It owns the asyncio
     loop integration and handles back-pressure through the MessageBus queues.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Event loop: Async methods ``start``, ``stop``, ``run``, ``_loop`` run on their caller's
+    loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self, *, engine: "QueryEngine", bus: MessageBus) -> None:
+        """Initialize ``ChannelBridge`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``ChannelBridge``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._engine = engine
         self._bus = bus
         self._running = False
@@ -44,7 +72,17 @@ class ChannelBridge:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the bridge loop as a background task."""
+        """Start the bridge loop as a background task.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``asyncio.create_task``, ``logger.info``, ``_loop``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._running:
             return
         self._running = True
@@ -52,7 +90,16 @@ class ChannelBridge:
         logger.info("ChannelBridge started")
 
     async def stop(self) -> None:
-        """Stop the bridge loop gracefully."""
+        """Stop the bridge loop gracefully.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.info``, ``_task.cancel``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         self._running = False
         if self._task is not None:
             self._task.cancel()
@@ -64,7 +111,17 @@ class ChannelBridge:
         logger.info("ChannelBridge stopped")
 
     async def run(self) -> None:
-        """Run the bridge inline (blocks until stopped or cancelled)."""
+        """Run the bridge inline (blocks until stopped or cancelled).
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_loop``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._running = True
         try:
             await self._loop()
@@ -76,7 +133,16 @@ class ChannelBridge:
     # ------------------------------------------------------------------
 
     async def _loop(self) -> None:
-        """Main processing loop: consume → process → publish."""
+        """Main processing loop: consume → process → publish.
+
+        Integration: Called by ``ChannelBridge.start``, ``ChannelBridge.run`` and collaborates
+        with ``asyncio.wait_for``, ``_handle``, ``logger.exception``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         while self._running:
             try:
                 msg = await asyncio.wait_for(
@@ -92,7 +158,16 @@ class ChannelBridge:
                 logger.exception("ChannelBridge: unhandled error processing message")
 
     async def _handle(self, msg: InboundMessage) -> None:
-        """Process one inbound message and publish the reply."""
+        """Process one inbound message and publish the reply.
+
+        Integration: Called by ``ChannelBridge._loop`` and collaborates with ``logger.debug``,
+        ``strip``, ``OutboundMessage``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         logger.debug("ChannelBridge received from %s/%s", msg.channel, msg.chat_id)
 
         reply_parts: list[str] = []

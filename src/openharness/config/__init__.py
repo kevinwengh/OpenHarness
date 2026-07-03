@@ -1,6 +1,16 @@
 """Configuration system for OpenHarness.
 
 Provides settings management, path resolution, and API key handling.
+
+Integration: This module participates in settings models, persisted profiles, environment input,
+and CLI override precedence.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve backward-compatible fields/defaults, secret redaction, profile
+materialization, and atomic persistence.
 """
 
 from openharness.config.paths import (

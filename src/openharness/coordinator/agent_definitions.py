@@ -1,4 +1,15 @@
-"""Agent definition loading system for OpenHarness."""
+"""Agent definition loading system for OpenHarness.
+
+Integration: This module participates in coordinator-mode context and delegated worker
+orchestration.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve context injection/removal, tool availability, async-agent state,
+continuation, and no cross-session leakage.
+"""
 
 from __future__ import annotations
 
@@ -83,6 +94,14 @@ class AgentDefinition(BaseModel):
     - ``memory``        → ``memory``
     - ``isolation``     → ``isolation``
     - ``omit_claude_md`` → ``omitClaudeMd``
+
+    Integration: Constructed or referenced by ``load_agents_dir``, ``_load_single_agent_file``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
     """
 
     # --- required ---
@@ -621,7 +640,15 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
 
 
 def get_builtin_agent_definitions() -> list[AgentDefinition]:
-    """Return the built-in agent definitions."""
+    """Return the built-in agent definitions.
+
+    Integration: Called by ``get_all_agent_definitions``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return list(_BUILTIN_AGENTS)
 
 
@@ -635,6 +662,13 @@ def _parse_agent_frontmatter(content: str) -> tuple[dict[str, Any], str]:
 
     Returns a (frontmatter_dict, body) tuple. Uses ``yaml.safe_load`` for
     proper YAML parsing (supports nested structures for hooks, mcpServers, etc.).
+
+    Integration: Called by ``load_agents_dir``, ``_load_single_agent_file`` and collaborates
+    with ``content.splitlines``, ``join``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     frontmatter: dict[str, Any] = {}
     body = content
@@ -670,7 +704,16 @@ def _parse_agent_frontmatter(content: str) -> tuple[dict[str, Any], str]:
 
 
 def _parse_str_list(raw: Any) -> list[str] | None:
-    """Parse a comma-separated string or list into a list of strings."""
+    """Parse a comma-separated string or list into a list of strings.
+
+    Integration: Called by ``load_agents_dir``, ``_load_single_agent_file`` and collaborates
+    with ``strip``, ``t.strip``, ``raw.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if raw is None:
         return None
     if isinstance(raw, list):
@@ -682,7 +725,14 @@ def _parse_str_list(raw: Any) -> list[str] | None:
 
 
 def _parse_positive_int(raw: Any) -> int | None:
-    """Parse a positive integer from frontmatter, returning None if invalid."""
+    """Parse a positive integer from frontmatter, returning None if invalid.
+
+    Integration: Called by ``load_agents_dir``, ``_load_single_agent_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if raw is None:
         return None
     try:
@@ -724,6 +774,14 @@ def load_agents_dir(directory: Path) -> list[AgentDefinition]:
     * ``requiredMcpServers`` / ``required_mcp_servers`` — list of required server patterns
     * ``permissions`` — comma-separated extra permission rules (Python-specific)
     * ``subagent_type`` — routing key (Python-specific, defaults to name)
+
+    Integration: Called by ``get_all_agent_definitions`` and collaborates with
+    ``directory.is_dir``, ``directory.glob``, ``path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
     """
     agents: list[AgentDefinition] = []
 
@@ -898,7 +956,16 @@ def load_agents_dir(directory: Path) -> list[AgentDefinition]:
 
 
 def _get_user_agents_dir() -> Path:
-    """Return the user agent definitions directory."""
+    """Return the user agent definitions directory.
+
+    Integration: Called by ``get_all_agent_definitions`` and collaborates with
+    ``get_config_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_config_dir() / "agents"
 
 
@@ -912,6 +979,13 @@ def get_all_agent_definitions() -> list[AgentDefinition]:
 
     User definitions override built-ins with the same name; plugin definitions
     override user definitions with the same name.
+
+    Integration: Called by ``get_agent_definition`` and collaborates with
+    ``get_builtin_agent_definitions``, ``load_agents_dir``, ``_get_user_agents_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     agent_map: dict[str, AgentDefinition] = {}
 
@@ -946,7 +1020,17 @@ def get_all_agent_definitions() -> list[AgentDefinition]:
 
 
 def get_agent_definition(name: str) -> AgentDefinition | None:
-    """Return the agent definition for *name*, or ``None`` if not found."""
+    """Return the agent definition for *name*, or ``None`` if not found.
+
+    Integration: Called by ``AgentTool.execute`` and collaborates with
+    ``get_all_agent_definitions``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for agent in get_all_agent_definitions():
         if agent.name == name:
             return agent
@@ -958,6 +1042,14 @@ def has_required_mcp_servers(agent: AgentDefinition, available_servers: list[str
 
     Each pattern in ``required_mcp_servers`` must match (case-insensitive
     substring) at least one server in ``available_servers``.
+
+    Integration: Called by ``filter_agents_by_mcp_requirements`` and collaborates with ``all``,
+    ``any``, ``pattern.lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if not agent.required_mcp_servers:
         return True
@@ -971,5 +1063,14 @@ def filter_agents_by_mcp_requirements(
     agents: list[AgentDefinition],
     available_servers: list[str],
 ) -> list[AgentDefinition]:
-    """Return only agents whose required MCP servers are available."""
+    """Return only agents whose required MCP servers are available.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``has_required_mcp_servers``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return [a for a in agents if has_required_mcp_servers(a, available_servers)]

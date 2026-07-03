@@ -17,6 +17,16 @@ Mailbox-based flow:
 Paths:
     ~/.openharness/teams/<teamName>/permissions/pending/<id>.json
     ~/.openharness/teams/<teamName>/permissions/resolved/<id>.json
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
 """
 
 from __future__ import annotations
@@ -54,18 +64,62 @@ if TYPE_CHECKING:
 
 
 def _get_team_name() -> str | None:
+    """Return team name for the enclosing subsystem.
+
+    Integration: Called by ``create_permission_request``, ``read_pending_permissions`` and
+    collaborates with ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return os.environ.get("CLAUDE_CODE_TEAM_NAME")
 
 
 def _get_agent_id() -> str | None:
+    """Return agent identifier for the enclosing subsystem.
+
+    Integration: Called by ``create_permission_request``, ``is_team_leader`` and collaborates
+    with ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return os.environ.get("CLAUDE_CODE_AGENT_ID")
 
 
 def _get_agent_name() -> str | None:
+    """Return agent name for the enclosing subsystem.
+
+    Integration: Called by ``create_permission_request``,
+    ``send_permission_response_via_mailbox`` and collaborates with ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return os.environ.get("CLAUDE_CODE_AGENT_NAME")
 
 
 def _get_teammate_color() -> str | None:
+    """Return teammate color for the enclosing subsystem.
+
+    Integration: Called by ``create_permission_request``,
+    ``send_sandbox_permission_request_via_mailbox`` and collaborates with ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return os.environ.get("CLAUDE_CODE_AGENT_COLOR")
 
 
@@ -89,7 +143,16 @@ _READ_ONLY_TOOLS: frozenset[str] = frozenset(
 
 
 def _is_read_only(tool_name: str) -> bool:
-    """Return True for tools that are considered safe/read-only."""
+    """Return True for tools that are considered safe/read-only.
+
+    Integration: Called by ``handle_permission_request``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return tool_name in _READ_ONLY_TOOLS
 
 
@@ -103,6 +166,15 @@ class SwarmPermissionRequest:
     """Permission request forwarded from a worker to the team leader.
 
     All fields are present to match the TS SwarmPermissionRequestSchema.
+
+    Integration: Constructed or referenced by ``create_permission_request``,
+    ``_sync_resolve_permission``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     id: str
@@ -158,6 +230,16 @@ class SwarmPermissionRequest:
     """Timestamp when request was created."""
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record into its persisted dictionary shape.
+
+        Integration: Exposed through ``SwarmPermissionRequest``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return {
             "id": self.id,
             "worker_id": self.worker_id,
@@ -180,6 +262,17 @@ class SwarmPermissionRequest:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SwarmPermissionRequest":
+        """Reconstruct this record from its persisted dictionary shape.
+
+        Integration: Exposed through ``SwarmPermissionRequest`` and collaborates with ``cls``,
+        ``time.time``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             id=data["id"],
             worker_id=data.get("worker_id", data.get("workerId", "")),
@@ -208,7 +301,16 @@ class SwarmPermissionRequest:
 
 @dataclass
 class PermissionResolution:
-    """Resolution data returned when leader/worker resolves a request."""
+    """Resolution data returned when leader/worker resolves a request.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     decision: Literal["approved", "rejected"]
     """Decision: approved or rejected."""
@@ -228,7 +330,16 @@ class PermissionResolution:
 
 @dataclass
 class PermissionResponse:
-    """Legacy response type for worker polling (backward compatibility)."""
+    """Legacy response type for worker polling (backward compatibility).
+
+    Integration: Constructed or referenced by ``poll_for_response``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     request_id: str
     """ID of the request this responds to."""
@@ -251,7 +362,17 @@ class PermissionResponse:
 
 @dataclass
 class SwarmPermissionResponse:
-    """Response sent from the leader back to the requesting worker."""
+    """Response sent from the leader back to the requesting worker.
+
+    Integration: Constructed or referenced by ``poll_permission_response``,
+    ``handle_permission_request``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     request_id: str
     """ID of the ``SwarmPermissionRequest`` this responds to."""
@@ -276,6 +397,14 @@ def generate_request_id() -> str:
 
     Format: ``perm-{timestamp_ms}-{random7}``, matching the TS implementation:
     ``perm-${Date.now()}-${Math.random().toString(36).substring(2, 9)}``
+
+    Integration: Called by ``create_permission_request`` and collaborates with ``join``,
+    ``random.choices``, ``time.time``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     ts = int(time.time() * 1000)
     rand = "".join(random.choices(string.ascii_lowercase + string.digits, k=7))
@@ -286,6 +415,14 @@ def generate_sandbox_request_id() -> str:
     """Generate a unique sandbox permission request ID.
 
     Format: ``sandbox-{timestamp_ms}-{random7}``.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``join``, ``random.choices``, ``time.time``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     ts = int(time.time() * 1000)
     rand = "".join(random.choices(string.ascii_lowercase + string.digits, k=7))
@@ -298,19 +435,59 @@ def generate_sandbox_request_id() -> str:
 
 
 def get_permission_dir(team_name: str) -> Path:
-    """Return ~/.openharness/teams/{teamName}/permissions/"""
+    """Return ~/.openharness/teams/{teamName}/permissions/
+
+    Integration: Called by ``_get_pending_dir``, ``_get_resolved_dir`` and collaborates with
+    ``get_team_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_team_dir(team_name) / "permissions"
 
 
 def _get_pending_dir(team_name: str) -> Path:
+    """Return pending directory for the enclosing subsystem.
+
+    Integration: Called by ``_ensure_permission_dirs``, ``_pending_request_path`` and
+    collaborates with ``get_permission_dir``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_permission_dir(team_name) / "pending"
 
 
 def _get_resolved_dir(team_name: str) -> Path:
+    """Return resolved directory for the enclosing subsystem.
+
+    Integration: Called by ``_ensure_permission_dirs``, ``_resolved_request_path`` and
+    collaborates with ``get_permission_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_permission_dir(team_name) / "resolved"
 
 
 def _ensure_permission_dirs(team_name: str) -> None:
+    """Ensure permission dirs for the enclosing subsystem.
+
+    Integration: Called by ``_sync_write_permission_request``, ``_sync_resolve_permission`` and
+    collaborates with ``get_permission_dir``, ``_get_pending_dir``, ``_get_resolved_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     for d in (
         get_permission_dir(team_name),
         _get_pending_dir(team_name),
@@ -320,10 +497,31 @@ def _ensure_permission_dirs(team_name: str) -> None:
 
 
 def _pending_request_path(team_name: str, request_id: str) -> Path:
+    """Return the filesystem path for pending request.
+
+    Integration: Called by ``_sync_write_permission_request``, ``_sync_resolve_permission`` and
+    collaborates with ``_get_pending_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _get_pending_dir(team_name) / f"{request_id}.json"
 
 
 def _resolved_request_path(team_name: str, request_id: str) -> Path:
+    """Return the filesystem path for resolved request.
+
+    Integration: Called by ``read_resolved_permission``, ``_sync_resolve_permission`` and
+    collaborates with ``_get_resolved_dir``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _get_resolved_dir(team_name) / f"{request_id}.json"
 
 
@@ -365,6 +563,14 @@ def create_permission_request(
 
     Raises:
         ValueError: if team_name, worker_id, or worker_name cannot be resolved.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``SwarmPermissionRequest``, ``_get_team_name``, ``_get_agent_id``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     resolved_team = team_name or _get_team_name() or ""
     resolved_id = worker_id or _get_agent_id() or ""
@@ -395,6 +601,17 @@ def create_permission_request(
 def _sync_write_permission_request(
     request: SwarmPermissionRequest,
 ) -> SwarmPermissionRequest:
+    """Derive sync write permission request from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_ensure_permission_dirs``, ``_pending_request_path``, ``pending_path.with_suffix``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     _ensure_permission_dirs(request.team_name)
     pending_path = _pending_request_path(request.team_name, request.id)
     lock_path = _get_pending_dir(request.team_name) / ".lock"
@@ -418,6 +635,15 @@ async def write_permission_request(
 
     Returns:
         The written request (same object, for convenience).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``asyncio.get_event_loop``, ``loop.run_in_executor``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _sync_write_permission_request, request)
@@ -436,6 +662,16 @@ async def read_pending_permissions(
 
     Returns:
         List of pending :class:`SwarmPermissionRequest` objects.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_get_pending_dir``, ``requests.sort``, ``_get_team_name``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -474,6 +710,16 @@ async def read_resolved_permission(
     Returns:
         The resolved :class:`SwarmPermissionRequest`, or ``None`` if not yet
         resolved.
+
+    Integration: Called by ``poll_for_response`` and collaborates with
+    ``_resolved_request_path``, ``_get_team_name``, ``resolved_path.exists``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -495,6 +741,17 @@ def _sync_resolve_permission(
     resolution: PermissionResolution,
     team: str,
 ) -> bool:
+    """Determine whether sync resolve permission holds for the current inputs.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_ensure_permission_dirs``, ``_pending_request_path``, ``_resolved_request_path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     _ensure_permission_dirs(team)
     pending_path = _pending_request_path(team, request_id)
     resolved_path = _resolved_request_path(team, request_id)
@@ -559,6 +816,15 @@ async def resolve_permission(
 
     Returns:
         ``True`` if the request was found and resolved, ``False`` otherwise.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``asyncio.get_event_loop``, ``_get_team_name``, ``loop.run_in_executor``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -570,6 +836,16 @@ async def resolve_permission(
 
 
 def _sync_cleanup_old_resolutions(team: str, max_age_seconds: float) -> int:
+    """Derive sync cleanup old resolutions from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_get_resolved_dir``, ``time.time``, ``resolved_dir.glob``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     resolved_dir = _get_resolved_dir(team)
     if not resolved_dir.exists():
         return 0
@@ -608,6 +884,15 @@ async def cleanup_old_resolutions(
 
     Returns:
         Number of files removed.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``asyncio.get_event_loop``, ``_get_team_name``, ``loop.run_in_executor``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -630,6 +915,16 @@ async def delete_resolved_permission(
 
     Returns:
         ``True`` if the file was found and deleted, ``False`` otherwise.
+
+    Integration: Called by ``remove_worker_response`` and collaborates with
+    ``_resolved_request_path``, ``_get_team_name``, ``resolved_path.unlink``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -666,6 +961,15 @@ async def poll_for_response(
 
     Returns:
         A :class:`PermissionResponse`, or ``None`` if not yet resolved.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``PermissionResponse``, ``read_resolved_permission``, ``strftime``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     from datetime import datetime, timezone
 
@@ -692,7 +996,17 @@ async def remove_worker_response(
     _agent_name: str | None = None,
     team_name: str | None = None,
 ) -> None:
-    """Remove a worker's response after processing (alias for delete_resolved_permission)."""
+    """Remove a worker's response after processing (alias for delete_resolved_permission).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``delete_resolved_permission``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     await delete_resolved_permission(request_id, team_name)
 
 
@@ -709,6 +1023,14 @@ def is_team_leader(team_name: str | None = None) -> bool:
     """Return True if the current agent is a team leader.
 
     Team leaders don't have an agent ID set, or their ID is 'team-lead'.
+
+    Integration: Called by ``is_swarm_worker`` and collaborates with ``_get_agent_id``,
+    ``_get_team_name``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -718,7 +1040,16 @@ def is_team_leader(team_name: str | None = None) -> bool:
 
 
 def is_swarm_worker() -> bool:
-    """Return True if the current agent is a worker in a swarm."""
+    """Return True if the current agent is a worker in a swarm.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_get_team_name``, ``_get_agent_id``, ``is_team_leader``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     team_name = _get_team_name()
     agent_id = _get_agent_id()
     return bool(team_name) and bool(agent_id) and not is_team_leader()
@@ -740,6 +1071,16 @@ async def get_leader_name(team_name: str | None = None) -> str | None:
     Returns:
         The leader's name string, or ``None`` if the team file is missing.
         Falls back to ``'team-lead'`` if the lead member is not found.
+
+    Integration: Called by ``send_permission_request_via_mailbox``,
+    ``send_sandbox_permission_request_via_mailbox`` and collaborates with ``_get_team_name``,
+    ``read_team_file_async``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     from openharness.swarm.team_lifecycle import read_team_file_async
 
@@ -776,6 +1117,14 @@ async def send_permission_request_via_mailbox(
 
     Returns:
         ``True`` if the message was sent successfully.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_leader_name``, ``create_permission_request_message``, ``write_to_mailbox``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     leader_name = await get_leader_name(request.team_name)
     if not leader_name:
@@ -831,6 +1180,14 @@ async def send_permission_response_via_mailbox(
 
     Returns:
         ``True`` if the message was sent successfully.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_get_team_name``, ``_get_agent_name``, ``create_permission_response_message``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -889,6 +1246,14 @@ async def send_sandbox_permission_request_via_mailbox(
 
     Returns:
         ``True`` if the message was sent successfully.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_get_agent_id``, ``_get_agent_name``, ``_get_teammate_color``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -955,6 +1320,14 @@ async def send_sandbox_permission_response_via_mailbox(
 
     Returns:
         ``True`` if the message was sent successfully.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_get_team_name``, ``_get_agent_name``, ``create_sandbox_permission_response_message``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     team = team_name or _get_team_name()
     if not team:
@@ -1010,6 +1383,15 @@ async def send_permission_request(
         team_name: The swarm team name used for mailbox routing.
         worker_id: The sending worker's agent ID.
         leader_id: The leader's agent ID (default ``"leader"``).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``MailboxMessage``, ``TeammateMailbox``, ``leader_mailbox.write``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     payload: dict[str, Any] = {
         "request_id": request.id,
@@ -1052,6 +1434,15 @@ async def poll_permission_response(
 
     Returns:
         A :class:`SwarmPermissionResponse`, or ``None`` on timeout.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``TeammateMailbox``, ``time.monotonic``, ``worker_mailbox.read_all``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     worker_mailbox = TeammateMailbox(team_name, worker_id)
     deadline = time.monotonic() + timeout
@@ -1092,10 +1483,21 @@ async def handle_permission_request(
 
     Args:
         request: The incoming permission request from a worker.
-        checker: An already-configured :class:`~openharness.permissions.checker.PermissionChecker`.
+        checker: An already-configured
+    :class:`~openharness.permissions.checker.PermissionChecker`.
 
     Returns:
         A :class:`SwarmPermissionResponse` with the decision.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_is_read_only``, ``request.input.get``, ``checker.evaluate``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if _is_read_only(request.tool_name):
         return SwarmPermissionResponse(
@@ -1149,6 +1551,15 @@ async def send_permission_response(
         team_name: The swarm team name.
         worker_id: The target worker's agent ID.
         leader_id: The sending leader's agent ID (default ``"leader"``).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``MailboxMessage``, ``TeammateMailbox``, ``worker_mailbox.write``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     payload: dict[str, Any] = {
         "request_id": response.request_id,

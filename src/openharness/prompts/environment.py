@@ -1,6 +1,14 @@
 """Environment detection for system prompt construction.
 
 Gathers OS, shell, platform, working directory, date, and git info.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
 """
 
 from __future__ import annotations
@@ -17,7 +25,16 @@ from pathlib import Path
 
 @dataclass
 class EnvironmentInfo:
-    """Snapshot of the current runtime environment."""
+    """Snapshot of the current runtime environment.
+
+    Integration: Constructed or referenced by ``get_environment_info``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     os_name: str
     os_version: str
@@ -36,7 +53,16 @@ class EnvironmentInfo:
 
 
 def detect_os() -> tuple[str, str]:
-    """Return (os_name, os_version) for the current platform."""
+    """Return (os_name, os_version) for the current platform.
+
+    Integration: Called by ``get_environment_info`` and collaborates with ``platform.system``,
+    ``platform.release``, ``platform.mac_ver``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     system = platform.system()
     if system == "Linux":
         try:
@@ -54,7 +80,16 @@ def detect_os() -> tuple[str, str]:
 
 
 def detect_shell() -> str:
-    """Detect the user's shell."""
+    """Detect the user's shell.
+
+    Integration: Called by ``get_environment_info`` and collaborates with ``os.environ.get``,
+    ``shutil.which``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     shell = os.environ.get("SHELL", "")
     if shell:
         return Path(shell).name
@@ -68,7 +103,16 @@ def detect_shell() -> str:
 
 
 def detect_git_info(cwd: str) -> tuple[bool, str | None]:
-    """Check if cwd is inside a git repo and return (is_git_repo, branch_name)."""
+    """Check if cwd is inside a git repo and return (is_git_repo, branch_name).
+
+    Integration: Called by ``get_environment_info`` and collaborates with ``subprocess.run``,
+    ``result.stdout.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"],
@@ -102,7 +146,16 @@ def detect_git_info(cwd: str) -> tuple[bool, str | None]:
 
 
 def get_environment_info(cwd: str | None = None) -> EnvironmentInfo:
-    """Gather all environment information into an EnvironmentInfo snapshot."""
+    """Gather all environment information into an EnvironmentInfo snapshot.
+
+    Integration: Called by ``build_system_prompt`` and collaborates with ``os.environ.get``,
+    ``detect_os``, ``detect_shell``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if cwd is None:
         cwd = os.getcwd()
 

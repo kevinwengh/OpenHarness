@@ -1,4 +1,15 @@
-"""Relevant memory selection and formatting."""
+"""Relevant memory selection and formatting.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +26,17 @@ from openharness.memory.types import MemoryHeader
 
 @dataclass(frozen=True)
 class RelevantMemory:
-    """A memory selected for prompt injection."""
+    """A memory selected for prompt injection.
+
+    Integration: Constructed or referenced by ``select_relevant_memories``,
+    ``select_manifest_memories``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     header: MemoryHeader
     freshness: str = ""
@@ -25,7 +46,16 @@ MemorySelector = Callable[[str, list[MemoryHeader]], list[str]]
 
 
 def build_memory_manifest(headers: Iterable[MemoryHeader]) -> str:
-    """Render a compact manifest for selector prompts and diagnostics."""
+    """Render a compact manifest for selector prompts and diagnostics.
+
+    Integration: Called by ``build_extraction_prompt`` and collaborates with ``join``,
+    ``lines.append``, ``bits.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     lines: list[str] = []
     for header in headers:
@@ -53,6 +83,14 @@ def select_relevant_memories(
 
     ``selector`` is an optional side-query style reranker. It receives the query
     and a heuristic shortlist, and returns relative paths in desired order.
+
+    Integration: Called by ``build_runtime_system_prompt`` and collaborates with
+    ``_apply_selector``, ``result.append``, ``find_relevant_memories``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     surfaced = already_surfaced or set()
@@ -75,7 +113,16 @@ def select_manifest_memories(
     max_results: int = 5,
     selector: MemorySelector | None = None,
 ) -> list[RelevantMemory]:
-    """Select from the full manifest instead of heuristic matches only."""
+    """Select from the full manifest instead of heuristic matches only.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``scan_memory_files``, ``_apply_selector``, ``RelevantMemory``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     headers = scan_memory_files(cwd, max_files=200)
     selected = _apply_selector(query, headers, selector=selector, max_results=max_results)
@@ -86,7 +133,16 @@ def select_manifest_memories(
 
 
 def format_relevant_memories(memories: Iterable[RelevantMemory], *, max_chars: int = 8000) -> str:
-    """Render selected memories for prompt context."""
+    """Render selected memories for prompt context.
+
+    Integration: Called by ``build_runtime_system_prompt`` and collaborates with ``join``,
+    ``strip``, ``lines.extend``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
 
     lines = ["# Relevant Memories"]
     for item in memories:
@@ -101,7 +157,15 @@ def format_relevant_memories(memories: Iterable[RelevantMemory], *, max_chars: i
 
 
 def json_selector_from_text(text: str) -> list[str]:
-    """Parse a selector response as either JSON list or newline paths."""
+    """Parse a selector response as either JSON list or newline paths.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``text.strip``, ``json.loads``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     stripped = text.strip()
     if not stripped:
@@ -124,6 +188,16 @@ def _apply_selector(
     selector: MemorySelector | None,
     max_results: int,
 ) -> list[MemoryHeader]:
+    """Apply selector for the enclosing subsystem.
+
+    Integration: Called by ``select_relevant_memories``, ``select_manifest_memories`` and
+    collaborates with ``selector``, ``by_path.get``, ``selected.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not headers or selector is None:
         return headers[:max_results]
     requested = selector(query, headers)

@@ -1,4 +1,16 @@
-"""Scripted React TUI end-to-end checks using the real CLI entrypoint."""
+"""Scripted React TUI end-to-end checks using the real CLI entrypoint.
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +31,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _spawn_oh(*, env: dict[str, str] | None = None) -> pexpect.spawn:
+    """Derive spawn oh from the current inputs and subsystem state.
+
+    Integration: Called by ``_run_permission_file_io``, ``_run_question_flow`` and collaborates
+    with ``pexpect.spawn``, ``os.environ.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     args = ["run", "oh"]
     child = pexpect.spawn(
         "uv",
@@ -35,6 +57,16 @@ def _spawn_oh(*, env: dict[str, str] | None = None) -> pexpect.spawn:
 
 
 def _submit(child: pexpect.spawn, text: str) -> None:
+    """Submit one input through the active interaction boundary.
+
+    Integration: Called by ``_run_permission_file_io``, ``_run_question_flow`` and collaborates
+    with ``time.sleep``, ``child.send``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for character in text:
         child.send(character)
         time.sleep(0.02)
@@ -44,6 +76,16 @@ def _submit(child: pexpect.spawn, text: str) -> None:
 
 
 def _isolated_env(permission_mode: str = "full_auto") -> tuple[tempfile.TemporaryDirectory[str], dict[str, str]]:
+    """Build the isolated environment used by this validation workflow.
+
+    Integration: Called by ``_run_permission_file_io``, ``_run_question_flow`` and collaborates
+    with ``load_settings``, ``tempfile.TemporaryDirectory``, ``config_dir.mkdir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     settings = load_settings()
     temp_dir = tempfile.TemporaryDirectory(prefix="openharness-react-tui-")
     config_dir = Path(temp_dir.name) / "config"
@@ -61,6 +103,16 @@ def _isolated_env(permission_mode: str = "full_auto") -> tuple[tempfile.Temporar
 
 
 def _run_permission_file_io() -> None:
+    """Run permission file io for the enclosing subsystem.
+
+    Integration: Called by ``main`` and collaborates with ``path.exists``, ``_isolated_env``,
+    ``_spawn_oh``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = ROOT / "react_tui_smoke.txt"
     if path.exists():
         path.unlink()
@@ -87,6 +139,16 @@ def _run_permission_file_io() -> None:
 
 
 def _run_question_flow() -> None:
+    """Run question flow for the enclosing subsystem.
+
+    Integration: Called by ``main`` and collaborates with ``path.exists``, ``_isolated_env``,
+    ``_spawn_oh``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = ROOT / "react_tui_question.txt"
     if path.exists():
         path.unlink()
@@ -117,6 +179,17 @@ def _run_question_flow() -> None:
 
 
 def _run_command_flow() -> None:
+    """Run command flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_isolated_env``, ``json.dumps``, ``_spawn_oh``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     temp_dir, env = _isolated_env()
     env["OPENHARNESS_FRONTEND_SCRIPT"] = json.dumps(
         [
@@ -141,6 +214,16 @@ def _run_command_flow() -> None:
 
 
 def main() -> None:
+    """Run the script's top-level validation or application workflow.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``argparse.ArgumentParser``, ``parser.add_argument``, ``parser.parse_args``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parser = argparse.ArgumentParser(description="Run scripted React TUI E2E scenarios")
     parser.add_argument(
         "--scenario",

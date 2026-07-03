@@ -1,3 +1,16 @@
+/**
+ * Own the terminal frontend's builtin themes boundary.
+ *
+ * Integration: Connects the Ink application to shared TypeScript types and the Python backend
+ * protocol.
+ *
+ * Event loop: Process I/O, React effects, input events, and buffered rendering coexist on Node's
+ * event loop; preserve cleanup and backpressure.
+ *
+ * Change safety: Coordinate protocol, process lifecycle, terminal restoration, and packaging
+ * changes with the Python host and UI tests.
+ */
+
 export type ThemeConfig = {
 	name: string;
 	colors: {
@@ -156,6 +169,17 @@ export const BUILTIN_THEMES: Record<string, ThemeConfig> = {
 	solarized: solarizedTheme,
 };
 
+/**
+ * Return theme for the calling frontend path.
+ *
+ * Integration: Owned by `builtinThemes.ts` and invoked through its surrounding React or module
+ * boundary.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function getTheme(name: string): ThemeConfig {
 	return BUILTIN_THEMES[name] ?? defaultTheme;
 }

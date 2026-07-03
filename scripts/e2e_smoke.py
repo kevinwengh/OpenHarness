@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""Run real end-to-end OpenHarness scenarios against an Anthropic-compatible API."""
+"""Run real end-to-end OpenHarness scenarios against an Anthropic-compatible API.
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
+"""
 
 from __future__ import annotations
 
@@ -40,7 +52,16 @@ FIXTURE_SERVER = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "f
 
 @dataclass(frozen=True)
 class Scenario:
-    """One real-model scenario."""
+    """One real-model scenario.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     prompt: str
@@ -52,6 +73,17 @@ class Scenario:
 
 
 def _parse_args() -> argparse.Namespace:
+    """Parse args for the enclosing subsystem.
+
+    Integration: Called by ``_run`` and collaborates with ``argparse.ArgumentParser``,
+    ``parser.add_argument``, ``parser.parse_args``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default=None, help="Model name override")
     parser.add_argument("--base-url", default=None, help="Anthropic-compatible base URL")
@@ -91,6 +123,16 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _validate_file_io(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate file io for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``strip``, ``path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = cwd / "smoke.txt"
     contents = path.read_text(encoding="utf-8").strip() if path.exists() else ""
     if started < 2 or completed < 2:
@@ -105,6 +147,16 @@ def _validate_file_io(cwd: Path, final_text: str, tool_names: list[str], started
 
 
 def _validate_search_edit(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate search edit for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``strip``, ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = cwd / "src" / "demo.py"
     contents = path.read_text(encoding="utf-8").strip() if path.exists() else ""
     required = {"write_file", "glob", "grep", "edit_file", "read_file"}
@@ -118,6 +170,16 @@ def _validate_search_edit(cwd: Path, final_text: str, tool_names: list[str], sta
 
 
 def _validate_phase48(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate phase48 for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``strip``, ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = cwd / "TODO.md"
     contents = path.read_text(encoding="utf-8").strip() if path.exists() else ""
     required = {"tool_search", "todo_write", "read_file"}
@@ -131,6 +193,16 @@ def _validate_phase48(cwd: Path, final_text: str, tool_names: list[str], started
 
 
 def _validate_task_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate task flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     required = {"task_create", "sleep", "task_output"}
     if not required.issubset(set(tool_names)):
         return False, f"missing required tools: {sorted(required - set(tool_names))}"
@@ -140,6 +212,16 @@ def _validate_task_flow(cwd: Path, final_text: str, tool_names: list[str], start
 
 
 def _setup_skill_flow(_: Path, config_dir: Path) -> None:
+    """Set up skill flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``skills_dir.mkdir``, ``write_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     skills_dir = config_dir / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
     (skills_dir / "pytest.md").write_text(
@@ -150,6 +232,16 @@ def _setup_skill_flow(_: Path, config_dir: Path) -> None:
 
 
 def _setup_mcp_model_flow(_: Path, __: Path) -> dict[str, object]:
+    """Set up MCP model flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``McpStdioServerConfig``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         "fixture": McpStdioServerConfig(
             command=sys.executable,
@@ -159,6 +251,16 @@ def _setup_mcp_model_flow(_: Path, __: Path) -> dict[str, object]:
 
 
 def _setup_context_flow(cwd: Path, _: Path) -> None:
+    """Set up context flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``write_text``, ``add_memory_entry``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     (cwd / "CLAUDE.md").write_text(
         "# Project Rules\nWhen asked to create config-like files, use KEY=value lines and always set COLOR=orange.\n",
         encoding="utf-8",
@@ -168,6 +270,16 @@ def _setup_context_flow(cwd: Path, _: Path) -> None:
 
 
 def _setup_plugin_combo_flow(cwd: Path, _: Path) -> None:
+    """Set up plugin combo flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``mkdir``, ``write_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     plugin_dir = cwd / ".openharness" / "plugins" / "fixture-plugin"
     (plugin_dir / "skills").mkdir(parents=True, exist_ok=True)
     (plugin_dir / "plugin.json").write_text(
@@ -189,6 +301,16 @@ def _setup_plugin_combo_flow(cwd: Path, _: Path) -> None:
 
 
 def _setup_worktree_flow(cwd: Path, _: Path) -> None:
+    """Set up worktree flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``subprocess.run``, ``write_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     import subprocess
 
     subprocess.run(["git", "init"], cwd=cwd, check=True, capture_output=True, text=True)
@@ -213,6 +335,16 @@ def _setup_worktree_flow(cwd: Path, _: Path) -> None:
 
 
 def _setup_issue_pr_context_flow(cwd: Path, _: Path) -> None:
+    """Set up issue pr context flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``write_text``, ``get_project_issue_file``, ``get_project_pr_comments_file``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     get_project_issue_file(cwd).write_text(
         "# Fix flaky tasks\n\nThe main problem is the task retry path.\n",
         encoding="utf-8",
@@ -225,6 +357,15 @@ def _setup_issue_pr_context_flow(cwd: Path, _: Path) -> None:
 
 
 def _validate_skill_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate skill flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     if "skill" not in tool_names:
         return False, f"expected skill tool usage, got {tool_names}"
@@ -234,6 +375,15 @@ def _validate_skill_flow(cwd: Path, final_text: str, tool_names: list[str], star
 
 
 def _validate_mcp_model_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate MCP model flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     if "mcp__fixture__hello" not in tool_names:
         return False, f"expected mcp tool usage, got {tool_names}"
@@ -243,6 +393,16 @@ def _validate_mcp_model_flow(cwd: Path, final_text: str, tool_names: list[str], 
 
 
 def _validate_mcp_resource_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate MCP resource flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     required = {"list_mcp_resources", "read_mcp_resource"}
     if not required.issubset(set(tool_names)):
@@ -253,6 +413,16 @@ def _validate_mcp_resource_flow(cwd: Path, final_text: str, tool_names: list[str
 
 
 def _validate_context_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate context flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``strip``, ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = cwd / "note.env"
     contents = path.read_text(encoding="utf-8").strip() if path.exists() else ""
     required = {"write_file", "read_file"}
@@ -266,6 +436,16 @@ def _validate_context_flow(cwd: Path, final_text: str, tool_names: list[str], st
 
 
 def _validate_agent_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate agent flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     required = {"agent", "send_message", "sleep", "task_output"}
     if not required.issubset(set(tool_names)):
@@ -278,6 +458,16 @@ def _validate_agent_flow(cwd: Path, final_text: str, tool_names: list[str], star
 
 
 def _validate_remote_agent_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate remote agent flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     required = {"agent", "send_message", "sleep", "task_output"}
     if not required.issubset(set(tool_names)):
@@ -290,6 +480,15 @@ def _validate_remote_agent_flow(cwd: Path, final_text: str, tool_names: list[str
 
 
 def _validate_plugin_combo_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate plugin combo flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     if "skill" not in tool_names:
         return False, f"expected plugin skill usage, got {tool_names}"
@@ -301,6 +500,16 @@ def _validate_plugin_combo_flow(cwd: Path, final_text: str, tool_names: list[str
 
 
 def _validate_ask_user_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate ask user flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``strip``, ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = cwd / "answer.txt"
     contents = path.read_text(encoding="utf-8").strip() if path.exists() else ""
     required = {"ask_user_question", "write_file", "read_file"}
@@ -314,6 +523,16 @@ def _validate_ask_user_flow(cwd: Path, final_text: str, tool_names: list[str], s
 
 
 def _validate_task_update_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate task update flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     required = {"task_create", "task_update", "task_get"}
     if not required.issubset(set(tool_names)):
@@ -326,6 +545,16 @@ def _validate_task_update_flow(cwd: Path, final_text: str, tool_names: list[str]
 
 
 def _validate_notebook_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate notebook flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``path.read_text``, ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = cwd / "analysis.ipynb"
     contents = path.read_text(encoding="utf-8") if path.exists() else ""
     required = {"notebook_edit", "read_file"}
@@ -339,6 +568,16 @@ def _validate_notebook_flow(cwd: Path, final_text: str, tool_names: list[str], s
 
 
 def _setup_lsp_flow(cwd: Path, _: Path) -> None:
+    """Set up lsp flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``mkdir``, ``write_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     (cwd / "pkg").mkdir(parents=True, exist_ok=True)
     (cwd / "pkg" / "utils.py").write_text(
         'def greet(name):\n    """Return a greeting."""\n    return f"hi {name}"\n',
@@ -352,6 +591,16 @@ def _setup_lsp_flow(cwd: Path, _: Path) -> None:
 
 
 def _validate_lsp_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate lsp flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     required = {"lsp"}
     if not required.issubset(set(tool_names)):
@@ -364,6 +613,16 @@ def _validate_lsp_flow(cwd: Path, final_text: str, tool_names: list[str], starte
 
 
 def _validate_cron_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate cron flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     required = {"cron_create", "cron_list", "remote_trigger", "cron_delete"}
     if not required.issubset(set(tool_names)):
@@ -376,6 +635,16 @@ def _validate_cron_flow(cwd: Path, final_text: str, tool_names: list[str], start
 
 
 def _validate_worktree_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate worktree flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``worktree_path.exists``, ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     worktree_path = cwd / ".openharness" / "worktrees" / "smoke-worktree"
     required = {"enter_worktree", "read_file", "exit_worktree"}
     if not required.issubset(set(tool_names)):
@@ -388,6 +657,16 @@ def _validate_worktree_flow(cwd: Path, final_text: str, tool_names: list[str], s
 
 
 def _validate_issue_pr_context_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate issue pr context flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``strip``, ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = cwd / "review_summary.md"
     contents = path.read_text(encoding="utf-8").strip() if path.exists() else ""
     required = {"write_file", "read_file"}
@@ -401,6 +680,16 @@ def _validate_issue_pr_context_flow(cwd: Path, final_text: str, tool_names: list
 
 
 def _validate_mcp_auth_flow(cwd: Path, final_text: str, tool_names: list[str], started: int, completed: int) -> tuple[bool, str]:
+    """Validate MCP auth flow for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``required.issubset``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     del cwd, started, completed
     required = {"mcp_auth", "mcp__fixture__hello"}
     if not required.issubset(set(tool_names)):
@@ -698,6 +987,17 @@ async def _run_scenario(
     client: AnthropicApiClient,
     model: str,
 ) -> tuple[bool, str]:
+    """Run scenario for the enclosing subsystem.
+
+    Integration: Called by ``_run`` and collaborates with ``cwd.mkdir``, ``config_dir.mkdir``,
+    ``merge_cli_overrides``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     cwd = suite_root / scenario.name
     cwd.mkdir(parents=True, exist_ok=True)
     config_dir = suite_root / "config"
@@ -757,6 +1057,16 @@ async def _run_scenario(
 
 
 async def _run() -> int:
+    """Run one subsystem lifecycle.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_parse_args``, ``resolve_api_key``, ``SystemExit``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     args = _parse_args()
     api_key = sys.stdin.readline().strip() if args.api_key_stdin else load_settings().resolve_api_key()
     if not api_key:
@@ -800,6 +1110,16 @@ async def _run() -> int:
 
 
 def main() -> int:
+    """Run the script's top-level validation or application workflow.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``asyncio.run``, ``_run``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return asyncio.run(_run())
 
 

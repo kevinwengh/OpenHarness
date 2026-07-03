@@ -1,4 +1,14 @@
-"""Permission checking for tool execution."""
+"""Permission checking for tool execution.
+
+Integration: This module participates in tool policy evaluation before execution.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve sensitive-path denial, command/path normalization, mode defaults,
+confirmation semantics, and conservative read-only classification.
+"""
 
 from __future__ import annotations
 
@@ -39,7 +49,16 @@ SENSITIVE_PATH_PATTERNS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class PermissionDecision:
-    """Result of checking whether a tool invocation may run."""
+    """Result of checking whether a tool invocation may run.
+
+    Integration: Constructed or referenced by ``PermissionChecker.evaluate``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     allowed: bool
     requires_confirmation: bool = False
@@ -48,16 +67,45 @@ class PermissionDecision:
 
 @dataclass(frozen=True)
 class PathRule:
-    """A glob-based path permission rule."""
+    """A glob-based path permission rule.
+
+    Integration: Constructed or referenced by ``PermissionChecker.__init__``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     pattern: str
     allow: bool  # True = allow, False = deny
 
 
 class PermissionChecker:
-    """Evaluate tool usage against the configured permission mode and rules."""
+    """Evaluate tool usage against the configured permission mode and rules.
+
+    Integration: Constructed or referenced by ``_run_scenario``, ``_make_command_context``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, settings: PermissionSettings) -> None:
+        """Initialize ``PermissionChecker`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``PermissionChecker`` and collaborates with
+        ``log.warning``, ``PathRule``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._settings = settings
         # Parse path rules from settings
         self._path_rules: list[PathRule] = []
@@ -80,7 +128,18 @@ class PermissionChecker:
         file_path: str | None = None,
         command: str | None = None,
     ) -> PermissionDecision:
-        """Return whether the tool may run immediately."""
+        """Return whether the tool may run immediately.
+
+        Integration: Called by ``test_path_permissions_deny``, ``test_command_deny_pattern`` and
+        collaborates with ``_bash_permission_hint``, ``PermissionDecision``,
+        ``_policy_match_paths``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         # Built-in sensitive path protection — always active, cannot be
         # overridden by user settings or permission mode.  This is a
         # defence-in-depth measure against LLM-directed or prompt-injection
@@ -162,6 +221,14 @@ def _policy_match_paths(file_path: str) -> tuple[str, ...]:
     Directory-scoped tools like ``grep`` and ``glob`` may operate on a root such
     as ``/home/user/.ssh``. Appending a trailing slash lets glob-style deny
     patterns like ``*/.ssh/*`` and ``/etc/*`` match the directory root itself.
+
+    Integration: Called by ``PermissionChecker.evaluate`` and collaborates with
+    ``file_path.rstrip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     normalized = file_path.rstrip("/")
     if not normalized:
@@ -170,6 +237,16 @@ def _policy_match_paths(file_path: str) -> tuple[str, ...]:
 
 
 def _bash_permission_hint(command: str | None) -> str:
+    """Derive bash permission hint from the current inputs and subsystem state.
+
+    Integration: Called by ``PermissionChecker.evaluate`` and collaborates with
+    ``command.lower``, ``any``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not command:
         return ""
     lowered = command.lower()

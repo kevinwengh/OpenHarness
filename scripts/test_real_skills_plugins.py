@@ -2,6 +2,17 @@
 """E2E tests using REAL skills and plugins from anthropics/skills and compatible plugin repos.
 
 Tests skill loading, plugin loading, command execution, hook execution with kimi model.
+
+Integration: This opt-in driver supports installation, migration, or manual/E2E validation
+outside the deterministic unit-test runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve explicit prerequisites, isolated state, subprocess cleanup, bounded
+waits, credential handling, and clear pass/fail diagnostics; never make normal tests depend on
+live services.
 """
 
 from __future__ import annotations
@@ -27,6 +38,15 @@ PLUGINS_REPO = Path("/tmp/openharness-test-plugins/plugins")
 
 
 def _env() -> dict[str, str]:
+    """Build the isolated environment used by this validation workflow.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     env = os.environ.copy()
     env.setdefault("ANTHROPIC_BASE_URL", os.environ.get("ANTHROPIC_BASE_URL", ""))
     # ANTHROPIC_AUTH_TOKEN must be set in environment
@@ -35,6 +55,16 @@ def _env() -> dict[str, str]:
 
 
 def _run_oh(*args: str, timeout: int = 90, cwd: str | None = None) -> subprocess.CompletedProcess:
+    """Run oh for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``subprocess.run``, ``_env``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup expected by callers.
+    """
     cmd = [sys.executable, "-m", "openharness", *args]
     return subprocess.run(
         cmd, capture_output=True, text=True, timeout=timeout,
@@ -47,7 +77,18 @@ def _run_oh(*args: str, timeout: int = 90, cwd: str | None = None) -> subprocess
 # ============================================================
 
 async def test_install_real_skills() -> tuple[bool, str]:
-    """Copy real skills from anthropics/skills into openharness user skills dir."""
+    """Copy real skills from anthropics/skills into openharness user skills dir.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``user_skills_dir.mkdir``, ``SKILLS_REPO.exists``, ``get_config_dir``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     from openharness.config.paths import get_config_dir
 
     if not SKILLS_REPO.exists():
@@ -70,7 +111,18 @@ async def test_install_real_skills() -> tuple[bool, str]:
 
 
 async def test_real_skills_loaded() -> tuple[bool, str]:
-    """Verify that the installed real skills are loaded by the registry."""
+    """Verify that the installed real skills are loaded by the registry.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``load_skill_registry``, ``registry.list_skills``, ``join``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.skills.loader import load_skill_registry
 
     registry = load_skill_registry(cwd=".")
@@ -86,7 +138,18 @@ async def test_real_skills_loaded() -> tuple[bool, str]:
 
 
 async def test_real_skill_content_quality() -> tuple[bool, str]:
-    """Verify that real skills have substantial content (not stubs)."""
+    """Verify that real skills have substantial content (not stubs).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``load_skill_registry``, ``registry.list_skills``, ``issues.append``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.skills.loader import load_skill_registry
 
     registry = load_skill_registry(cwd=".")
@@ -109,7 +172,17 @@ async def test_real_skill_content_quality() -> tuple[bool, str]:
 
 
 async def test_skill_tool_with_real_skill() -> tuple[bool, str]:
-    """Test SkillTool with a real anthropic skill (pdf)."""
+    """Test SkillTool with a real anthropic skill (pdf).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``SkillTool``, ``tool.execute``, ``SkillToolInput``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.tools.skill_tool import SkillTool, SkillToolInput
     from openharness.tools.base import ToolExecutionContext
 
@@ -132,7 +205,18 @@ async def test_skill_tool_with_real_skill() -> tuple[bool, str]:
 
 
 async def test_skills_in_prompt_with_real() -> tuple[bool, str]:
-    """Test that real skills appear in the system prompt."""
+    """Test that real skills appear in the system prompt.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``build_runtime_system_prompt``, ``load_settings``, ``real_skills_found.append``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import load_settings
     from openharness.prompts.context import build_runtime_system_prompt
 
@@ -152,7 +236,18 @@ async def test_skills_in_prompt_with_real() -> tuple[bool, str]:
 
 
 async def test_model_uses_real_skill() -> tuple[bool, str]:
-    """Ask the model about a real skill topic and see if it responds correctly."""
+    """Ask the model about a real skill topic and see if it responds correctly.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``result.stdout.lower``, ``os.environ.get``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh(
         "-p", "How do I merge two PDF files in Python? Give me a brief code example.",
         "--model", os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5"),
@@ -170,7 +265,18 @@ async def test_model_uses_real_skill() -> tuple[bool, str]:
 # ============================================================
 
 async def test_install_real_plugins() -> tuple[bool, str]:
-    """Copy real plugins into openharness plugin directory."""
+    """Copy real plugins into openharness plugin directory.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``dest_base.mkdir``, ``PLUGINS_REPO.exists``, ``PLUGINS_REPO.iterdir``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     if not PLUGINS_REPO.exists():
         return False, f"Plugins repo not found at {PLUGINS_REPO}"
 
@@ -194,7 +300,18 @@ async def test_install_real_plugins() -> tuple[bool, str]:
 
 
 async def test_real_plugins_loaded() -> tuple[bool, str]:
-    """Verify that real plugins are discovered by the loader."""
+    """Verify that real plugins are discovered by the loader.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``load_settings``, ``load_plugins``, ``join``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import load_settings
     from openharness.plugins.loader import load_plugins
 
@@ -214,7 +331,18 @@ async def test_real_plugins_loaded() -> tuple[bool, str]:
 
 
 async def test_plugin_commands_discovered() -> tuple[bool, str]:
-    """Check that plugin commands (.md files) are discovered."""
+    """Check that plugin commands (.md files) are discovered.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``load_settings``, ``load_plugins``, ``details.append``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config.settings import load_settings
     from openharness.plugins.loader import load_plugins
 
@@ -238,7 +366,18 @@ async def test_plugin_commands_discovered() -> tuple[bool, str]:
 
 
 async def test_plugin_hook_structure() -> tuple[bool, str]:
-    """Verify that plugin hooks can be loaded (security-guidance has a PreToolUse hook)."""
+    """Verify that plugin hooks can be loaded (security-guidance has a PreToolUse hook).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``json.loads``, ``data.get``, ``first.get``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     dest = PROJECT_ROOT / ".openharness" / "plugins" / "security-guidance"
     hooks_file = dest / "hooks" / "hooks.json"
 
@@ -263,7 +402,18 @@ async def test_plugin_hook_structure() -> tuple[bool, str]:
 
 
 async def test_commit_command_content() -> tuple[bool, str]:
-    """Verify commit-commands plugin has real command content."""
+    """Verify commit-commands plugin has real command content.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``commit_md.read_text``, ``content.startswith``, ``cmd_dir.exists``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     dest = PROJECT_ROOT / ".openharness" / "plugins" / "commit-commands"
     cmd_dir = dest / "commands"
 
@@ -288,7 +438,18 @@ async def test_commit_command_content() -> tuple[bool, str]:
 
 
 async def test_real_model_with_plugins() -> tuple[bool, str]:
-    """Test model call with plugins installed (verifies no crashes from plugin loading)."""
+    """Test model call with plugins installed (verifies no crashes from plugin loading).
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_run_oh``, ``os.environ.get``, ``result.stdout.lower``.
+
+    Event loop: This coroutine executes synchronously until it returns; filesystem or process
+    work therefore runs inline on the caller's loop. Keep that work bounded or offload it before
+    it can block.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result = _run_oh(
         "-p", "Say exactly: plugins test ok",
         "--model", os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5"),
@@ -305,6 +466,15 @@ async def test_real_model_with_plugins() -> tuple[bool, str]:
 # ============================================================
 
 def main() -> None:
+    """Run the script's top-level validation or application workflow.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``sys.exit``, ``asyncio.run``, ``func``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     tests = [
         # Skills tests
         ("install_real_skills", test_install_real_skills),

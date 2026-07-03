@@ -1,3 +1,16 @@
+/**
+ * Own the terminal frontend's clipboard image boundary.
+ *
+ * Integration: Connects the Ink application to shared TypeScript types and the Python backend
+ * protocol.
+ *
+ * Event loop: Process I/O, React effects, input events, and buffered rendering coexist on Node's
+ * event loop; preserve cleanup and backpressure.
+ *
+ * Change safety: Coordinate protocol, process lifecycle, terminal restoration, and packaging
+ * changes with the Python host and UI tests.
+ */
+
 import {execFile} from 'node:child_process';
 import {mkdtemp, readFile, rm, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -21,6 +34,17 @@ type ClipboardImageRead = {
 	label: string;
 };
 
+/**
+ * Derive read clipboard image from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and collaborates with `readClipboardImageData`, `now`,
+ * `slice`.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export async function readClipboardImage(): Promise<ImageAttachment | null> {
 	const image = await readClipboardImageData();
 	if (!image) {
@@ -36,6 +60,17 @@ export async function readClipboardImage(): Promise<ImageAttachment | null> {
 	};
 }
 
+/**
+ * Derive read clipboard image data from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and collaborates with `readMacClipboardImage`,
+ * `readWindowsClipboardImage`, `readLinuxClipboardImage`.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function readClipboardImageData(): Promise<ClipboardImageRead | null> {
 	if (process.platform === 'darwin') {
 		return readMacClipboardImage();
@@ -46,6 +81,16 @@ async function readClipboardImageData(): Promise<ClipboardImageRead | null> {
 	return readLinuxClipboardImage();
 }
 
+/**
+ * Derive read mac clipboard image from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and collaborates with `mkdtemp`, `join`, `tmpdir`.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function readMacClipboardImage(): Promise<ClipboardImageRead | null> {
 	const tempDir = await mkdtemp(join(tmpdir(), 'openharness-clipboard-'));
 	try {
@@ -70,6 +115,17 @@ async function readMacClipboardImage(): Promise<ClipboardImageRead | null> {
 	}
 }
 
+/**
+ * Derive write mac clipboard class from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and collaborates with `fromCharCode`, `replace`,
+ * `runFileCommand`.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function writeMacClipboardClass(classCode: 'PNGf' | 'TIFF', outputPath: string): Promise<boolean> {
 	const appleClass = `${String.fromCharCode(0xab)}class ${classCode}${String.fromCharCode(0xbb)}`;
 	const escapedPath = outputPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -87,6 +143,16 @@ async function writeMacClipboardClass(classCode: 'PNGf' | 'TIFF', outputPath: st
 	]);
 }
 
+/**
+ * Derive read windows clipboard image from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and collaborates with `mkdtemp`, `join`, `tmpdir`.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function readWindowsClipboardImage(): Promise<ClipboardImageRead | null> {
 	const tempDir = await mkdtemp(join(tmpdir(), 'openharness-clipboard-'));
 	try {
@@ -115,6 +181,16 @@ async function readWindowsClipboardImage(): Promise<ClipboardImageRead | null> {
 	}
 }
 
+/**
+ * Derive read linux clipboard image from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and collaborates with `runBufferCommand`.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function readLinuxClipboardImage(): Promise<ClipboardImageRead | null> {
 	const attempts: Array<[string, string[], string, string]> = [
 		['wl-paste', ['--no-newline', '--type', 'image/png'], 'image/png', 'clipboard.png'],
@@ -133,8 +209,21 @@ async function readLinuxClipboardImage(): Promise<ClipboardImageRead | null> {
 	return null;
 }
 
+/**
+ * Derive read image file from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and collaborates with `catch`, `stat`, `readFile`.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function readImageFile(path: string, mediaType: string, label: string): Promise<ClipboardImageRead | null> {
-	const fileStat = await stat(path).catch(() => null);
+	const fileStat = await stat(path).catch(/*
+	 * catch callback: computes its callback result; keep event-loop work bounded and preserve the
+	 * callback's return contract.
+	 */ () => null);
 	if (!fileStat || fileStat.size <= 0 || fileStat.size > MAX_CLIPBOARD_IMAGE_BYTES) {
 		return null;
 	}
@@ -142,16 +231,47 @@ async function readImageFile(path: string, mediaType: string, label: string): Pr
 	return {data, mediaType, label};
 }
 
+/**
+ * Derive run file command from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and invoked through its surrounding React or module
+ * boundary.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function runFileCommand(command: string, args: string[]): Promise<boolean> {
-	return new Promise((resolve) => {
-		execFile(command, args, {timeout: EXEC_TIMEOUT_MS, windowsHide: true}, (error) => {
+	return new Promise(/*
+	 * callback at line 146: uses execFile; keep event-loop work bounded and preserve surrounding
+	 * control flow.
+	 */ (resolve) => {
+		execFile(command, args, {timeout: EXEC_TIMEOUT_MS, windowsHide: true}, /*
+		 * execFile callback: uses resolve; keep event-loop work bounded and preserve the callback's
+		 * return contract.
+		 */ (error) => {
 			resolve(!error);
 		});
 	});
 }
 
+/**
+ * Derive run buffer command from the current frontend state and inputs.
+ *
+ * Integration: Owned by `clipboardImage.ts` and invoked through its surrounding React or module
+ * boundary.
+ *
+ * Event loop: Awaits asynchronous work on the JavaScript event loop; preserve rejection,
+ * cancellation, and completion ordering, and avoid blocking terminal rendering.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 async function runBufferCommand(command: string, args: string[]): Promise<Buffer | null> {
-	return new Promise((resolve) => {
+	return new Promise(/*
+	 * callback at line 154: uses execFile; keep event-loop work bounded and preserve surrounding
+	 * control flow.
+	 */ (resolve) => {
 		execFile(
 			command,
 			args,
@@ -161,7 +281,10 @@ async function runBufferCommand(command: string, args: string[]): Promise<Buffer
 				timeout: EXEC_TIMEOUT_MS,
 				windowsHide: true,
 			},
-			(error, stdout) => {
+			/*
+			 * execFile callback: uses isBuffer, resolve; keep event-loop work bounded and preserve the
+			 * callback's return contract.
+			 */ (error, stdout) => {
 				if (error || !Buffer.isBuffer(stdout) || stdout.length > MAX_CLIPBOARD_IMAGE_BYTES) {
 					resolve(null);
 					return;

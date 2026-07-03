@@ -1,4 +1,15 @@
-"""Launch the default React terminal frontend."""
+"""Launch the default React terminal frontend.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +22,19 @@ from pathlib import Path
 
 
 def _resolve_theme() -> str:
-    """Read the theme name from settings, defaulting to 'default'."""
+    """Read the persisted theme for frontend bootstrap, falling back safely.
+
+    The launcher runs before the backend protocol is available, so theme loading
+    cannot report through the TUI and must not prevent startup. Keep the fallback
+    aligned with the TypeScript theme registry.
+
+    Integration: Called by ``launch_react_tui`` and collaborates with ``load_settings``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         from openharness.config.settings import load_settings
         return load_settings().theme or "default"
@@ -20,7 +43,20 @@ def _resolve_theme() -> str:
 
 
 def _resolve_npm() -> str:
-    """Resolve the npm executable (npm.cmd on Windows)."""
+    """Resolve the platform npm launcher used for install and fallback execution.
+
+    Returning a bare name preserves normal PATH error reporting. Keep Windows
+    command-wrapper behavior in mind when changing subprocess invocation.
+
+    Integration: Called by ``launch_ohmo_react_tui``, ``_resolve_tsx`` and collaborates with
+    ``shutil.which``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return shutil.which("npm") or "npm"
 
 
@@ -34,6 +70,17 @@ def _resolve_tsx(frontend_dir: Path) -> tuple[str, ...]:
 
     Returns a tuple of command parts, e.g. ``("path/to/tsx",)`` or
     ``("npm", "exec", "--", "tsx")`` as last-resort fallback.
+    The caller expands this tuple directly into ``create_subprocess_exec``;
+    preserve argument boundaries and avoid shell interpolation.
+
+    Integration: Called by ``launch_ohmo_react_tui``, ``launch_react_tui`` and collaborates with
+    ``shutil.which``, ``candidate.exists``, ``_resolve_npm``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     # 1. Prefer the locally-installed binary
     bin_dir = frontend_dir / "node_modules" / ".bin"
@@ -62,6 +109,18 @@ def get_frontend_dir() -> Path:
     Checks in order:
     1. Bundled inside the installed package (pip install)
     2. Development repo layout (source checkout)
+
+    Packaging and source-checkout tests depend on this order. The fallback path
+    intentionally lets ``launch_react_tui`` produce one clear missing-file error.
+
+    Integration: Called by ``launch_ohmo_react_tui``, ``launch_react_tui`` and collaborates with
+    ``exists``, ``resolve``, ``Path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     # 1. Bundled inside package: openharness/_frontend/
     pkg_frontend = Path(__file__).resolve().parent.parent / "_frontend"
@@ -90,7 +149,21 @@ def build_backend_command(
     api_format: str | None = None,
     permission_mode: str | None = None,
 ) -> list[str]:
-    """Return the command used by the React frontend to spawn the backend host."""
+    """Build the argv the React process uses to spawn its Python backend.
+
+    The command re-enters the current interpreter with ``--backend-only`` and
+    forwards explicit CLI overrides. Keep values as separate argv elements,
+    preserve the recursion guard, and never log the resulting list unredacted
+    because it may contain an API key.
+
+    Integration: Called by ``launch_react_tui`` and collaborates with ``command.extend``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     command = [sys.executable, "-m", "openharness", "--backend-only"]
     if cwd:
         command.extend(["--cwd", cwd])
@@ -126,7 +199,14 @@ async def launch_react_tui(
     api_format: str | None = None,
     permission_mode: str | None = None,
 ) -> int:
-    """Launch the React terminal frontend as the default UI."""
+    """Start the TypeScript terminal frontend and await its process exit code.
+
+    This coroutine runs in the initial Python CLI event loop. It may install
+    missing dependencies, exports bootstrap configuration through one environment
+    variable, and attaches child stdio directly to the terminal. Preserve
+    subprocess argument safety, cancellation/exit propagation, packaged and
+    development layouts, and the frontend-to-backend option contract.
+    """
     frontend_dir = get_frontend_dir()
     package_json = frontend_dir / "package.json"
     if not package_json.exists():

@@ -1,4 +1,14 @@
-"""Background task manager."""
+"""Background task manager.
+
+Integration: This module participates in background process/agent task state and lifecycle.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve argv safety, event-loop subprocess ownership, output locks, restart
+generations, completion notification, and cleanup.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +37,14 @@ def _encode_task_worker_payload(data: str) -> bytes:
     directly to a readline()-based worker protocol. We wrap them in a JSON
     object with a ``text`` field, while preserving already-structured payloads
     emitted by teammate backends.
+
+    Integration: Called by ``BackgroundTaskManager.write_to_task`` and collaborates with
+    ``data.rstrip``, ``encode``, ``json.loads``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
 
     stripped = data.rstrip("\n")
@@ -47,9 +65,29 @@ CompletionListener = Callable[[TaskRecord], Awaitable[None] | None]
 
 
 class BackgroundTaskManager:
-    """Manage shell and agent subprocess tasks."""
+    """Manage shell and agent subprocess tasks.
+
+    Integration: Constructed or referenced by ``get_task_manager``.
+
+    Event loop: Async methods ``create_shell_task``, ``create_agent_task``, ``stop_task``,
+    ``write_to_task`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self) -> None:
+        """Initialize ``BackgroundTaskManager`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``BackgroundTaskManager``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._tasks: dict[str, TaskRecord] = {}
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._waiters: dict[str, asyncio.Task[None]] = {}
@@ -84,6 +122,16 @@ class BackgroundTaskManager:
         ``env`` is merged with ``os.environ`` when the subprocess is launched,
         so callers should pass only the variables they want to add or
         override.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._tasks_handler`` and collaborates with ``_task_id``,
+        ``TaskRecord``, ``output_path.write_text``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O; retain lock scope and release behavior.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
         """
         if command is None and argv is None:
             raise ValueError("create_shell_task requires either command or argv")
@@ -131,6 +179,15 @@ class BackgroundTaskManager:
         the cross-platform reasoning. ``env`` is forwarded to
         :meth:`create_shell_task` and ultimately merged with ``os.environ``
         at process spawn time.
+
+        Integration: Called by ``SubprocessBackend.spawn``, ``spawn_local_agent_task`` and
+        collaborates with ``replace``, ``create_shell_task``, ``write_to_task``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract; preserve
+        exception and fallback behavior expected by callers.
         """
         if command is None and argv is None:
             effective_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -158,11 +215,32 @@ class BackgroundTaskManager:
         return updated
 
     def get_task(self, task_id: str) -> TaskRecord | None:
-        """Return one task record."""
+        """Return one task record.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._dream_handler`` and collaborates with ``_tasks.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._tasks.get(task_id)
 
     def list_tasks(self, *, status: TaskStatus | None = None) -> list[TaskRecord]:
-        """Return all tasks, optionally filtered by status."""
+        """Return all tasks, optionally filtered by status.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._stats_handler`` and collaborates with
+        ``_tasks.values``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         tasks = list(self._tasks.values())
         if status is not None:
             tasks = [task for task in tasks if task.status == status]
@@ -176,7 +254,18 @@ class BackgroundTaskManager:
         progress: int | None = None,
         status_note: str | None = None,
     ) -> TaskRecord:
-        """Update mutable task metadata used for coordination and UI display."""
+        """Update mutable task metadata used for coordination and UI display.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._tasks_handler`` and collaborates with
+        ``_require_task``, ``description.strip``, ``status_note.strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         task = self._require_task(task_id)
         if description is not None and description.strip():
             task.description = description.strip()
@@ -191,7 +280,16 @@ class BackgroundTaskManager:
         return task
 
     async def stop_task(self, task_id: str) -> TaskRecord:
-        """Terminate a running task."""
+        """Terminate a running task.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_require_task``, ``_processes.get``, ``process.terminate``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         task = self._require_task(task_id)
         process = self._processes.get(task_id)
         if process is None:
@@ -213,7 +311,17 @@ class BackgroundTaskManager:
         return task
 
     async def write_to_task(self, task_id: str, data: str) -> None:
-        """Write one line to task stdin, auto-resuming local agents when needed."""
+        """Write one line to task stdin, auto-resuming local agents when needed.
+
+        Integration: Called by ``SubprocessBackend.send_message``,
+        ``BackgroundTaskManager.create_agent_task`` and collaborates with ``_require_task``,
+        ``_encode_task_worker_payload``, ``process.stdin.write``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         task = self._require_task(task_id)
         payload = _encode_task_worker_payload(data)
         async with self._input_locks[task_id]:
@@ -229,7 +337,18 @@ class BackgroundTaskManager:
                 await process.stdin.drain()
 
     def read_task_output(self, task_id: str, *, max_bytes: int = 12000) -> str:
-        """Return the tail of a task's output file."""
+        """Return the tail of a task's output file.
+
+        Integration: Called by ``create_default_command_registry``,
+        ``create_default_command_registry._agents_handler`` and collaborates with
+        ``_require_task``, ``task.output_file.read_text``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         task = self._require_task(task_id)
         content = task.output_file.read_text(encoding="utf-8", errors="replace")
         if len(content) > max_bytes:
@@ -237,11 +356,32 @@ class BackgroundTaskManager:
         return content
 
     def register_completion_listener(self, listener: CompletionListener) -> Callable[[], None]:
-        """Register a callback fired whenever a task reaches a terminal state."""
+        """Register a callback fired whenever a task reaches a terminal state.
+
+        Integration: Called by ``_ensure_listener_registered``, ``start_dream_now`` and
+        collaborates with ``uuid4``, ``_completion_listeners.pop``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         listener_id = uuid4().hex
         self._completion_listeners[listener_id] = listener
 
         def _unregister() -> None:
+            """Apply unregister to the enclosing subsystem state.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``_completion_listeners.pop``.
+
+            Concurrency: This is synchronous; preserve deterministic behavior for its direct
+            callers.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             self._completion_listeners.pop(listener_id, None)
 
         return _unregister
@@ -252,6 +392,17 @@ class BackgroundTaskManager:
         process: asyncio.subprocess.Process,
         generation: int,
     ) -> None:
+        """Run the watch process workflow through its asynchronous collaborators.
+
+        Integration: Called by ``BackgroundTaskManager._start_process`` and collaborates with
+        ``asyncio.create_task``, ``_generations.get``, ``time.time``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         reader = asyncio.create_task(self._copy_output(task_id, process))
         return_code = await process.wait()
         await reader
@@ -271,6 +422,17 @@ class BackgroundTaskManager:
         self._waiters.pop(task_id, None)
 
     async def _copy_output(self, task_id: str, process: asyncio.subprocess.Process) -> None:
+        """Run the copy output workflow through its asynchronous collaborators.
+
+        Integration: Exposed through ``BackgroundTaskManager`` and collaborates with
+        ``process.stdout.read``, ``output_file.open``, ``handle.write``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         if process.stdout is None:
             return
         while True:
@@ -282,12 +444,35 @@ class BackgroundTaskManager:
                     handle.write(chunk)
 
     def _require_task(self, task_id: str) -> TaskRecord:
+        """Derive require task from the current inputs and subsystem state.
+
+        Integration: Called by ``BackgroundTaskManager.update_task``,
+        ``BackgroundTaskManager.stop_task`` and collaborates with ``_tasks.get``,
+        ``ValueError``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         task = self._tasks.get(task_id)
         if task is None:
             raise ValueError(f"No task found with ID: {task_id}")
         return task
 
     async def _start_process(self, task_id: str) -> asyncio.subprocess.Process:
+        """Start process for the enclosing subsystem.
+
+        Integration: Called by ``BackgroundTaskManager.create_shell_task``,
+        ``BackgroundTaskManager._restart_agent_task`` and collaborates with ``_require_task``,
+        ``asyncio.create_task``, ``ValueError``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         task = self._require_task(task_id)
         if task.command is None and task.argv is None:
             raise ValueError(f"Task {task_id} does not have a command or argv to run")
@@ -336,6 +521,16 @@ class BackgroundTaskManager:
         self,
         task: TaskRecord,
     ) -> asyncio.subprocess.Process:
+        """Ensure writable process for the enclosing subsystem.
+
+        Integration: Called by ``BackgroundTaskManager.write_to_task`` and collaborates with
+        ``_processes.get``, ``ValueError``, ``_restart_agent_task``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         process = self._processes.get(task.id)
         if process is not None and process.stdin is not None and process.returncode is None:
             return process
@@ -344,6 +539,18 @@ class BackgroundTaskManager:
         return await self._restart_agent_task(task)
 
     async def _restart_agent_task(self, task: TaskRecord) -> asyncio.subprocess.Process:
+        """Run the restart agent task workflow through its asynchronous collaborators.
+
+        Integration: Called by ``BackgroundTaskManager.write_to_task``,
+        ``BackgroundTaskManager._ensure_writable_process`` and collaborates with
+        ``_waiters.get``, ``time.time``, ``ValueError``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         if task.command is None and task.argv is None:
             raise ValueError(f"Task {task.id} does not have a restart command or argv")
 
@@ -363,6 +570,18 @@ class BackgroundTaskManager:
         return await self._start_process(task.id)
 
     async def _notify_completion_listeners(self, task: TaskRecord) -> None:
+        """Run the notify completion listeners workflow through its asynchronous collaborators.
+
+        Integration: Called by ``BackgroundTaskManager.stop_task``,
+        ``BackgroundTaskManager._watch_process`` and collaborates with ``replace``,
+        ``_completion_listeners.items``, ``listener``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract; preserve
+        exception and fallback behavior expected by callers.
+        """
         snapshot = replace(task, metadata=dict(task.metadata))
         for listener_id, listener in list(self._completion_listeners.items()):
             try:
@@ -373,7 +592,16 @@ class BackgroundTaskManager:
                 log.exception("Task completion listener %s failed for task %s", listener_id, task.id)
 
     def close(self) -> None:
-        """Best-effort cleanup for any tracked subprocesses and watcher tasks."""
+        """Best-effort cleanup for any tracked subprocesses and watcher tasks.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_waiters.clear``, ``_processes.clear``, ``_waiters.values``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         for waiter in list(self._waiters.values()):
             waiter.cancel()
         self._waiters.clear()
@@ -393,7 +621,16 @@ class BackgroundTaskManager:
         self._processes.clear()
 
     async def aclose(self) -> None:
-        """Asynchronously shut down tracked subprocesses and waiters."""
+        """Asynchronously shut down tracked subprocesses and waiters.
+
+        Integration: Called by ``DingTalkChannel.stop``, ``DiscordChannel.stop`` and
+        collaborates with ``_processes.clear``, ``_waiters.clear``, ``_processes.values``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         processes = list(self._processes.values())
         waiters = list(self._waiters.values())
 
@@ -424,7 +661,18 @@ _DEFAULT_MANAGER_KEY: str | None = None
 
 
 def get_task_manager() -> BackgroundTaskManager:
-    """Return the singleton task manager."""
+    """Return the singleton task manager.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._stats_handler`` and collaborates with ``resolve``,
+    ``BackgroundTaskManager``, ``_DEFAULT_MANAGER.close``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
     current_key = str(get_tasks_dir().resolve())
     if _DEFAULT_MANAGER is None or _DEFAULT_MANAGER_KEY != current_key:
@@ -436,7 +684,16 @@ def get_task_manager() -> BackgroundTaskManager:
 
 
 def reset_task_manager() -> None:
-    """Reset the singleton task manager, closing tracked subprocesses first."""
+    """Reset the singleton task manager, closing tracked subprocesses first.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_DEFAULT_MANAGER.close``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
     if _DEFAULT_MANAGER is not None:
         _DEFAULT_MANAGER.close()
@@ -445,7 +702,17 @@ def reset_task_manager() -> None:
 
 
 async def shutdown_task_manager() -> None:
-    """Async reset that fully reaps tracked subprocesses before clearing state."""
+    """Async reset that fully reaps tracked subprocesses before clearing state.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_DEFAULT_MANAGER.aclose``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
     if _DEFAULT_MANAGER is not None:
         await _DEFAULT_MANAGER.aclose()
@@ -454,6 +721,17 @@ async def shutdown_task_manager() -> None:
 
 
 def _task_id(task_type: TaskType) -> str:
+    """Derive task identifier from the current inputs and subsystem state.
+
+    Integration: Called by ``BackgroundTaskManager.create_shell_task`` and collaborates with
+    ``uuid4``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     prefixes = {
         "local_bash": "b",
         "local_agent": "a",
@@ -465,6 +743,17 @@ def _task_id(task_type: TaskType) -> str:
 
 
 async def _close_process_stdin(process: asyncio.subprocess.Process) -> None:
+    """Close process stdin for the enclosing subsystem.
+
+    Integration: Called by ``BackgroundTaskManager.stop_task``,
+    ``BackgroundTaskManager._watch_process`` and collaborates with ``stdin.close``,
+    ``stdin.is_closing``, ``stdin.wait_closed``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     stdin = process.stdin
     if stdin is None or stdin.is_closing():
         return

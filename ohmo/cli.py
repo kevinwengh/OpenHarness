@@ -1,4 +1,15 @@
-"""CLI entry point for the ohmo personal-agent app."""
+"""CLI entry point for the ohmo personal-agent app.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -56,7 +67,15 @@ _WORKSPACE_HELP = "Path to the ohmo workspace (defaults to ~/.ohmo)"
 
 
 def _can_use_questionary() -> bool:
-    """Return True when a real interactive terminal is available."""
+    """Return True when a real interactive terminal is available.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``sys.stdin.isatty``, ``sys.stdout.isatty``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return False
     if sys.stdin is not sys.__stdin__ or sys.stdout is not sys.__stdout__:
@@ -74,6 +93,15 @@ def _select_with_questionary(
     *,
     default_value: str | None = None,
 ) -> str:
+    """Derive select with questionary from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``ask``, ``questionary.Choice``, ``typer.Abort``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     import questionary
 
     choices = [
@@ -91,7 +119,15 @@ def _select_with_questionary(
 
 
 def _confirm_prompt(message: str, *, default: bool = False) -> bool:
-    """Ask for confirmation, preferring questionary in a real TTY."""
+    """Ask for confirmation, preferring questionary in a real TTY.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_can_use_questionary``, ``typer.confirm``, ``ask``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if _can_use_questionary():
         import questionary
 
@@ -103,7 +139,15 @@ def _confirm_prompt(message: str, *, default: bool = False) -> bool:
 
 
 def _text_prompt(message: str, *, default: str = "") -> str:
-    """Prompt for text input, preferring questionary in a real TTY."""
+    """Prompt for text input, preferring questionary in a real TTY.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_can_use_questionary``, ``typer.prompt``, ``ask``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if _can_use_questionary():
         import questionary
 
@@ -120,7 +164,15 @@ def _select_from_menu(
     *,
     default_value: str | None = None,
 ) -> str:
-    """Render a simple numbered picker and return the selected value."""
+    """Render a simple numbered picker and return the selected value.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_can_use_questionary``, ``typer.prompt``, ``_select_with_questionary``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if _can_use_questionary():
         return _select_with_questionary(title, options, default_value=default_value)
     print(title)
@@ -139,6 +191,15 @@ def _select_from_menu(
 
 
 def _format_provider_profile_label(info: dict[str, object]) -> str:
+    """Format provider profile label for the enclosing subsystem.
+
+    Integration: Called by ``_prompt_provider_profile``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     label = str(info["label"])
     if bool(info["configured"]):
         return label
@@ -146,6 +207,15 @@ def _format_provider_profile_label(info: dict[str, object]) -> str:
 
 
 def _prompt_provider_profile(workspace: str | Path) -> str:
+    """Prompt for provider profile for the enclosing subsystem.
+
+    Integration: Called by ``_run_gateway_config_wizard`` and collaborates with
+    ``load_settings``, ``get_profile_statuses``, ``_can_use_questionary``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     settings = load_settings()
     statuses = AuthManager(settings).get_profile_statuses()
     default_value = load_gateway_config(workspace).provider_profile
@@ -193,6 +263,16 @@ def _prompt_provider_profile(workspace: str | Path) -> str:
 
 
 def _prompt_channels(existing: GatewayConfig) -> tuple[list[str], dict[str, dict]]:
+    """Prompt for channels for the enclosing subsystem.
+
+    Integration: Called by ``_run_gateway_config_wizard`` and collaborates with
+    ``_text_prompt``, ``existing.channel_configs.get``, ``enabled.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     enabled: list[str] = []
     configs: dict[str, dict] = {}
     print("Configure channels for ohmo gateway:")
@@ -326,7 +406,16 @@ def _prompt_channels(existing: GatewayConfig) -> tuple[list[str], dict[str, dict
 
 
 def _run_gateway_config_wizard(workspace: str | Path) -> GatewayConfig:
-    """Interactive flow for provider/channel setup."""
+    """Interactive flow for provider/channel setup.
+
+    Integration: Called by ``init_cmd``, ``config_cmd`` and collaborates with
+    ``load_gateway_config``, ``_prompt_provider_profile``, ``_prompt_channels``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     existing = load_gateway_config(workspace)
     provider_profile = _prompt_provider_profile(workspace)
     enabled_channels, channel_configs = _prompt_channels(existing)
@@ -370,6 +459,16 @@ def _run_gateway_config_wizard(workspace: str | Path) -> GatewayConfig:
 
 
 def _print_gateway_config_summary(config: GatewayConfig) -> None:
+    """Format a concise summary of print gateway config.
+
+    Integration: Called by ``init_cmd``, ``config_cmd`` and collaborates with ``join``, ``get``,
+    ``config.channel_configs.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if config.enabled_channels:
         print(
             "Configured channels: "
@@ -397,6 +496,16 @@ def _print_gateway_config_summary(config: GatewayConfig) -> None:
 
 
 def _maybe_restart_gateway(*, cwd: str | Path, workspace: str | Path) -> None:
+    """Apply maybe restart gateway to the enclosing subsystem state.
+
+    Integration: Called by ``config_cmd`` and collaborates with ``gateway_status``,
+    ``stop_gateway_process``, ``start_gateway_process``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     state = gateway_status(cwd, workspace)
     if not state.running:
         return
@@ -414,7 +523,16 @@ def _configure_gateway_logging(
     console: bool = True,
     log_file: bool = True,
 ) -> None:
-    """Configure foreground gateway logging."""
+    """Configure foreground gateway logging.
+
+    Integration: Called by ``gateway_run_cmd`` and collaborates with ``load_gateway_config``,
+    ``upper``, ``_build_gateway_logging_handlers``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     config = load_gateway_config(workspace)
     level_name = str(config.log_level or "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -433,7 +551,16 @@ def _build_gateway_logging_handlers(
     console: bool,
     log_file: bool,
 ) -> list[logging.Handler]:
-    """Build gateway log handlers for foreground and daemon modes."""
+    """Build gateway log handlers for foreground and daemon modes.
+
+    Integration: Called by ``_configure_gateway_logging`` and collaborates with
+    ``handlers.append``, ``log_path.parent.mkdir``, ``logging.StreamHandler``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     handlers: list[logging.Handler] = []
     if console:
         handlers.append(logging.StreamHandler())
@@ -457,7 +584,15 @@ def main(
     resume: str | None = typer.Option(None, "--resume", help="Resume an ohmo session by id"),
     continue_session: bool = typer.Option(False, "--continue", help="Continue the latest ohmo session"),
 ) -> None:
-    """Launch the ohmo app or invoke a subcommand."""
+    """Launch the ohmo app or invoke a subcommand.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``app.callback``, ``typer.Option``, ``initialize_workspace``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if ctx.invoked_subcommand is not None:
         return
 
@@ -533,7 +668,16 @@ def init_cmd(
         help="Run the provider/channel setup wizard when attached to a terminal",
     ),
 ) -> None:
-    """Initialize the .ohmo workspace."""
+    """Initialize the .ohmo workspace.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``app.command``, ``typer.Option``, ``get_workspace_root``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     root_path = get_workspace_root(workspace)
     already_exists = root_path.exists()
     root = initialize_workspace(root_path)
@@ -557,7 +701,16 @@ def config_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
-    """Configure provider profile and gateway channels."""
+    """Configure provider profile and gateway channels.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``app.command``, ``typer.Option``, ``initialize_workspace``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     cwd_path = str(Path(cwd).resolve())
     workspace_root = initialize_workspace(workspace)
     config = _run_gateway_config_wizard(workspace_root)
@@ -571,7 +724,16 @@ def doctor_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
-    """Check .ohmo workspace and provider readiness."""
+    """Check .ohmo workspace and provider readiness.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``app.command``, ``typer.Option``, ``initialize_workspace``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     cwd_path = str(Path(cwd).resolve())
     workspace_root = initialize_workspace(workspace)
     health = workspace_health(workspace_root)
@@ -594,6 +756,16 @@ def doctor_cmd(
 
 @memory_app.command("list")
 def memory_list_cmd(workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP)) -> None:
+    """Execute the memory list CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``memory_app.command``, ``typer.Option``, ``list_memory_files``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for path in list_memory_files(workspace):
         print(path.name)
 
@@ -604,6 +776,16 @@ def memory_add_cmd(
     content: str = typer.Argument(...),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Execute the memory add CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``memory_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     path = add_memory_entry(workspace, title, content)
     print(f"Added memory entry {path.name}")
 
@@ -613,6 +795,15 @@ def memory_remove_cmd(
     name: str = typer.Argument(...),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Execute the memory remove CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``memory_app.command``, ``typer.Argument``, ``typer.Option``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if remove_memory_entry(workspace, name):
         print(f"Removed memory entry {name}")
         return
@@ -621,6 +812,16 @@ def memory_remove_cmd(
 
 
 def _show_or_edit(path: Path, set_text: str | None) -> None:
+    """Apply show or edit to the enclosing subsystem state.
+
+    Integration: Called by ``soul_show_cmd``, ``soul_edit_cmd`` and collaborates with
+    ``path.parent.mkdir``, ``path.write_text``, ``path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     if set_text is not None:
         path.write_text(set_text.strip() + "\n", encoding="utf-8")
@@ -634,6 +835,16 @@ def _show_or_edit(path: Path, set_text: str | None) -> None:
 
 @soul_app.command("show")
 def soul_show_cmd(workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP)) -> None:
+    """Execute the soul show CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``soul_app.command``, ``typer.Option``, ``_show_or_edit``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _show_or_edit(get_soul_path(workspace), None)
 
 
@@ -642,11 +853,31 @@ def soul_edit_cmd(
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
     set_text: str | None = typer.Option(None, "--set", help="Replace soul.md with this text"),
 ) -> None:
+    """Execute the soul edit CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``soul_app.command``, ``typer.Option``, ``_show_or_edit``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _show_or_edit(get_soul_path(workspace), set_text)
 
 
 @user_app.command("show")
 def user_show_cmd(workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP)) -> None:
+    """Execute the user show CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``user_app.command``, ``typer.Option``, ``_show_or_edit``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _show_or_edit(get_user_path(workspace), None)
 
 
@@ -655,6 +886,16 @@ def user_edit_cmd(
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
     set_text: str | None = typer.Option(None, "--set", help="Replace user.md with this text"),
 ) -> None:
+    """Execute the user edit CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``user_app.command``, ``typer.Option``, ``_show_or_edit``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _show_or_edit(get_user_path(workspace), set_text)
 
 
@@ -665,7 +906,15 @@ def gateway_run_cmd(
     console_log: bool = typer.Option(True, "--console-log/--no-console-log", hidden=True),
     log_file: bool = typer.Option(True, "--log-file/--no-log-file", hidden=True),
 ) -> None:
-    """Run the ohmo gateway in the foreground."""
+    """Run the ohmo gateway in the foreground.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``gateway_app.command``, ``typer.Option``, ``_configure_gateway_logging``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     _configure_gateway_logging(workspace, console=console_log, log_file=log_file)
     service = OhmoGatewayService(cwd, workspace)
     raise SystemExit(asyncio.run(service.run_foreground()))
@@ -676,6 +925,16 @@ def gateway_start_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Execute the gateway start CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``gateway_app.command``, ``typer.Option``, ``start_gateway_process``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     pid = start_gateway_process(cwd, workspace)
     print(f"ohmo gateway started (pid={pid})")
 
@@ -685,6 +944,16 @@ def gateway_stop_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Execute the gateway stop CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``gateway_app.command``, ``typer.Option``, ``stop_gateway_process``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if stop_gateway_process(cwd, workspace):
         print("ohmo gateway stopped.")
         return
@@ -696,6 +965,16 @@ def gateway_restart_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Execute the gateway restart CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``gateway_app.command``, ``typer.Option``, ``stop_gateway_process``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     stop_gateway_process(cwd, workspace)
     pid = start_gateway_process(cwd, workspace)
     print(f"ohmo gateway restarted (pid={pid})")
@@ -706,5 +985,15 @@ def gateway_status_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Execute the gateway status CLI command.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``gateway_app.command``, ``typer.Option``, ``gateway_status``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     state = gateway_status(cwd, workspace)
     print(state.model_dump_json(indent=2))

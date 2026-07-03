@@ -1,4 +1,15 @@
-"""MCP exports."""
+"""MCP exports.
+
+Integration: This module participates in external MCP transports adapted into the normal
+tool/resource registry.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve transport lifecycle, authentication, namespacing, JSON schemas, errors,
+and shared permission/tool replay.
+"""
 
 from __future__ import annotations
 
@@ -33,6 +44,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    """Resolve a lazily exported attribute from ``this module``.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``AttributeError``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if name == "McpClientManager":
         from openharness.mcp.client import McpClientManager
 

@@ -4,6 +4,13 @@
 #   bash scripts/install_dev.sh
 #   bash scripts/install_dev.sh --global-venv
 #   bash scripts/install_dev.sh --with-channels
+#
+# Integration: prepares an editable checkout, optional terminal dependencies, global command
+# links, and developer shell PATH entries used by subsequent repository workflows.
+# Concurrency: installation is deliberately sequential and does not share an event loop; child
+# package-manager commands must complete before links or verification use their outputs.
+# Change safety: preserve strict failure behavior, current-checkout ownership, cross-shell quoting,
+# idempotent profile changes, and the local-versus-global virtual-environment distinction.
 
 set -euo pipefail
 
@@ -19,10 +26,15 @@ else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' RESET=''
 fi
 
+# Render an informational developer-install message without creating control flow.
 info()    { echo -e "${CYAN}[INFO]${RESET}  $*"; }
+# Mark a completed phase for the human running the sequential installer.
 success() { echo -e "${GREEN}[OK]${RESET}    $*"; }
+# Report a recoverable environment limitation while allowing later phases to run.
 warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+# Report a terminal installation failure on stderr for shell/CI callers.
 error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
+# Announce a major phase; keep calls ordered immediately before the phase they describe.
 step()    { echo -e "\n${BOLD}${BLUE}==>${RESET}${BOLD} $*${RESET}"; }
 
 WITH_CHANNELS=false
@@ -125,6 +137,9 @@ ln -snf "$VENV_DIR/bin/openharness" "$BIN_DIR/openharness"
 success "Linked oh/ohmo into ${BIN_DIR}"
 
 ensure_path_in_file() {
+    # Append one exact PATH line to an existing shell profile if it is absent.
+    # The helper performs synchronous user-file mutation; preserve fixed-string matching,
+    # quoting, and the no-op contract for profiles the user has not created.
     local rc_file="$1"
     local line="$2"
     [ -f "$rc_file" ] || return 0

@@ -1,4 +1,13 @@
-"""HTTP target validation helpers for outbound web tools."""
+"""HTTP target validation helpers for outbound web tools.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +44,16 @@ _LOCAL_HOST_SUFFIXES = (
 
 
 class ResolutionMode(str, Enum):
-    """How outbound web tools should interpret target DNS resolution."""
+    """How outbound web tools should interpret target DNS resolution.
+
+    Integration: Constructed or referenced by ``get_web_resolution_mode``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve persisted and wire-visible values or provide an explicit migration
+    for stored configuration and messages.
+    """
 
     AUTO = "auto"
     DIRECT = "direct"
@@ -44,11 +62,30 @@ class ResolutionMode(str, Enum):
 
 
 class NetworkGuardError(ValueError):
-    """Raised when an outbound HTTP target violates security policy."""
+    """Raised when an outbound HTTP target violates security policy.
+
+    Integration: Constructed or referenced by ``validate_http_url``,
+    ``get_web_resolution_mode``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
 
 def validate_http_url(url: str) -> None:
-    """Validate basic HTTP/HTTPS URL syntax."""
+    """Validate basic HTTP/HTTPS URL syntax.
+
+    Integration: Called by ``_validate_url``, ``fetch_public_http_response`` and collaborates
+    with ``urlparse``, ``NetworkGuardError``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         raise NetworkGuardError("only http and https URLs are allowed")
@@ -63,7 +100,17 @@ def get_web_resolution_mode(
     *,
     configured_mode: str | None = None,
 ) -> ResolutionMode:
-    """Resolve the configured web target validation mode."""
+    """Resolve the configured web target validation mode.
+
+    Integration: Called by ``fetch_public_http_response`` and collaborates with ``replace``,
+    ``ResolutionMode``, ``NetworkGuardError``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract; preserve
+    exception and fallback behavior expected by callers.
+    """
     raw_mode = (configured_mode or "").strip().lower().replace("-", "_")
     if not raw_mode or raw_mode == ResolutionMode.AUTO.value:
         return ResolutionMode.PROXY if proxy else ResolutionMode.DIRECT
@@ -80,7 +127,16 @@ def get_web_resolution_mode(
 
 
 def parse_synthetic_dns_cidrs(value: str | None = None) -> tuple[_IPNetwork, ...]:
-    """Parse user-declared synthetic DNS CIDRs."""
+    """Parse user-declared synthetic DNS CIDRs.
+
+    Integration: Called by ``fetch_public_http_response`` and collaborates with ``entry.strip``,
+    ``raw_value.split``, ``networks.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     raw_value = "" if value is None else value
     entries = [entry.strip() for entry in raw_value.split(",") if entry.strip()]
     networks: list[_IPNetwork] = []
@@ -93,7 +149,16 @@ def parse_synthetic_dns_cidrs(value: str | None = None) -> tuple[_IPNetwork, ...
 
 
 async def ensure_public_http_url(url: str) -> None:
-    """Reject loopback, private-network, and other non-public HTTP targets."""
+    """Reject loopback, private-network, and other non-public HTTP targets.
+
+    Integration: Called by ``ensure_http_url_allowed`` and collaborates with
+    ``_validated_parsed_http_url``, ``_normalized_hostname``, ``_parse_ip_literal``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O; retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     parsed = _validated_parsed_http_url(url)
     hostname = _normalized_hostname(parsed.hostname)
     literal = _parse_ip_literal(hostname)
@@ -117,7 +182,18 @@ async def ensure_http_url_allowed(
     mode: ResolutionMode,
     synthetic_cidrs: tuple[_IPNetwork, ...] = (),
 ) -> None:
-    """Validate one outbound URL according to the configured resolution mode."""
+    """Validate one outbound URL according to the configured resolution mode.
+
+    Integration: Called by ``fetch_public_http_response`` and collaborates with
+    ``_ensure_proxy_safe_http_url``, ``_ensure_synthetic_dns_safe_http_url``,
+    ``ensure_public_http_url``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if mode is ResolutionMode.DIRECT:
         await ensure_public_http_url(url)
         return
@@ -136,7 +212,16 @@ async def fetch_public_http_response(
     max_redirects: int = 5,
     proxy: str | None = None,
 ) -> httpx.Response:
-    """Fetch one HTTP resource while validating every redirect hop."""
+    """Fetch one HTTP resource while validating every redirect hop.
+
+    Integration: Called by ``WebFetchTool.execute``, ``WebSearchTool.execute`` and collaborates
+    with ``_load_configured_web_settings``, ``get_web_resolution_mode``, ``NetworkGuardError``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     current_url = url
     current_params = params
 
@@ -187,6 +272,16 @@ async def fetch_public_http_response(
 
 
 class _ConfiguredWebSettings:
+    """Coordinate the configured web settings responsibilities for this subsystem.
+
+    Integration: Constructed or referenced by ``_load_configured_web_settings``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     def __init__(
         self,
         *,
@@ -194,13 +289,33 @@ class _ConfiguredWebSettings:
         resolution_mode: str,
         synthetic_dns_cidrs: list[str],
     ) -> None:
+        """Initialize ``_ConfiguredWebSettings`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``_ConfiguredWebSettings``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.proxy = proxy
         self.resolution_mode = resolution_mode
         self.synthetic_dns_cidrs = synthetic_dns_cidrs
 
 
 def _load_configured_web_settings() -> _ConfiguredWebSettings:
-    """Load persisted web settings, including environment overrides."""
+    """Load persisted web settings, including environment overrides.
+
+    Integration: Called by ``fetch_public_http_response`` and collaborates with
+    ``_ConfiguredWebSettings``, ``load_settings``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     from openharness.config import load_settings
 
     web = load_settings().web
@@ -212,7 +327,17 @@ def _load_configured_web_settings() -> _ConfiguredWebSettings:
 
 
 def _ensure_proxy_safe_http_url(url: str) -> None:
-    """Validate a URL whose hostname will be resolved by an explicit proxy."""
+    """Validate a URL whose hostname will be resolved by an explicit proxy.
+
+    Integration: Called by ``ensure_http_url_allowed`` and collaborates with
+    ``_validated_parsed_http_url``, ``_normalized_hostname``, ``_parse_ip_literal``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parsed = _validated_parsed_http_url(url)
     hostname = _normalized_hostname(parsed.hostname)
     literal = _parse_ip_literal(hostname)
@@ -227,7 +352,16 @@ async def _ensure_synthetic_dns_safe_http_url(
     *,
     synthetic_cidrs: tuple[_IPNetwork, ...],
 ) -> None:
-    """Validate a URL in a user-declared synthetic DNS environment."""
+    """Validate a URL in a user-declared synthetic DNS environment.
+
+    Integration: Called by ``ensure_http_url_allowed`` and collaborates with
+    ``_validated_parsed_http_url``, ``_normalized_hostname``, ``_parse_ip_literal``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O; retain lock scope and release behavior.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not synthetic_cidrs:
         raise NetworkGuardError(
             f"{ResolutionMode.SYNTHETIC_DNS.value} mode requires {_SYNTHETIC_DNS_CIDRS_SETTING}"
@@ -256,7 +390,16 @@ async def _ensure_synthetic_dns_safe_http_url(
 
 
 async def _resolve_host_addresses(host: str, port: int) -> set[_IPAddress]:
-    """Resolve a host into concrete IP addresses."""
+    """Resolve a host into concrete IP addresses.
+
+    Integration: Called by ``ensure_public_http_url``, ``_ensure_synthetic_dns_safe_http_url``
+    and collaborates with ``_parse_ip_literal``, ``asyncio.to_thread``, ``NetworkGuardError``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     literal = _parse_ip_literal(host)
     if literal is not None:
         return {literal}
@@ -289,6 +432,16 @@ async def _resolve_host_addresses(host: str, port: int) -> set[_IPAddress]:
 
 
 def _parse_ip_literal(value: str) -> _IPAddress | None:
+    """Parse ip literal for the enclosing subsystem.
+
+    Integration: Called by ``ensure_public_http_url``, ``_ensure_proxy_safe_http_url`` and
+    collaborates with ``ipaddress.ip_address``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         return ipaddress.ip_address(value)
     except ValueError:
@@ -296,6 +449,17 @@ def _parse_ip_literal(value: str) -> _IPAddress | None:
 
 
 def _validated_parsed_http_url(url: str) -> ParseResult:
+    """Derive validated parsed http URL from the current inputs and subsystem state.
+
+    Integration: Called by ``ensure_public_http_url``, ``_ensure_proxy_safe_http_url`` and
+    collaborates with ``validate_http_url``, ``urlparse``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     validate_http_url(url)
     parsed = urlparse(url)
     assert parsed.hostname is not None  # covered by validate_http_url
@@ -303,16 +467,47 @@ def _validated_parsed_http_url(url: str) -> ParseResult:
 
 
 def _normalized_hostname(hostname: str | None) -> str:
+    """Derive normalized hostname from the current inputs and subsystem state.
+
+    Integration: Called by ``ensure_public_http_url``, ``_ensure_proxy_safe_http_url`` and
+    collaborates with ``lower``, ``hostname.rstrip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     assert hostname is not None  # covered by validate_http_url
     return hostname.rstrip(".").lower()
 
 
 def _ensure_global_literal_ip(address: _IPAddress) -> None:
+    """Ensure global literal ip for the enclosing subsystem.
+
+    Integration: Called by ``ensure_public_http_url``, ``_ensure_proxy_safe_http_url`` and
+    collaborates with ``NetworkGuardError``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if not address.is_global:
         raise NetworkGuardError(f"target resolves to non-public address(es): {address}")
 
 
 def _ensure_not_local_hostname(hostname: str) -> None:
+    """Ensure not local hostname for the enclosing subsystem.
+
+    Integration: Called by ``ensure_public_http_url``, ``_ensure_proxy_safe_http_url`` and
+    collaborates with ``any``, ``NetworkGuardError``, ``hostname.endswith``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if hostname in _LOCAL_HOSTNAMES or any(hostname.endswith(suffix) for suffix in _LOCAL_HOST_SUFFIXES):
         raise NetworkGuardError(f"local hostnames are not allowed: {hostname}")
     if "." not in hostname:
@@ -320,6 +515,17 @@ def _ensure_not_local_hostname(hostname: str) -> None:
 
 
 def _address_in_networks(address: _IPAddress, networks: tuple[_IPNetwork, ...]) -> bool:
+    """Determine whether address in networks holds for the current inputs.
+
+    Integration: Called by ``_ensure_synthetic_dns_safe_http_url`` and collaborates with
+    ``any``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return any(address.version == network.version and address in network for network in networks)
 
 
@@ -328,6 +534,17 @@ def _format_blocked_addresses(
     *,
     include_synthetic_dns_hint: bool = False,
 ) -> str:
+    """Format blocked addresses for the enclosing subsystem.
+
+    Integration: Called by ``ensure_public_http_url``, ``_ensure_synthetic_dns_safe_http_url``
+    and collaborates with ``join``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     rendered = ", ".join(blocked[:3])
     if len(blocked) > 3:
         rendered += ", ..."

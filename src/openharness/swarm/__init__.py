@@ -1,4 +1,15 @@
-"""Swarm backend abstraction for teammate execution."""
+"""Swarm backend abstraction for teammate execution.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
+"""
 
 from __future__ import annotations
 
@@ -60,7 +71,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    """Lazily load POSIX-only swarm helpers when they are actually used."""
+    """Lazily load POSIX-only swarm helpers when they are actually used.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_LAZY_EXPORTS.get``, ``AttributeError``, ``import_module``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     target = _LAZY_EXPORTS.get(name)
     if target is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

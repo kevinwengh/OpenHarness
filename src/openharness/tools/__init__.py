@@ -1,4 +1,15 @@
-"""Built-in tool registration."""
+"""Built-in tool registration.
+
+Integration: This module participates in model-callable tools registered with the shared engine
+governance path.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve Pydantic schemas, async ToolResult behavior, read-only policy,
+context.cwd, hooks, sandboxing, output bounds, and registration.
+"""
 
 from openharness.tools.ask_user_question_tool import AskUserQuestionTool
 from openharness.tools.agent_tool import AgentTool
@@ -46,7 +57,17 @@ from openharness.tools.web_search_tool import WebSearchTool
 
 
 def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
-    """Return the default built-in tool registry."""
+    """Return the default built-in tool registry.
+
+    Integration: Called by ``_run_scenario``, ``_make_command_context`` and collaborates with
+    ``ToolRegistry``, ``BashTool``, ``AskUserQuestionTool``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     registry = ToolRegistry()
     for tool in (
         BashTool(),

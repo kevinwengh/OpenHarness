@@ -1,4 +1,15 @@
-"""WhatsApp channel implementation using Node.js bridge."""
+"""WhatsApp channel implementation using Node.js bridge.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 import asyncio
 import json
@@ -15,16 +26,33 @@ logger = logging.getLogger(__name__)
 
 
 class WhatsAppChannel(BaseChannel):
-    """
-    WhatsApp channel that connects to a Node.js bridge.
+    """WhatsApp channel that connects to a Node.js bridge.
 
     The bridge uses @whiskeysockets/baileys to handle the WhatsApp Web protocol.
     Communication between Python and Node.js is via WebSocket.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``send``, ``_handle_bridge_message`` run on
+    their caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     name = "whatsapp"
 
     def __init__(self, config: WhatsAppConfig, bus: MessageBus):
+        """Initialize ``WhatsAppChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``WhatsAppChannel`` and collaborates with ``OrderedDict``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: WhatsAppConfig = config
         self._ws = None
@@ -32,7 +60,16 @@ class WhatsAppChannel(BaseChannel):
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
 
     async def start(self) -> None:
-        """Start the WhatsApp channel by connecting to the bridge."""
+        """Start the WhatsApp channel by connecting to the bridge.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.info``, ``websockets.connect``, ``logger.warning``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         import websockets
 
         bridge_url = self.config.bridge_url
@@ -70,7 +107,17 @@ class WhatsAppChannel(BaseChannel):
                     await asyncio.sleep(5)
 
     async def stop(self) -> None:
-        """Stop the WhatsApp channel."""
+        """Stop the WhatsApp channel.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_ws.close``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._running = False
         self._connected = False
 
@@ -79,7 +126,16 @@ class WhatsAppChannel(BaseChannel):
             self._ws = None
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through WhatsApp."""
+        """Send a message through WhatsApp.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.warning``, ``logger.error``, ``json.dumps``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._ws or not self._connected:
             logger.warning("WhatsApp bridge not connected")
             return
@@ -95,7 +151,16 @@ class WhatsAppChannel(BaseChannel):
             logger.error("Error sending WhatsApp message: %s", e)
 
     async def _handle_bridge_message(self, raw: str) -> None:
-        """Handle a message from the bridge."""
+        """Handle a message from the bridge.
+
+        Integration: Called by ``WhatsAppChannel.start`` and collaborates with ``data.get``,
+        ``json.loads``, ``logger.info``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:

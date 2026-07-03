@@ -1,4 +1,15 @@
-"""Hook configuration schemas."""
+"""Hook configuration schemas.
+
+Integration: This module participates in extension callbacks around sessions, prompts,
+compaction, tools, notifications, and stopping.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve priority/order, blocking semantics, timeouts, untrusted arguments,
+failure policy, and async lifecycle.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +19,17 @@ from pydantic import BaseModel, Field
 
 
 class CommandHookDefinition(BaseModel):
-    """A hook that executes a shell command."""
+    """A hook that executes a shell command.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["command"] = "command"
     command: str
@@ -20,7 +41,17 @@ class CommandHookDefinition(BaseModel):
 
 
 class PromptHookDefinition(BaseModel):
-    """A hook that asks the model to validate a condition."""
+    """A hook that asks the model to validate a condition.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["prompt"] = "prompt"
     prompt: str
@@ -33,7 +64,17 @@ class PromptHookDefinition(BaseModel):
 
 
 class HttpHookDefinition(BaseModel):
-    """A hook that POSTs the event payload to an HTTP endpoint."""
+    """A hook that POSTs the event payload to an HTTP endpoint.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["http"] = "http"
     url: str
@@ -46,7 +87,17 @@ class HttpHookDefinition(BaseModel):
 
 
 class AgentHookDefinition(BaseModel):
-    """A hook that performs a deeper model-based validation."""
+    """A hook that performs a deeper model-based validation.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal["agent"] = "agent"
     prompt: str

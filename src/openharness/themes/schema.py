@@ -1,4 +1,13 @@
-"""Theme configuration schema."""
+"""Theme configuration schema.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +17,17 @@ from pydantic import BaseModel
 
 
 class ColorsConfig(BaseModel):
-    """Color configuration for a theme."""
+    """Color configuration for a theme.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     primary: str = "#5875d4"
     secondary: str = "#4a9eff"
@@ -20,14 +39,34 @@ class ColorsConfig(BaseModel):
 
 
 class BorderConfig(BaseModel):
-    """Border style configuration."""
+    """Border style configuration.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     style: Literal["rounded", "single", "double", "none"] = "rounded"
     char: str | None = None
 
 
 class IconConfig(BaseModel):
-    """Icon/glyph configuration."""
+    """Icon/glyph configuration.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     spinner: str = "⠋"
     tool: str = "⚙"
@@ -37,7 +76,17 @@ class IconConfig(BaseModel):
 
 
 class LayoutConfig(BaseModel):
-    """Layout configuration."""
+    """Layout configuration.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     compact: bool = False
     show_tokens: bool = True
@@ -45,7 +94,17 @@ class LayoutConfig(BaseModel):
 
 
 class ThemeConfig(BaseModel):
-    """Full theme configuration."""
+    """Full theme configuration.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     name: str
     colors: ColorsConfig = ColorsConfig()

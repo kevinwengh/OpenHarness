@@ -12,6 +12,16 @@ Supports two deployment types:
 
 The GitHub OAuth token (and optional enterprise URL) are persisted to
 ``~/.openharness/copilot_auth.json``.
+
+Integration: This module participates in provider streaming clients and normalized request/event
+contracts.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve request conversion, streamed tool calls, usage/errors, auth secrecy,
+retries, and multi-turn replay.
 """
 
 from __future__ import annotations
@@ -50,6 +60,14 @@ def copilot_api_base(enterprise_url: str | None = None) -> str:
 
     For public GitHub this is ``https://api.githubcopilot.com``.
     For enterprise it is ``https://copilot-api.<domain>``.
+
+    Integration: Called by ``CopilotAuthInfo.api_base``, ``CopilotClient.__init__`` and
+    collaborates with ``rstrip``, ``replace``, ``enterprise_url.replace``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if enterprise_url:
         domain = enterprise_url.replace("https://", "").replace("http://", "").rstrip("/")
@@ -64,7 +82,16 @@ def copilot_api_base(enterprise_url: str | None = None) -> str:
 
 @dataclass(frozen=True)
 class DeviceCodeResponse:
-    """Parsed response from the GitHub device-code endpoint."""
+    """Parsed response from the GitHub device-code endpoint.
+
+    Integration: Constructed or referenced by ``request_device_code``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     device_code: str
     user_code: str
@@ -75,13 +102,33 @@ class DeviceCodeResponse:
 
 @dataclass
 class CopilotAuthInfo:
-    """Persisted + runtime auth state for Copilot."""
+    """Persisted + runtime auth state for Copilot.
+
+    Integration: Constructed or referenced by ``load_copilot_auth``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     github_token: str
     enterprise_url: str | None = None
 
     @property
     def api_base(self) -> str:
+        """Derive API base from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``copilot_api_base``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return copilot_api_base(self.enterprise_url)
 
 
@@ -91,11 +138,30 @@ class CopilotAuthInfo:
 
 
 def _auth_file_path() -> Path:
+    """Return the filesystem path for auth file.
+
+    Integration: Called by ``save_copilot_auth``, ``load_copilot_auth`` and collaborates with
+    ``get_config_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return get_config_dir() / _AUTH_FILE_NAME
 
 
 def save_copilot_auth(token: str, *, enterprise_url: str | None = None) -> None:
-    """Persist the GitHub OAuth token (and optional enterprise URL) to disk."""
+    """Persist the GitHub OAuth token (and optional enterprise URL) to disk.
+
+    Integration: Called by ``_run_copilot_login`` and collaborates with ``_auth_file_path``,
+    ``atomic_write_text``, ``log.info``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     path = _auth_file_path()
     payload: dict[str, Any] = {"github_token": token}
     if enterprise_url:
@@ -109,7 +175,16 @@ def save_copilot_auth(token: str, *, enterprise_url: str | None = None) -> None:
 
 
 def load_copilot_auth() -> CopilotAuthInfo | None:
-    """Load the persisted Copilot auth, or return None."""
+    """Load the persisted Copilot auth, or return None.
+
+    Integration: Called by ``load_github_token``, ``CopilotClient.__init__`` and collaborates
+    with ``_auth_file_path``, ``path.exists``, ``json.loads``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     path = _auth_file_path()
     if not path.exists():
         return None
@@ -132,13 +207,31 @@ save_github_token = save_copilot_auth
 
 
 def load_github_token() -> str | None:
-    """Load just the persisted GitHub OAuth token, or return None."""
+    """Load just the persisted GitHub OAuth token, or return None.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``load_copilot_auth``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     info = load_copilot_auth()
     return info.github_token if info else None
 
 
 def clear_github_token() -> None:
-    """Remove persisted Copilot auth."""
+    """Remove persisted Copilot auth.
+
+    Integration: Called by ``auth_copilot_logout`` and collaborates with ``_auth_file_path``,
+    ``path.exists``, ``path.unlink``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     path = _auth_file_path()
     if path.exists():
         path.unlink()
@@ -155,7 +248,16 @@ def request_device_code(
     client_id: str = COPILOT_CLIENT_ID,
     github_domain: str = "github.com",
 ) -> DeviceCodeResponse:
-    """Start the OAuth device flow and return the device/user codes."""
+    """Start the OAuth device flow and return the device/user codes.
+
+    Integration: Called by ``DeviceCodeFlow.run`` and collaborates with ``httpx.post``,
+    ``resp.raise_for_status``, ``resp.json``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     url = f"https://{github_domain}/login/device/code"
     resp = httpx.post(
         url,
@@ -192,6 +294,13 @@ def poll_for_access_token(
     before each poll so callers can show progress feedback.
 
     Raises ``RuntimeError`` on expiry or unexpected error.
+
+    Integration: Called by ``DeviceCodeFlow.run`` and collaborates with ``time.monotonic``,
+    ``RuntimeError``, ``time.sleep``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     url = f"https://{github_domain}/login/oauth/access_token"
     poll_interval = float(interval)

@@ -7,6 +7,16 @@ polling the task manager for completion, formatting the notification, and
 submitting it as a follow-up to the coordinator. These helpers implement that
 behavior independently of the UI host so both print mode and interactive
 backends can share the same logic.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
 """
 
 from __future__ import annotations
@@ -26,6 +36,16 @@ _TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "killed"})
 
 
 def _async_agent_task_entries(tool_metadata: dict[str, object] | None) -> list[dict[str, object]]:
+    """Derive async agent task entries from the current inputs and subsystem state.
+
+    Integration: Called by ``pending_async_agent_entries`` and collaborates with
+    ``tool_metadata.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not isinstance(tool_metadata, dict):
         return []
     value = tool_metadata.get("async_agent_tasks")
@@ -35,6 +55,18 @@ def _async_agent_task_entries(tool_metadata: dict[str, object] | None) -> list[d
 
 
 def pending_async_agent_entries(tool_metadata: dict[str, object] | None) -> list[dict[str, object]]:
+    """Derive pending async agent entries from the current inputs and subsystem state.
+
+    Integration: Called by ``wait_for_completed_async_agent_entries``,
+    ``drain_coordinator_async_agents`` and collaborates with ``_async_agent_task_entries``,
+    ``strip``, ``pending.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     pending: list[dict[str, object]] = []
     for entry in _async_agent_task_entries(tool_metadata):
         task_id = str(entry.get("task_id") or "").strip()
@@ -49,6 +81,16 @@ def pending_async_agent_entries(tool_metadata: dict[str, object] | None) -> list
 def _build_async_task_summary(
     entry: dict[str, object], *, task_status: str, return_code: int | None
 ) -> str:
+    """Build async task summary for the enclosing subsystem.
+
+    Integration: Called by ``format_completed_task_notifications`` and collaborates with
+    ``strip``, ``entry.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     description = str(entry.get("description") or entry.get("agent_id") or "background task").strip()
     if task_status == "completed":
         return f'Agent "{description}" completed'
@@ -64,6 +106,17 @@ async def wait_for_completed_async_agent_entries(
     *,
     poll_interval_seconds: float = 0.1,
 ) -> list[dict[str, object]]:
+    """Wait for for completed async agent entries for the enclosing subsystem.
+
+    Integration: Called by ``drain_coordinator_async_agents`` and collaborates with
+    ``get_task_manager``, ``pending_async_agent_entries``, ``strip``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     manager = get_task_manager()
     while True:
         pending = pending_async_agent_entries(tool_metadata)
@@ -87,6 +140,17 @@ async def wait_for_completed_async_agent_entries(
 
 
 def format_completed_task_notifications(completed: list[dict[str, object]]) -> str:
+    """Format completed task notifications for the enclosing subsystem.
+
+    Integration: Called by ``drain_coordinator_async_agents`` and collaborates with
+    ``get_task_manager``, ``join``, ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     manager = get_task_manager()
     notifications: list[str] = []
     for entry in completed:
@@ -123,6 +187,17 @@ async def submit_follow_up(
     print_system,
     render_event,
 ) -> None:
+    """Run the submit follow up workflow through its asynchronous collaborators.
+
+    Integration: Called by ``drain_coordinator_async_agents`` and collaborates with
+    ``bundle.current_settings``, ``build_runtime_system_prompt``,
+    ``bundle.engine.set_system_prompt``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     from openharness.ui.runtime import _format_pending_tool_results
 
     settings = bundle.current_settings()
@@ -171,6 +246,16 @@ async def drain_coordinator_async_agents(
     contract documented in the coordinator system prompt.
 
     Returns immediately when there are no pending async-agent entries.
+
+    Integration: Called by ``run_print_mode``, ``ReactBackendHost._process_line`` and
+    collaborates with ``pending_async_agent_entries``, ``format_completed_task_notifications``,
+    ``wait_for_completed_async_agent_entries``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     engine = getattr(bundle, "engine", None)
     if engine is None:

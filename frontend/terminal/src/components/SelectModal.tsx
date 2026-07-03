@@ -1,3 +1,16 @@
+/**
+ * Render and coordinate the `SelectModal` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
@@ -8,6 +21,16 @@ export type SelectOption = {
 	active?: boolean;
 };
 
+/**
+ * Render the SelectModal React component.
+ *
+ * Integration: Owned by `SelectModal.tsx` and collaborates with `map`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function SelectModal({
 	title,
 	options,
@@ -21,7 +44,10 @@ export function SelectModal({
 		<Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} marginTop={1}>
 			<Text bold color="cyan">{title}</Text>
 			<Text> </Text>
-			{options.map((opt, i) => {
+			{options.map(/*
+			 * map callback: computes its callback result; keep event-loop work bounded and preserve the
+			 * callback's return contract.
+			 */ (opt, i) => {
 				const isSelected = i === selectedIndex;
 				const isCurrent = opt.active;
 				return (

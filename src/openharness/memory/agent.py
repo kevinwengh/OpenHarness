@@ -1,4 +1,15 @@
-"""Agent-scoped memory paths and snapshots."""
+"""Agent-scoped memory paths and snapshots.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -17,13 +28,31 @@ SNAPSHOT_DIR_NAME = "agent-memory-snapshots"
 
 
 def sanitize_agent_type(agent_type: str) -> str:
-    """Return a path-safe agent type."""
+    """Return a path-safe agent type.
+
+    Integration: Called by ``get_agent_memory_dir``, ``get_agent_snapshot_dir`` and collaborates
+    with ``strip``, ``re.sub``, ``agent_type.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return re.sub(r"[^a-zA-Z0-9_.-]+", "_", agent_type.strip()).strip("._") or "default"
 
 
 def get_agent_memory_dir(cwd: str | Path, agent_type: str, scope: AgentMemoryScope) -> Path:
-    """Return an agent memory vault for the requested scope."""
+    """Return an agent memory vault for the requested scope.
+
+    Integration: Called by ``ensure_agent_memory_vault`` and collaborates with
+    ``sanitize_agent_type``, ``get_data_dir``, ``get_project_memory_dir``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     safe = sanitize_agent_type(agent_type)
     if scope == "project":
@@ -34,7 +63,16 @@ def get_agent_memory_dir(cwd: str | Path, agent_type: str, scope: AgentMemorySco
 
 
 def ensure_agent_memory_vault(cwd: str | Path, agent_type: str, scope: AgentMemoryScope) -> Path:
-    """Create and return an agent-scoped memory vault."""
+    """Create and return an agent-scoped memory vault.
+
+    Integration: Called by ``_handle_memory_agent_command``, ``get_agent_memory_entrypoint`` and
+    collaborates with ``get_agent_memory_dir``, ``memory_dir.mkdir``, ``entrypoint.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
 
     memory_dir = get_agent_memory_dir(cwd, agent_type, scope)
     memory_dir.mkdir(parents=True, exist_ok=True)
@@ -45,13 +83,31 @@ def ensure_agent_memory_vault(cwd: str | Path, agent_type: str, scope: AgentMemo
 
 
 def get_agent_memory_entrypoint(cwd: str | Path, agent_type: str, scope: AgentMemoryScope) -> Path:
-    """Return an agent memory ``MEMORY.md`` path."""
+    """Return an agent memory ``MEMORY.md`` path.
+
+    Integration: Called by ``_handle_memory_agent_command`` and collaborates with
+    ``ensure_agent_memory_vault``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return ensure_agent_memory_vault(cwd, agent_type, scope) / MEMORY_INDEX
 
 
 def get_agent_snapshot_dir(cwd: str | Path, agent_type: str) -> Path:
-    """Return the project snapshot directory for an agent type."""
+    """Return the project snapshot directory for an agent type.
+
+    Integration: Called by ``initialize_agent_memory_from_snapshot`` and collaborates with
+    ``sanitize_agent_type``, ``resolve``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return Path(cwd).resolve() / ".openharness" / SNAPSHOT_DIR_NAME / sanitize_agent_type(agent_type)
 
@@ -63,7 +119,16 @@ def initialize_agent_memory_from_snapshot(
     *,
     replace: bool = False,
 ) -> Path | None:
-    """Initialize local agent memory from a project snapshot if present."""
+    """Initialize local agent memory from a project snapshot if present.
+
+    Integration: Called by ``_handle_memory_agent_command`` and collaborates with
+    ``get_agent_snapshot_dir``, ``ensure_agent_memory_vault``, ``snapshot_dir.rglob``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
 
     snapshot_dir = get_agent_snapshot_dir(cwd, agent_type)
     if not snapshot_dir.exists():
@@ -82,6 +147,16 @@ def initialize_agent_memory_from_snapshot(
 
 
 def _is_default_agent_index(path: Path) -> bool:
+    """Return whether default agent index for the enclosing subsystem.
+
+    Integration: Called by ``initialize_agent_memory_from_snapshot`` and collaborates with
+    ``text.startswith``, ``path.read_text``, ``path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if path.name != MEMORY_INDEX or not path.exists():
         return False
     try:

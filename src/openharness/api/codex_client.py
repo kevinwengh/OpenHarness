@@ -1,4 +1,15 @@
-"""OpenAI Codex subscription client backed by chatgpt.com Codex Responses."""
+"""OpenAI Codex subscription client backed by chatgpt.com Codex Responses.
+
+Integration: This module participates in provider streaming clients and normalized request/event
+contracts.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve request conversion, streamed tool calls, usage/errors, auth secrecy,
+retries, and multi-turn replay.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +39,15 @@ MAX_DELAY_SECONDS = 30.0
 
 
 def _extract_account_id(token: str) -> str:
+    """Extract account identifier for the enclosing subsystem.
+
+    Integration: Called by ``_build_codex_headers`` and collaborates with ``token.split``,
+    ``payload.get``, ``auth_claim.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     parts = token.split(".")
     if len(parts) != 3:
         raise AuthenticationFailure("Codex access token is not a valid JWT.")
@@ -47,6 +67,18 @@ def _extract_account_id(token: str) -> str:
 
 
 def _resolve_codex_url(base_url: str | None) -> str:
+    """Resolve codex URL for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient.__init__``,
+    ``ImageGenerationTool._generate_with_codex`` and collaborates with ``strip``, ``rstrip``,
+    ``raw.endswith``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     trimmed = (base_url or "").strip()
     if trimmed and "chatgpt.com/backend-api" not in trimmed:
         trimmed = ""
@@ -59,6 +91,18 @@ def _resolve_codex_url(base_url: str | None) -> str:
 
 
 def _build_codex_headers(token: str, *, session_id: str | None = None) -> dict[str, str]:
+    """Build codex headers for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._stream_once``,
+    ``ImageGenerationTool._generate_with_codex`` and collaborates with ``_extract_account_id``,
+    ``lower``, ``platform.machine``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     account_id = _extract_account_id(token)
     headers = {
         "Authorization": f"Bearer {token}",
@@ -75,6 +119,17 @@ def _build_codex_headers(token: str, *, session_id: str | None = None) -> dict[s
 
 
 def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict[str, Any]]:
+    """Convert messages to codex for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._stream_once`` and collaborates with ``join``,
+    ``result.append``, ``block.text.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     result: list[dict[str, Any]] = []
     for msg in messages:
         if msg.role == "user":
@@ -122,6 +177,16 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
 
 
 def _convert_tools_to_codex(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert tools to codex for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._stream_once`` and collaborates with ``tool.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return [
         {
             "type": "function",
@@ -134,6 +199,17 @@ def _convert_tools_to_codex(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _normalize_reasoning_effort(effort: str | None) -> str | None:
+    """Normalize reasoning effort for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._stream_once`` and collaborates with ``lower``,
+    ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = (effort or "").strip().lower()
     if normalized == "max":
         return "xhigh"
@@ -143,6 +219,17 @@ def _normalize_reasoning_effort(effort: str | None) -> str | None:
 
 
 def _usage_from_response(response: dict[str, Any]) -> UsageSnapshot:
+    """Normalize token usage from a Codex response payload.
+
+    Integration: Called by ``CodexApiClient._stream_once`` and collaborates with
+    ``response.get``, ``UsageSnapshot``, ``usage.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     usage = response.get("usage")
     if not isinstance(usage, dict):
         return UsageSnapshot()
@@ -153,6 +240,17 @@ def _usage_from_response(response: dict[str, Any]) -> UsageSnapshot:
 
 
 def _stop_reason_from_response(response: dict[str, Any], *, has_tool_calls: bool) -> str | None:
+    """Stop reason from response for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._stream_once`` and collaborates with
+    ``response.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     status = response.get("status")
     if has_tool_calls and status == "completed":
         return "tool_use"
@@ -166,6 +264,16 @@ def _stop_reason_from_response(response: dict[str, Any], *, has_tool_calls: bool
 
 
 def _format_error_message(status_code: int, payload: str) -> str:
+    """Format error message for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._stream_once`` and collaborates with
+    ``payload.strip``, ``json.loads``, ``parsed.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         parsed = json.loads(payload)
     except json.JSONDecodeError:
@@ -186,6 +294,17 @@ def _format_error_message(status_code: int, payload: str) -> str:
 
 
 def _format_codex_stream_error(event: dict[str, Any], *, fallback: str) -> str:
+    """Format codex stream error for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._stream_once`` and collaborates with ``event.get``,
+    ``join``, ``payload.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     error = event.get("error")
     payload = error if isinstance(error, dict) else event
     message = payload.get("message") if isinstance(payload, dict) else None
@@ -211,6 +330,16 @@ def _format_codex_stream_error(event: dict[str, Any], *, fallback: str) -> str:
 
 
 def _translate_status_error(status_code: int, message: str) -> OpenHarnessApiError:
+    """Translate status error for the enclosing subsystem.
+
+    Integration: Called by ``CodexApiClient._translate_error`` and collaborates with
+    ``RequestFailure``, ``AuthenticationFailure``, ``RateLimitFailure``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if status_code in {401, 403}:
         return AuthenticationFailure(message)
     if status_code == 429:
@@ -219,14 +348,52 @@ def _translate_status_error(status_code: int, message: str) -> OpenHarnessApiErr
 
 
 class CodexApiClient:
-    """Client for ChatGPT/Codex subscription-backed Codex Responses."""
+    """Client for ChatGPT/Codex subscription-backed Codex Responses.
+
+    Integration: Constructed or referenced by ``_resolve_api_client_from_settings``.
+
+    Event loop: Async methods ``stream_message``, ``_stream_once``, ``_iter_sse_events`` run on
+    their caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, auth_token: str, *, base_url: str | None = None) -> None:
+        """Initialize ``CodexApiClient`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``CodexApiClient`` and collaborates with
+        ``_resolve_codex_url``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._auth_token = auth_token
         self._base_url = base_url
         self._url = _resolve_codex_url(base_url)
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
+        """Stream one provider response as normalized API events.
+
+        Integration: Exposed through ``CodexApiClient`` and collaborates with
+        ``_translate_error``, ``_stream_once``, ``ApiRetryEvent``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         last_error: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
             try:
@@ -251,6 +418,24 @@ class CodexApiClient:
             raise self._translate_error(last_error) from last_error
 
     async def _stream_once(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
+        """Perform one underlying provider streaming attempt.
+
+        Integration: Exposed through ``CodexApiClient`` and collaborates with
+        ``_normalize_reasoning_effort``, ``_build_codex_headers``, ``ConversationMessage``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation; retain lock scope and release behavior.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         body: dict[str, Any] = {
             "model": request.model,
             "store": False,
@@ -356,6 +541,24 @@ class CodexApiClient:
         )
 
     async def _iter_sse_events(self, response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
+        """Iterate over normalized server-sent events from the response stream.
+
+        Integration: Exposed through ``CodexApiClient`` and collaborates with
+        ``response.aiter_lines``, ``json.loads``.
+
+        Event loop: This async generator preserves streamed ordering and caller-driven
+        cancellation.
+
+        Change safety: Preserve yield ordering and partial-consumption behavior; preserve
+        exception and fallback behavior expected by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         data_lines: list[str] = []
         async for line in response.aiter_lines():
             if line == "":
@@ -384,6 +587,16 @@ class CodexApiClient:
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
+        """Return whether retryable for the enclosing subsystem.
+
+        Integration: Exposed through ``CodexApiClient`` and collaborates with ``any``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if isinstance(exc, httpx.HTTPStatusError):
             return exc.response.status_code in {429, 500, 502, 503, 504}
         if isinstance(exc, RateLimitFailure):
@@ -397,6 +610,24 @@ class CodexApiClient:
 
     @staticmethod
     def _translate_error(exc: Exception) -> OpenHarnessApiError:
+        """Translate a provider failure into the OpenHarness API error model.
+
+        Integration: Exposed through ``CodexApiClient`` and collaborates with
+        ``RequestFailure``, ``_translate_status_error``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+
+        Provider contract: Preserve request translation for system prompts, messages, images,
+        tool schemas, reasoning effort, and output limits; preserve streamed text/reasoning and
+        incremental tool-call identifiers and arguments; emit one normalized final message with
+        usage; translate auth, timeout, rate-limit, malformed-stream, and retry failures without
+        exposing credentials. Any change must also verify multi-turn assistant tool-call replay
+        followed by matching tool results.
+        """
         if isinstance(exc, OpenHarnessApiError):
             return exc
         if isinstance(exc, httpx.HTTPStatusError):

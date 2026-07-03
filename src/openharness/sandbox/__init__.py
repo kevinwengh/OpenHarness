@@ -1,4 +1,14 @@
-"""OpenHarness sandbox integration helpers."""
+"""OpenHarness sandbox integration helpers.
+
+Integration: This module participates in isolated execution selected by runtime/tool adapters.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve path validation, container lifecycle, network/resource limits, command
+fidelity, and cleanup.
+"""
 
 from openharness.sandbox.adapter import (
     SandboxAvailability,
@@ -30,4 +40,3 @@ __all__ = [
     "validate_sandbox_path",
     "wrap_command_for_sandbox",
 ]
-

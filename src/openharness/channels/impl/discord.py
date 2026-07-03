@@ -1,4 +1,15 @@
-"""Discord channel implementation using Discord Gateway websocket."""
+"""Discord channel implementation using Discord Gateway websocket.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 import asyncio
 import json
@@ -22,11 +33,30 @@ MAX_MESSAGE_LEN = 2000  # Discord message character limit
 
 
 class DiscordChannel(BaseChannel):
-    """Discord channel using Gateway websocket."""
+    """Discord channel using Gateway websocket.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``send``, ``_send_payload`` run on their
+    caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name = "discord"
 
     def __init__(self, config: DiscordConfig, bus: MessageBus):
+        """Initialize ``DiscordChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``DiscordChannel``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: DiscordConfig = config
         self._ws: websockets.WebSocketClientProtocol | None = None
@@ -37,7 +67,16 @@ class DiscordChannel(BaseChannel):
         self._bot_user_id: str | None = None
 
     async def start(self) -> None:
-        """Start the Discord gateway connection."""
+        """Start the Discord gateway connection.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``httpx.AsyncClient``, ``logger.error``, ``logger.info``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.config.token:
             logger.error("Discord bot token not configured")
             return
@@ -60,7 +99,17 @@ class DiscordChannel(BaseChannel):
                     await asyncio.sleep(5)
 
     async def stop(self) -> None:
-        """Stop the Discord channel."""
+        """Stop the Discord channel.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_typing_tasks.values``, ``_typing_tasks.clear``, ``_heartbeat_task.cancel``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._running = False
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
@@ -76,7 +125,17 @@ class DiscordChannel(BaseChannel):
             self._http = None
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through Discord REST API."""
+        """Send a message through Discord REST API.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.warning``, ``split_message``, ``_stop_typing``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self._http:
             logger.warning("Discord HTTP client not initialized")
             return
@@ -105,7 +164,16 @@ class DiscordChannel(BaseChannel):
     async def _send_payload(
         self, url: str, headers: dict[str, str], payload: dict[str, Any]
     ) -> bool:
-        """Send a single Discord API payload with retry on rate-limit. Returns True on success."""
+        """Send a single Discord API payload with retry on rate-limit. Returns True on success.
+
+        Integration: Called by ``DiscordChannel.send`` and collaborates with
+        ``response.raise_for_status``, ``_http.post``, ``response.json``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         for attempt in range(3):
             try:
                 response = await self._http.post(url, headers=headers, json=payload)
@@ -125,7 +193,16 @@ class DiscordChannel(BaseChannel):
         return False
 
     async def _gateway_loop(self) -> None:
-        """Main gateway loop: identify, heartbeat, dispatch events."""
+        """Main gateway loop: identify, heartbeat, dispatch events.
+
+        Integration: Called by ``DiscordChannel.start`` and collaborates with ``data.get``,
+        ``json.loads``, ``payload.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._ws:
             return
 
@@ -167,7 +244,17 @@ class DiscordChannel(BaseChannel):
                 break
 
     async def _identify(self) -> None:
-        """Send IDENTIFY payload."""
+        """Send IDENTIFY payload.
+
+        Integration: Called by ``DiscordChannel._gateway_loop`` and collaborates with
+        ``_ws.send``, ``json.dumps``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self._ws:
             return
 
@@ -186,11 +273,30 @@ class DiscordChannel(BaseChannel):
         await self._ws.send(json.dumps(identify))
 
     async def _start_heartbeat(self, interval_s: float) -> None:
-        """Start or restart the heartbeat loop."""
+        """Start or restart the heartbeat loop.
+
+        Integration: Called by ``DiscordChannel._gateway_loop`` and collaborates with
+        ``asyncio.create_task``, ``_heartbeat_task.cancel``, ``heartbeat_loop``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
 
         async def heartbeat_loop() -> None:
+            """Run the heartbeat loop workflow through its asynchronous collaborators.
+
+            Integration: Called by ``DiscordChannel._start_heartbeat`` and collaborates with
+            ``asyncio.sleep``, ``_ws.send``, ``logger.warning``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve exception and fallback behavior expected by callers.
+            """
             while self._running and self._ws:
                 payload = {"op": 1, "d": self._seq}
                 try:
@@ -203,7 +309,17 @@ class DiscordChannel(BaseChannel):
         self._heartbeat_task = asyncio.create_task(heartbeat_loop())
 
     async def _handle_message_create(self, payload: dict[str, Any]) -> None:
-        """Handle incoming Discord messages."""
+        """Handle incoming Discord messages.
+
+        Integration: Called by ``DiscordChannel._gateway_loop`` and collaborates with
+        ``author.get``, ``payload.get``, ``resolve_channel_media_dir``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract; preserve
+        exception and fallback behavior expected by callers.
+        """
         author = payload.get("author") or {}
         if author.get("bot"):
             return
@@ -265,7 +381,17 @@ class DiscordChannel(BaseChannel):
         )
 
     def _should_respond_in_group(self, payload: dict[str, Any], content: str) -> bool:
-        """Check if bot should respond in a group channel based on policy."""
+        """Check if bot should respond in a group channel based on policy.
+
+        Integration: Called by ``DiscordChannel._handle_message_create`` and collaborates with
+        ``logger.debug``, ``payload.get``, ``mention.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self.config.group_policy == "open":
             return True
 
@@ -286,10 +412,29 @@ class DiscordChannel(BaseChannel):
         return True
 
     async def _start_typing(self, channel_id: str) -> None:
-        """Start periodic typing indicator for a channel."""
+        """Start periodic typing indicator for a channel.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``asyncio.create_task``, ``_stop_typing``, ``typing_loop``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         await self._stop_typing(channel_id)
 
         async def typing_loop() -> None:
+            """Run the typing loop workflow through its asynchronous collaborators.
+
+            Integration: Called by ``DiscordChannel._start_typing`` and collaborates with
+            ``asyncio.sleep``, ``_http.post``, ``logger.debug``.
+
+            Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+            blocking I/O.
+
+            Change safety: Preserve exception and fallback behavior expected by callers.
+            """
             url = f"{DISCORD_API_BASE}/channels/{channel_id}/typing"
             headers = {"Authorization": f"Bot {self.config.token}"}
             while self._running:
@@ -305,7 +450,18 @@ class DiscordChannel(BaseChannel):
         self._typing_tasks[channel_id] = asyncio.create_task(typing_loop())
 
     async def _stop_typing(self, channel_id: str) -> None:
-        """Stop typing indicator for a channel."""
+        """Stop typing indicator for a channel.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_typing_tasks.pop``, ``task.cancel``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         task = self._typing_tasks.pop(channel_id, None)
         if task:
             task.cancel()

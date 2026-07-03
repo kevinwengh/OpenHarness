@@ -1,4 +1,15 @@
-"""Email channel implementation using IMAP polling + SMTP replies."""
+"""Email channel implementation using IMAP polling + SMTP replies.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 import asyncio
 import html
@@ -25,8 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmailChannel(BaseChannel):
-    """
-    Email channel.
+    """Email channel.
 
     Inbound:
     - Poll IMAP mailbox for unread messages.
@@ -34,6 +44,14 @@ class EmailChannel(BaseChannel):
 
     Outbound:
     - Send responses via SMTP back to the sender address.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``send`` run on their caller's loop;
+    instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     name = "email"
@@ -53,6 +71,16 @@ class EmailChannel(BaseChannel):
     )
 
     def __init__(self, config: EmailConfig, bus: MessageBus):
+        """Initialize ``EmailChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``EmailChannel``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: EmailConfig = config
         self._last_subject_by_chat: dict[str, str] = {}
@@ -61,7 +89,16 @@ class EmailChannel(BaseChannel):
         self._MAX_PROCESSED_UIDS = 100000
 
     async def start(self) -> None:
-        """Start polling IMAP for inbound emails."""
+        """Start polling IMAP for inbound emails.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.info``, ``logger.warning``, ``_validate_config``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.config.consent_granted:
             logger.warning(
                 "Email channel disabled: consent_granted is false. "
@@ -101,11 +138,30 @@ class EmailChannel(BaseChannel):
             await asyncio.sleep(poll_seconds)
 
     async def stop(self) -> None:
-        """Stop polling loop."""
+        """Stop polling loop.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._running = False
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send email via SMTP."""
+        """Send email via SMTP.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``msg.chat_id.strip``, ``_last_subject_by_chat.get``, ``_reply_subject``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.config.consent_granted:
             logger.warning("Skip email send: consent_granted is false")
             return
@@ -153,6 +209,17 @@ class EmailChannel(BaseChannel):
             raise
 
     def _validate_config(self) -> bool:
+        """Validate config for the enclosing subsystem.
+
+        Integration: Called by ``EmailChannel.start`` and collaborates with ``missing.append``,
+        ``logger.error``, ``join``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         missing = []
         if not self.config.imap_host:
             missing.append("imap_host")
@@ -173,6 +240,17 @@ class EmailChannel(BaseChannel):
         return True
 
     def _smtp_send(self, msg: EmailMessage) -> None:
+        """Apply smtp send to the enclosing subsystem state.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``smtplib.SMTP``, ``smtp.login``, ``smtp.send_message``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         timeout = 30
         if self.config.smtp_use_ssl:
             with smtplib.SMTP_SSL(
@@ -191,7 +269,17 @@ class EmailChannel(BaseChannel):
             smtp.send_message(msg)
 
     def _fetch_new_messages(self) -> list[dict[str, Any]]:
-        """Poll IMAP and return parsed unread messages."""
+        """Poll IMAP and return parsed unread messages.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_fetch_messages``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._fetch_messages(
             search_criteria=("UNSEEN",),
             mark_seen=self.config.mark_seen,
@@ -205,10 +293,18 @@ class EmailChannel(BaseChannel):
         end_date: date,
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        """
-        Fetch messages in [start_date, end_date) by IMAP date search.
+        """Fetch messages in [start_date, end_date) by IMAP date search.
 
         This is used for historical summarization tasks (e.g. "yesterday").
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_fetch_messages``, ``_format_imap_date``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         if end_date <= start_date:
             return []
@@ -232,7 +328,17 @@ class EmailChannel(BaseChannel):
         dedupe: bool,
         limit: int,
     ) -> list[dict[str, Any]]:
-        """Fetch messages by arbitrary IMAP search criteria."""
+        """Fetch messages by arbitrary IMAP search criteria.
+
+        Integration: Called by ``EmailChannel._fetch_new_messages``,
+        ``EmailChannel.fetch_messages_between_dates`` and collaborates with
+        ``imaplib.IMAP4_SSL``, ``imaplib.IMAP4``, ``client.login``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         messages: list[dict[str, Any]] = []
         mailbox = self.config.imap_mailbox or "INBOX"
 
@@ -325,12 +431,31 @@ class EmailChannel(BaseChannel):
 
     @classmethod
     def _format_imap_date(cls, value: date) -> str:
-        """Format date for IMAP search (always English month abbreviations)."""
+        """Format date for IMAP search (always English month abbreviations).
+
+        Integration: Called by ``EmailChannel.fetch_messages_between_dates``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         month = cls._IMAP_MONTHS[value.month - 1]
         return f"{value.day:02d}-{month}-{value.year}"
 
     @staticmethod
     def _extract_message_bytes(fetched: list[Any]) -> bytes | None:
+        """Extract message bytes for the enclosing subsystem.
+
+        Integration: Called by ``EmailChannel._fetch_messages``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for item in fetched:
             if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
                 return bytes(item[1])
@@ -338,6 +463,17 @@ class EmailChannel(BaseChannel):
 
     @staticmethod
     def _extract_uid(fetched: list[Any]) -> str:
+        """Extract uid for the enclosing subsystem.
+
+        Integration: Called by ``EmailChannel._fetch_messages`` and collaborates with
+        ``decode``, ``re.search``, ``m.group``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for item in fetched:
             if isinstance(item, tuple) and item and isinstance(item[0], (bytes, bytearray)):
                 head = bytes(item[0]).decode("utf-8", errors="ignore")
@@ -348,6 +484,16 @@ class EmailChannel(BaseChannel):
 
     @staticmethod
     def _decode_header_value(value: str) -> str:
+        """Decode header value for the enclosing subsystem.
+
+        Integration: Called by ``EmailChannel._fetch_messages`` and collaborates with
+        ``make_header``, ``decode_header``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not value:
             return ""
         try:
@@ -357,7 +503,16 @@ class EmailChannel(BaseChannel):
 
     @classmethod
     def _extract_text_body(cls, msg: Any) -> str:
-        """Best-effort extraction of readable body text."""
+        """Best-effort extraction of readable body text.
+
+        Integration: Called by ``EmailChannel._fetch_messages`` and collaborates with
+        ``msg.is_multipart``, ``payload.strip``, ``msg.walk``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if msg.is_multipart():
             plain_parts: list[str] = []
             html_parts: list[str] = []
@@ -397,12 +552,34 @@ class EmailChannel(BaseChannel):
 
     @staticmethod
     def _html_to_text(raw_html: str) -> str:
+        """Derive html to text from the current inputs and subsystem state.
+
+        Integration: Exposed through ``EmailChannel`` and collaborates with ``re.sub``,
+        ``html.unescape``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         text = re.sub(r"<\s*br\s*/?>", "\n", raw_html, flags=re.IGNORECASE)
         text = re.sub(r"<\s*/\s*p\s*>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"<[^>]+>", "", text)
         return html.unescape(text)
 
     def _reply_subject(self, base_subject: str) -> str:
+        """Derive reply subject from the current inputs and subsystem state.
+
+        Integration: Called by ``EmailChannel.send`` and collaborates with ``startswith``,
+        ``strip``, ``subject.lower``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         subject = (base_subject or "").strip() or "nanobot reply"
         prefix = self.config.subject_prefix or "Re: "
         if subject.lower().startswith("re:"):

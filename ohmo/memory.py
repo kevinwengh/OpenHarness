@@ -1,4 +1,15 @@
-"""Personal memory helpers for ``.ohmo``."""
+"""Personal memory helpers for ``.ohmo``.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -26,7 +37,16 @@ from ohmo.workspace import get_memory_dir, get_memory_index_path
 
 
 def list_memory_files(workspace: str | Path | None = None) -> list[Path]:
-    """List ``.ohmo`` memory markdown files."""
+    """List ``.ohmo`` memory markdown files.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_memory_dir``, ``scan_memory_files``, ``_scan_cwd``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     memory_dir = get_memory_dir(workspace)
     return sorted(
         header.path
@@ -39,7 +59,17 @@ def list_memory_files(workspace: str | Path | None = None) -> list[Path]:
 
 
 def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> Path:
-    """Create a personal memory file and append it to ``MEMORY.md``."""
+    """Create a personal memory file and append it to ``MEMORY.md``.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_memory_dir``, ``memory_dir.mkdir``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     memory_dir = get_memory_dir(workspace)
     memory_dir.mkdir(parents=True, exist_ok=True)
     slug = sub(r"[^a-zA-Z0-9]+", "_", title.strip().lower()).strip("_") or "memory"
@@ -108,7 +138,17 @@ def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> 
 
 
 def remove_memory_entry(workspace: str | Path | None, name: str) -> bool:
-    """Soft-delete a memory file and remove its index entry."""
+    """Soft-delete a memory file and remove its index entry.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_memory_dir``, ``exclusive_file_lock``, ``path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers;
+    retain lock scope and release behavior.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     memory_dir = get_memory_dir(workspace)
     matches = [
         header
@@ -154,7 +194,16 @@ def remove_memory_entry(workspace: str | Path | None, name: str) -> bool:
 
 
 def load_memory_prompt(workspace: str | Path | None = None, *, max_files: int = 5) -> str | None:
-    """Return a prompt section describing personal memory."""
+    """Return a prompt section describing personal memory.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_memory_dir``, ``get_memory_index_path``, ``index_path.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     memory_dir = get_memory_dir(workspace)
     index_path = get_memory_index_path(workspace)
     lines = [
@@ -177,7 +226,18 @@ def load_memory_prompt(workspace: str | Path | None = None, *, max_files: int = 
 
 
 def create_memory_command_backend(workspace: str | Path | None = None) -> MemoryCommandBackend:
-    """Return a ``/memory`` backend bound to ohmo's personal memory store."""
+    """Return a ``/memory`` backend bound to ohmo's personal memory store.
+
+    Integration: Called by ``OhmoSessionRuntimePool.get_bundle``,
+    ``OhmoSessionRuntimePool.stream_message`` and collaborates with ``MemoryCommandBackend``,
+    ``get_memory_dir``, ``get_memory_index_path``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return MemoryCommandBackend(
         label="ohmo personal memory",
@@ -192,10 +252,30 @@ def create_memory_command_backend(workspace: str | Path | None = None) -> Memory
 
 
 def _scan_cwd(workspace: str | Path | None, memory_dir: Path) -> Path:
+    """Scan working directory for the enclosing subsystem.
+
+    Integration: Called by ``list_memory_files``, ``add_memory_entry`` and collaborates with
+    ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return Path(workspace) if workspace is not None else memory_dir.parent
 
 
 def _next_memory_path(memory_dir: Path, slug: str) -> Path:
+    """Return the filesystem path for next memory.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``path.exists``, ``candidate.exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     path = memory_dir / f"{slug}.md"
     if not path.exists():
         return path
@@ -208,6 +288,16 @@ def _next_memory_path(memory_dir: Path, slug: str) -> Path:
 
 
 def _effective_signature(path: Path, existing_signature: str) -> str:
+    """Derive effective signature from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``compute_memory_signature``, ``split_memory_file``, ``path.read_text``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     if existing_signature:
         return existing_signature
     try:

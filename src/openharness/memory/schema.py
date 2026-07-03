@@ -1,4 +1,15 @@
-"""Structured memory metadata helpers."""
+"""Structured memory metadata helpers.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -51,7 +62,16 @@ FRONTMATTER_FIELDS = (
 
 @dataclass(frozen=True)
 class EntrypointView:
-    """A bounded view of ``MEMORY.md`` plus truncation diagnostics."""
+    """A bounded view of ``MEMORY.md`` plus truncation diagnostics.
+
+    Integration: Constructed or referenced by ``truncate_entrypoint_content``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     content: str
     was_truncated: bool
@@ -59,19 +79,46 @@ class EntrypointView:
 
 
 def utc_now() -> datetime:
-    """Return the current UTC time without sub-second noise."""
+    """Return the current UTC time without sub-second noise.
+
+    Integration: Called by ``add_memory_entry``, ``remove_memory_entry`` and collaborates with
+    ``replace``, ``datetime.now``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def format_datetime(value: datetime) -> str:
-    """Format a datetime as an ISO-8601 UTC string."""
+    """Format a datetime as an ISO-8601 UTC string.
+
+    Integration: Called by ``add_memory_entry``, ``remove_memory_entry`` and collaborates with
+    ``replace``, ``isoformat``, ``value.astimezone``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def parse_datetime(value: object) -> datetime | None:
-    """Parse an ISO datetime value used in memory frontmatter."""
+    """Parse an ISO datetime value used in memory frontmatter.
+
+    Integration: Called by ``is_memory_expired``, ``_recency_boost`` and collaborates with
+    ``value.strip``, ``raw.endswith``, ``parsed.astimezone``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     if isinstance(value, datetime):
         if value.tzinfo is None:
@@ -92,7 +139,16 @@ def parse_datetime(value: object) -> datetime | None:
 
 
 def normalize_memory_content(text: str) -> str:
-    """Normalize memory content for deterministic signatures."""
+    """Normalize memory content for deterministic signatures.
+
+    Integration: Called by ``compute_memory_signature`` and collaborates with ``text.lower``,
+    ``re.sub``, ``str.maketrans``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     lowered = text.lower()
     collapsed = re.sub(r"\s+", " ", lowered)
@@ -101,7 +157,16 @@ def normalize_memory_content(text: str) -> str:
 
 
 def compute_memory_signature(content: str, memory_type: str, category: str) -> str:
-    """Compute a deterministic content signature for duplicate detection."""
+    """Compute a deterministic content signature for duplicate detection.
+
+    Integration: Called by ``add_memory_entry``, ``_effective_signature`` and collaborates with
+    ``normalize_memory_content``, ``hexdigest``, ``lower``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     normalized = normalize_memory_content(content)
     payload = f"{normalized}|{memory_type.strip().lower()}|{category.strip().lower()}"
@@ -109,7 +174,16 @@ def compute_memory_signature(content: str, memory_type: str, category: str) -> s
 
 
 def parse_memory_type(raw: Any, *, default: MemoryType | None = None) -> MemoryType | None:
-    """Parse a frontmatter ``type`` value into the canonical runtime taxonomy."""
+    """Parse a frontmatter ``type`` value into the canonical runtime taxonomy.
+
+    Integration: Called by ``_parse_memory_add_flags``, ``_handle_memory_validate_command`` and
+    collaborates with ``lower``, ``raw.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if isinstance(raw, str):
         value = raw.strip().lower()
@@ -121,7 +195,16 @@ def parse_memory_type(raw: Any, *, default: MemoryType | None = None) -> MemoryT
 
 
 def parse_memory_scope(raw: Any, *, default: MemoryScope | None = None) -> MemoryScope | None:
-    """Parse a frontmatter ``scope`` value into the canonical scope taxonomy."""
+    """Parse a frontmatter ``scope`` value into the canonical scope taxonomy.
+
+    Integration: Called by ``_parse_memory_add_flags``, ``parse_extraction_records`` and
+    collaborates with ``lower``, ``raw.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if isinstance(raw, str):
         value = raw.strip().lower()
@@ -140,7 +223,16 @@ def truncate_entrypoint_content(
     max_lines: int = MAX_ENTRYPOINT_LINES,
     max_bytes: int = MAX_ENTRYPOINT_BYTES,
 ) -> EntrypointView:
-    """Bound ``MEMORY.md`` by line count and UTF-8 byte count."""
+    """Bound ``MEMORY.md`` by line count and UTF-8 byte count.
+
+    Integration: Called by ``load_memory_prompt`` and collaborates with ``raw.splitlines``,
+    ``join``, ``text.encode``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     lines = raw.splitlines()
     was_line_truncated = len(lines) > max_lines
@@ -170,7 +262,16 @@ def truncate_entrypoint_content(
 
 
 def memory_age_days(mtime: float, *, now: float | None = None) -> int:
-    """Return floor-rounded days elapsed since a file modification time."""
+    """Return floor-rounded days elapsed since a file modification time.
+
+    Integration: Called by ``memory_age_label``, ``memory_freshness_text`` and collaborates with
+    ``time.time``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     import time
 
@@ -179,7 +280,15 @@ def memory_age_days(mtime: float, *, now: float | None = None) -> int:
 
 
 def memory_age_label(mtime: float, *, now: float | None = None) -> str:
-    """Return a model-friendly age label."""
+    """Return a model-friendly age label.
+
+    Integration: Called by ``build_memory_manifest`` and collaborates with ``memory_age_days``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     days = memory_age_days(mtime, now=now)
     if days == 0:
@@ -190,7 +299,16 @@ def memory_age_label(mtime: float, *, now: float | None = None) -> str:
 
 
 def memory_freshness_text(mtime: float, *, now: float | None = None) -> str:
-    """Return a staleness warning for older memories."""
+    """Return a staleness warning for older memories.
+
+    Integration: Called by ``select_relevant_memories``, ``select_manifest_memories`` and
+    collaborates with ``memory_age_days``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     days = memory_age_days(mtime, now=now)
     if days <= 1:
@@ -202,7 +320,15 @@ def memory_freshness_text(mtime: float, *, now: float | None = None) -> str:
 
 
 def path_is_relative_to(path: str | Path, root: str | Path) -> bool:
-    """Compatibility helper for containment checks."""
+    """Compatibility helper for containment checks.
+
+    Integration: Called by ``validate_team_memory_write_path`` and collaborates with
+    ``relative_to``, ``resolve``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     try:
         Path(path).resolve().relative_to(Path(root).resolve())
@@ -224,7 +350,16 @@ MEMORY_POLICY_LINES: tuple[str, ...] = (
 
 
 def generate_memory_id(now: datetime | None = None) -> str:
-    """Generate a stable-looking memory id for a new memory file."""
+    """Generate a stable-looking memory id for a new memory file.
+
+    Integration: Called by ``add_memory_entry``, ``add_memory_entry`` and collaborates with
+    ``replace``, ``timestamp.replace``, ``secrets.token_hex``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     timestamp = format_datetime(now or utc_now()).replace("-", "").replace(":", "")
     timestamp = timestamp.replace("T", "-").replace("Z", "")
@@ -236,6 +371,15 @@ def split_memory_file(content: str) -> tuple[dict[str, Any], str, int, bool]:
 
     Returns ``(metadata, body, body_start_line, has_closed_frontmatter)``.
     Unclosed frontmatter is treated as body content after the opening delimiter.
+
+    Integration: Called by ``add_memory_entry``, ``remove_memory_entry`` and collaborates with
+    ``content.splitlines``, ``join``, ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     lines = content.splitlines(keepends=True)
@@ -252,7 +396,16 @@ def split_memory_file(content: str) -> tuple[dict[str, Any], str, int, bool]:
 
 
 def render_memory_file(metadata: dict[str, Any], body: str) -> str:
-    """Render metadata and body as a memory markdown file."""
+    """Render metadata and body as a memory markdown file.
+
+    Integration: Called by ``add_memory_entry``, ``remove_memory_entry`` and collaborates with
+    ``render_frontmatter``, ``body.lstrip``, ``normalized_body.endswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     frontmatter = render_frontmatter(metadata)
     normalized_body = body.lstrip("\n")
@@ -262,7 +415,16 @@ def render_memory_file(metadata: dict[str, Any], body: str) -> str:
 
 
 def render_frontmatter(metadata: dict[str, Any]) -> str:
-    """Render memory frontmatter in a stable field order."""
+    """Render memory frontmatter in a stable field order.
+
+    Integration: Called by ``render_memory_file`` and collaborates with ``metadata.items``,
+    ``join``, ``ordered.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     ordered: list[tuple[str, Any]] = []
     for field in FRONTMATTER_FIELDS:
@@ -275,13 +437,35 @@ def render_frontmatter(metadata: dict[str, Any]) -> str:
 
 
 def is_disabled_metadata(metadata: dict[str, Any]) -> bool:
-    """Return whether a memory metadata object marks the file disabled."""
+    """Return whether a memory metadata object marks the file disabled.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with ``_as_bool``,
+    ``metadata.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return _as_bool(metadata.get("disabled"), default=False)
 
 
 def is_memory_expired(metadata: dict[str, Any], *, now: datetime | None = None) -> bool:
-    """Return whether a memory should be hidden because its TTL has elapsed."""
+    """Return whether a memory should be hidden because its TTL has elapsed.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._memory_handler`` and collaborates with
+    ``_as_optional_int``, ``metadata.get``, ``parse_datetime``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     ttl_days = _as_optional_int(metadata.get("ttl_days"))
     if ttl_days is None or ttl_days <= 0:
@@ -293,7 +477,14 @@ def is_memory_expired(metadata: dict[str, Any], *, now: datetime | None = None) 
 
 
 def coerce_int(value: object, *, default: int = 0) -> int:
-    """Coerce a metadata value to int."""
+    """Coerce a metadata value to int.
+
+    Integration: Called by ``add_memory_entry``, ``add_memory_entry``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     try:
         return int(value)  # type: ignore[arg-type]
@@ -302,19 +493,45 @@ def coerce_int(value: object, *, default: int = 0) -> int:
 
 
 def coerce_optional_int(value: object) -> int | None:
-    """Coerce a metadata value to optional int."""
+    """Coerce a metadata value to optional int.
+
+    Integration: Called by ``_parse_memory_file``, ``memory_metadata_from_path`` and
+    collaborates with ``_as_optional_int``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return _as_optional_int(value)
 
 
 def coerce_bool(value: object, *, default: bool = False) -> bool:
-    """Coerce a metadata value to bool."""
+    """Coerce a metadata value to bool.
+
+    Integration: Called by ``_parse_memory_file``, ``memory_metadata_from_path`` and
+    collaborates with ``_as_bool``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     return _as_bool(value, default=default)
 
 
 def coerce_str_list(value: object) -> tuple[str, ...]:
-    """Coerce a metadata value to a tuple of strings."""
+    """Coerce a metadata value to a tuple of strings.
+
+    Integration: Called by ``_parse_memory_file``, ``memory_metadata_from_path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     if isinstance(value, str):
         return (value,) if value else ()
@@ -334,7 +551,16 @@ def memory_metadata_from_path(
     default_category: str = "knowledge",
     seen_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Return complete schema-v1 metadata while preserving existing values."""
+    """Return complete schema-v1 metadata while preserving existing values.
+
+    Integration: Called by ``add_memory_entry``, ``remove_memory_entry`` and collaborates with
+    ``_mtime_timestamp``, ``coerce_int``, ``coerce_optional_int``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     updated = dict(metadata)
     timestamp = _mtime_timestamp(path)
@@ -368,7 +594,16 @@ def memory_metadata_from_path(
 
 
 def first_content_line(body: str, *, limit: int = 200) -> str:
-    """Return the first useful body line for descriptions."""
+    """Return the first useful body line for descriptions.
+
+    Integration: Called by ``add_memory_entry``, ``add_memory_entry`` and collaborates with
+    ``body.splitlines``, ``line.strip``, ``stripped.startswith``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     for line in body.splitlines():
         stripped = line.strip()
@@ -378,6 +613,15 @@ def first_content_line(body: str, *, limit: int = 200) -> str:
 
 
 def _load_frontmatter(raw_frontmatter: str) -> dict[str, Any]:
+    """Load frontmatter for the enclosing subsystem.
+
+    Integration: Called by ``split_memory_file`` and collaborates with ``yaml.safe_load``,
+    ``loaded.items``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         loaded = yaml.safe_load(raw_frontmatter) or {}
     except yaml.YAMLError:
@@ -388,6 +632,15 @@ def _load_frontmatter(raw_frontmatter: str) -> dict[str, Any]:
 
 
 def _format_yaml_value(value: Any) -> str:
+    """Format yaml value for the enclosing subsystem.
+
+    Integration: Called by ``render_frontmatter`` and collaborates with ``json.dumps``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -400,6 +653,15 @@ def _format_yaml_value(value: Any) -> str:
 
 
 def _mtime_timestamp(path: Path) -> str:
+    """Derive mtime timestamp from the current inputs and subsystem state.
+
+    Integration: Called by ``memory_metadata_from_path`` and collaborates with
+    ``format_datetime``, ``datetime.fromtimestamp``, ``utc_now``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
     except OSError:
@@ -412,6 +674,16 @@ def _generate_unique_memory_id(
     now: datetime | None = None,
     seen_ids: set[str] | None = None,
 ) -> str:
+    """Generate unique memory identifier for the enclosing subsystem.
+
+    Integration: Called by ``memory_metadata_from_path`` and collaborates with
+    ``generate_memory_id``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     while True:
         memory_id = generate_memory_id(now=now)
         if seen_ids is None or memory_id not in seen_ids:
@@ -419,6 +691,16 @@ def _generate_unique_memory_id(
 
 
 def _as_bool(value: object, *, default: bool) -> bool:
+    """Determine whether as bool holds for the current inputs.
+
+    Integration: Called by ``is_disabled_metadata``, ``coerce_bool`` and collaborates with
+    ``lower``, ``value.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -433,6 +715,15 @@ def _as_bool(value: object, *, default: bool) -> bool:
 
 
 def _as_optional_int(value: object) -> int | None:
+    """Derive as optional int from the current inputs and subsystem state.
+
+    Integration: Called by ``is_memory_expired``, ``coerce_optional_int`` and collaborates with
+    ``value.strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if value is None:
         return None
     if isinstance(value, str) and not value.strip():

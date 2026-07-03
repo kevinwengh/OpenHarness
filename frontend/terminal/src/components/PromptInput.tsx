@@ -1,3 +1,16 @@
+/**
+ * Render and coordinate the `PromptInput` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput, useStdin} from 'ink';
 import chalk from 'chalk';
@@ -5,9 +18,30 @@ import chalk from 'chalk';
 import {useTheme} from '../theme/ThemeContext.js';
 import {Spinner} from './Spinner.js';
 
+/**
+ * Derive noop from the current frontend state and inputs.
+ *
+ * Integration: Owned by `PromptInput.tsx` and invoked through its surrounding React or module
+ * boundary.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 const noop = (): void => {};
 const BACKSPACE_CONTROL_PATTERN = /^[\b\u007f]+$/;
 
+/**
+ * Return backspace delete count for the calling frontend path.
+ *
+ * Integration: Owned by `PromptInput.tsx` and collaborates with `test`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function getBackspaceDeleteCount(sequence: string): number {
 	if (!sequence || !BACKSPACE_CONTROL_PATTERN.test(sequence)) {
 		return 1;
@@ -16,6 +50,16 @@ export function getBackspaceDeleteCount(sequence: string): number {
 	return [...sequence].length;
 }
 
+/**
+ * Render the MultilineTextInput React component.
+ *
+ * Integration: Owned by `PromptInput.tsx` and collaborates with `useState`, `useStdin`, `useRef`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function MultilineTextInput({
 	value,
 	onChange,
@@ -42,7 +86,10 @@ function MultilineTextInput({
 	// newly-completed text. See HKUDS/OpenHarness#183.
 	const lastInternalValueRef = useRef<string>(value);
 
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses setCursorOffset after render; keep dependencies, asynchronous work, and
+	 * returned cleanup synchronized.
+	 */ () => {
 		if (value === lastInternalValueRef.current) {
 			// Self-authored update; cursor was already positioned by the
 			// handler that called onChange.
@@ -52,28 +99,58 @@ function MultilineTextInput({
 		setCursorOffset(value.length);
 	}, [value]);
 
-	const commitValue = (nextValue: string): void => {
+	 /**
+  * Derive commit value from the current frontend state and inputs.
+  *
+  * Integration: Owned by `MultilineTextInput` and collaborates with `onChange`.
+  *
+  * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded
+  * unless asynchronous ownership is explicit.
+  *
+  * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+  */
+ const commitValue = (nextValue: string): void => {
 		lastInternalValueRef.current = nextValue;
 		onChange(nextValue);
 	};
 
-	useEffect(() => {
+	useEffect(/*
+	 * React effect: uses on after render; keep dependencies, asynchronous work, and returned
+	 * cleanup synchronized.
+	 */ () => {
 		if (!focus) {
 			return;
 		}
 
-		const handleRawInput = (chunk: string | Buffer): void => {
+		  /**
+   * Handle raw input for the owning UI boundary.
+   *
+   * Integration: Owned by `useEffect callback 1` and collaborates with `isBuffer`, `toString`,
+   * `String`.
+   *
+   * Event loop: Runs from an input or UI event; keep synchronous work bounded and order state
+   * updates before asynchronous follow-up.
+   *
+   * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+   */
+  const handleRawInput = (chunk: string | Buffer): void => {
 			lastSequenceRef.current = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
 		};
 
 		internal_eventEmitter.on('input', handleRawInput);
-		return () => {
+		return /*
+		 * Effect cleanup: uses removeListener; keep it paired with every resource acquired by the
+		 * effect.
+		 */ () => {
 			internal_eventEmitter.removeListener('input', handleRawInput);
 		};
 	}, [focus, internal_eventEmitter]);
 
 	useInput(
-		(input, key) => {
+		/*
+		 * useInput callback: uses slice, setCursorOffset, commitValue; keep event-loop work bounded
+		 * and preserve the callback's return contract.
+		 */ (input, key) => {
 			if (!focus) {
 				return;
 			}
@@ -101,12 +178,18 @@ function MultilineTextInput({
 			}
 
 			if (key.leftArrow) {
-				setCursorOffset((previous) => Math.max(0, previous - 1));
+				setCursorOffset(/*
+				 * Functional state update: uses max from prior React state; keep the calculation pure and
+				 * immutable.
+				 */ (previous) => Math.max(0, previous - 1));
 				return;
 			}
 
 			if (key.rightArrow) {
-				setCursorOffset((previous) => Math.min(value.length, previous + 1));
+				setCursorOffset(/*
+				 * Functional state update: uses min from prior React state; keep the calculation pure and
+				 * immutable.
+				 */ (previous) => Math.min(value.length, previous + 1));
 				return;
 			}
 
@@ -184,7 +267,10 @@ function MultilineTextInput({
 	const indent = ' '.repeat(promptPrefix.length);
 	return (
 		<Box flexDirection="column">
-			{lines.map((line, index) => (
+			{lines.map(/*
+			 * map callback: computes its callback result; keep event-loop work bounded and preserve the
+			 * callback's return contract.
+			 */ (line, index) => (
 				<Box key={`${index}:${line}`}>
 					<Text color={promptColor} bold>
 						{index === 0 ? promptPrefix : indent}
@@ -196,6 +282,16 @@ function MultilineTextInput({
 	);
 }
 
+/**
+ * Render the PromptInput React component.
+ *
+ * Integration: Owned by `PromptInput.tsx` and collaborates with `useTheme`, `join`, `map`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function PromptInput({
 	busy,
 	input,
@@ -232,7 +328,10 @@ export function PromptInput({
 			{imageAttachmentLabels.length > 0 ? (
 				<Box>
 					<Text color={theme.colors.accent}>
-						{imageAttachmentLabels.map((label, index) => `[image ${index + 1}: ${label}]`).join(' ')}
+						{imageAttachmentLabels.map(/*
+						 * map callback: computes its callback result; keep event-loop work bounded and preserve
+						 * the callback's return contract.
+						 */ (label, index) => `[image ${index + 1}: ${label}]`).join(' ')}
 					</Text>
 				</Box>
 			) : null}

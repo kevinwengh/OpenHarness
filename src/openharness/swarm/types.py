@@ -1,4 +1,15 @@
-"""Swarm backend type definitions."""
+"""Swarm backend type definitions.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
+"""
 
 from __future__ import annotations
 
@@ -34,7 +45,16 @@ For iTerm2 this is the session ID returned by ``it2``.
 
 @dataclass
 class CreatePaneResult:
-    """Result of creating a new teammate pane."""
+    """Result of creating a new teammate pane.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     pane_id: PaneId
     """The pane ID for the newly created pane."""
@@ -49,21 +69,57 @@ class PaneBackend(Protocol):
 
     Abstracts operations for creating and managing terminal panes for teammate
     visualization in swarm mode.
+
+    Integration: Implemented by injected adapters and consumed through structural typing.
+
+    Event loop: Async methods ``is_available``, ``is_running_inside``,
+    ``create_teammate_pane_in_swarm_view``, ``send_command_to_pane`` run on their caller's loop;
+    instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Update every implementation, injection site, and contract test when method
+    signatures or ownership expectations change.
     """
 
     @property
     def type(self) -> BackendType:
-        """The type identifier for this backend."""
+        """The type identifier for this backend.
+
+        Integration: Called by ``main``, ``FeishuChannel._download_image_sync``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     @property
     def display_name(self) -> str:
-        """Human-readable display name for this backend."""
+        """Human-readable display name for this backend.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     @property
     def supports_hide_show(self) -> bool:
-        """Whether this backend supports hiding and showing panes."""
+        """Whether this backend supports hiding and showing panes.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     async def is_available(self) -> bool:
@@ -71,6 +127,15 @@ class PaneBackend(Protocol):
 
         For tmux: checks if the tmux binary exists.
         For iTerm2: checks if it2 CLI is installed and configured.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -79,6 +144,15 @@ class PaneBackend(Protocol):
 
         For tmux: checks if we are in a tmux session (``$TMUX`` set).
         For iTerm2: checks if we are running inside iTerm2.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -95,6 +169,15 @@ class PaneBackend(Protocol):
 
         Returns:
             :class:`CreatePaneResult` with the pane ID and first-teammate flag.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -111,6 +194,15 @@ class PaneBackend(Protocol):
             pane_id: Target pane.
             command: Command string to execute.
             use_external_session: If True, use external session socket (tmux only).
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -121,7 +213,17 @@ class PaneBackend(Protocol):
         *,
         use_external_session: bool = False,
     ) -> None:
-        """Set the border color for *pane_id*."""
+        """Set the border color for *pane_id*.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     async def set_pane_title(
@@ -132,7 +234,17 @@ class PaneBackend(Protocol):
         *,
         use_external_session: bool = False,
     ) -> None:
-        """Set the title displayed in the border / header of *pane_id*."""
+        """Set the title displayed in the border / header of *pane_id*.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     async def enable_pane_border_status(
@@ -141,7 +253,17 @@ class PaneBackend(Protocol):
         *,
         use_external_session: bool = False,
     ) -> None:
-        """Enable pane border status display (shows titles in borders)."""
+        """Enable pane border status display (shows titles in borders).
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     async def rebalance_panes(
@@ -154,6 +276,15 @@ class PaneBackend(Protocol):
         Args:
             window_target: The window containing the panes.
             has_leader: Whether there is a leader pane (affects strategy).
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -167,6 +298,16 @@ class PaneBackend(Protocol):
 
         Returns:
             True if the pane was killed successfully.
+
+        Integration: Called by ``_kill_orphaned_teammate_panes``,
+        ``_kill_orphaned_teammate_panes._kill_one``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -182,6 +323,15 @@ class PaneBackend(Protocol):
 
         Returns:
             True if the pane was hidden successfully.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -196,11 +346,29 @@ class PaneBackend(Protocol):
 
         Returns:
             True if the pane was shown successfully.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
     def list_panes(self) -> list[PaneId]:
-        """Return a list of all known pane IDs managed by this backend."""
+        """Return a list of all known pane IDs managed by this backend.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
 
@@ -217,6 +385,15 @@ class BackendDetectionResult:
         backend: The backend that should be used.
         is_native: Whether we are running inside the backend's native env.
         needs_setup: True when iTerm2 is detected but ``it2`` is not installed.
+
+    Integration: Constructed or referenced by ``BackendRegistry.detect_backend``,
+    ``BackendRegistry.detect_pane_backend``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     backend: str
@@ -236,7 +413,16 @@ class BackendDetectionResult:
 
 @dataclass
 class TeammateIdentity:
-    """Identity fields for a teammate agent."""
+    """Identity fields for a teammate agent.
+
+    Integration: Owned by the enclosing module and consumed through its public methods.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     agent_id: str
     """Unique agent identifier (format: agentName@teamName)."""
@@ -256,7 +442,16 @@ class TeammateIdentity:
 
 @dataclass
 class TeammateSpawnConfig:
-    """Configuration for spawning a teammate (any execution mode)."""
+    """Configuration for spawning a teammate (any execution mode).
+
+    Integration: Constructed or referenced by ``AgentTool.execute``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     name: str
     """Human-readable teammate name (e.g. ``"researcher"``)."""
@@ -320,7 +515,17 @@ class TeammateSpawnConfig:
 
 @dataclass
 class SpawnResult:
-    """Result from spawning a teammate."""
+    """Result from spawning a teammate.
+
+    Integration: Constructed or referenced by ``InProcessBackend.spawn``,
+    ``SubprocessBackend.spawn``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     task_id: str
     """Task ID in the task manager."""
@@ -340,7 +545,17 @@ class SpawnResult:
 
 @dataclass
 class TeammateMessage:
-    """Message to send to a teammate."""
+    """Message to send to a teammate.
+
+    Integration: Constructed or referenced by ``_drain_mailbox``,
+    ``SendMessageTool._send_swarm_message``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     text: str
     from_agent: str
@@ -359,20 +574,57 @@ class TeammateExecutor(Protocol):
     """Protocol for teammate execution backends.
 
     Abstracts spawn/messaging/shutdown across subprocess, in-process, and tmux backends.
+
+    Integration: Implemented by injected adapters and consumed through structural typing.
+
+    Event loop: Async methods ``spawn``, ``send_message``, ``shutdown`` run on their caller's
+    loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Update every implementation, injection site, and contract test when method
+    signatures or ownership expectations change.
     """
 
     type: BackendType
 
     def is_available(self) -> bool:
-        """Check if this backend is available on the system."""
+        """Check if this backend is available on the system.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     async def spawn(self, config: TeammateSpawnConfig) -> SpawnResult:
-        """Spawn a new teammate with the given configuration."""
+        """Spawn a new teammate with the given configuration.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     async def send_message(self, agent_id: str, message: TeammateMessage) -> None:
-        """Send a message to a running teammate via stdin."""
+        """Send a message to a running teammate via stdin.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ...
 
     async def shutdown(self, agent_id: str, *, force: bool = False) -> bool:
@@ -384,6 +636,15 @@ class TeammateExecutor(Protocol):
 
         Returns:
             True if the agent was terminated successfully.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         ...
 
@@ -394,5 +655,14 @@ class TeammateExecutor(Protocol):
 
 
 def is_pane_backend(backend_type: BackendType) -> bool:
-    """Return True if *backend_type* is a terminal-pane backend (tmux or iterm2)."""
+    """Return True if *backend_type* is a terminal-pane backend (tmux or iterm2).
+
+    Integration: Called by ``_kill_orphaned_teammate_panes``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return backend_type in ("tmux", "iterm2")

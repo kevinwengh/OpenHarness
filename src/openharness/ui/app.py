@@ -1,4 +1,15 @@
-"""Interactive session entry points."""
+"""Interactive session entry points.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +33,10 @@ def _decode_task_worker_line(raw: str) -> str:
     Task-manager driven agent workers receive either:
     - a plain text line (initial prompt or simple follow-up), or
     - a JSON object from ``send_message`` / teammate backends with a ``text`` field.
+
+    The worker calls this after moving blocking stdin reads off the event loop.
+    Keep malformed or legacy payloads as plain text so protocol evolution does
+    not silently discard a coordinator message.
     """
     stripped = raw.strip()
     if not stripped:
@@ -54,7 +69,13 @@ async def run_repl(
     restore_tool_metadata: dict[str, object] | None = None,
     permission_mode: str | None = None,
 ) -> None:
-    """Run the default OpenHarness interactive application (React TUI)."""
+    """Dispatch the default CLI session to the React launcher or backend host.
+
+    ``cli.main`` awaits this once per process. Normal mode starts the TypeScript
+    frontend, whose child process re-enters with ``backend_only=True``; that guard
+    prevents recursive frontend launches. Preserve option forwarding and propagate
+    frontend failures as the original process exit status.
+    """
     if backend_only:
         await run_backend_host(
             cwd=cwd,
@@ -106,19 +127,80 @@ async def run_task_worker(
 
     This mode exists for subprocess teammates and other task-manager managed
     agent processes. It intentionally avoids the React TUI / Ink path so it
-    can run without a controlling TTY.
+    can run without a controlling TTY. Blocking stdin is delegated with
+    ``asyncio.to_thread`` and the worker intentionally processes one non-empty
+    prompt before cleanup; changes must stay compatible with task restart and
+    follow-up-message semantics.
+
+    Integration: Called by ``main`` and collaborates with ``build_runtime``, ``start_runtime``,
+    ``sys.stdout.write``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     async def _noop_permission(_tool_name: str, _reason: str) -> bool:
+        """Auto-approve a worker tool after non-interactive policy evaluation.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return True
 
     async def _noop_ask(_question: str) -> str:
+        """Return an empty answer because task workers have no interactive user.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return ""
 
     async def _print_system(message: str) -> None:
+        """Write runtime notices as flushed worker-protocol output.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         print(message, flush=True)
 
     async def _render_event(event: StreamEvent) -> None:
+        """Render the minimal stream-event subset consumed by task subprocesses.
+
+        This callback runs inline with ``handle_line`` on the event loop, so writes
+        must remain short and flushed. Adding event encodings requires matching
+        changes in task-manager output consumers.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``sys.stdout.write``, ``sys.stdout.flush``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent, StatusEvent
 
         if isinstance(event, AssistantTextDelta):
@@ -133,6 +215,17 @@ async def run_task_worker(
             print(event.message, flush=True)
 
     async def _clear_output() -> None:
+        """Implement the shared UI callback contract as a worker no-op.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return None
 
     bundle = await build_runtime(
@@ -190,7 +283,13 @@ async def run_print_mode(
     permission_mode: str | None = None,
     max_turns: int | None = None,
 ) -> None:
-    """Non-interactive mode: submit prompt, stream output, exit."""
+    """Run one prompt through the shared runtime and emit the requested format.
+
+    CLI print mode uses the same async model/tool loop as the TUI but supplies
+    non-interactive callbacks and always closes the runtime in ``finally``. Text,
+    JSON, and stream-JSON are external output contracts; keep stdout machine-safe,
+    route human status to stderr, and update consumers when event shapes change.
+    """
     from openharness.engine.stream_events import (
         AssistantTextDelta,
         AssistantTurnComplete,
@@ -202,9 +301,31 @@ async def run_print_mode(
     )
 
     async def _noop_permission(tool_name: str, reason: str) -> bool:
+        """Auto-approve confirmation requests in explicitly non-interactive mode.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return True
 
     async def _noop_ask(question: str) -> str:
+        """Return an empty response because print mode cannot open a question UI.
+
+        Integration: Used as an internal helper or callback at this module boundary.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return ""
 
     bundle = await build_runtime(
@@ -229,6 +350,18 @@ async def run_print_mode(
 
     try:
         async def _print_system(message: str) -> None:
+            """Route system notices without corrupting the selected output format.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``events_list.append``, ``json.dumps``.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             nonlocal collected_text
             if output_format == "text":
                 print(message, file=sys.stderr)
@@ -238,6 +371,13 @@ async def run_print_mode(
                 events_list.append(obj)
 
         async def _render_event(event: StreamEvent) -> None:
+            """Translate runtime stream events into text or newline-delimited JSON.
+
+            ``handle_line`` awaits this callback for each event, preserving order
+            with model deltas and tool lifecycle notifications. Keep it
+            non-blocking apart from bounded terminal writes and ensure additions
+            remain valid standalone JSON objects in ``stream-json`` mode.
+            """
             nonlocal collected_text
             if isinstance(event, AssistantTextDelta):
                 collected_text += event.text
@@ -295,6 +435,17 @@ async def run_print_mode(
                     events_list.append(obj)
 
         async def _clear_output() -> None:
+            """Satisfy the shared renderer contract; print-mode output is append-only.
+
+            Integration: Used as an internal helper or callback at this module boundary.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             pass
 
         await handle_line(

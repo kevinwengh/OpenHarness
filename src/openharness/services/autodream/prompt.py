@@ -1,4 +1,15 @@
-"""Prompt builder for memory consolidation dreams."""
+"""Prompt builder for memory consolidation dreams.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +27,17 @@ def build_consolidation_prompt(
     *,
     preview: bool = False,
 ) -> str:
-    """Build the dream prompt used by manual and automatic memory consolidation."""
+    """Build the dream prompt used by manual and automatic memory consolidation.
+
+    Integration: Called by ``start_dream_now`` and collaborates with ``Path``, ``extra.strip``,
+    ``isoformat``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     memory_root = Path(memory_root)
     session_dir = Path(session_dir)

@@ -6,6 +6,13 @@
 #
 # Without --apply: shows a diff between the recorded upstream commit and HEAD.
 # With    --apply: copies updated files, rewrites imports, and updates UPSTREAM.
+#
+# Integration: synchronizes the externally maintained channel/bus source into OpenHarness before
+# maintainers review and test the resulting adapter changes.
+# Concurrency: this is a sequential maintenance workflow, not event-loop code; Git, copy, and sed
+# phases must finish in order so UPSTREAM never records a revision before its files are rewritten.
+# Change safety: preserve preview-by-default behavior, explicit `--apply`, repository boundaries,
+# import/logger rewrites, and the final commit/timestamp provenance update.
 
 set -euo pipefail
 

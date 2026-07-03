@@ -1,3 +1,16 @@
+/**
+ * Render and coordinate the `ConversationView` portion of the Ink terminal interface.
+ *
+ * Integration: Consumed by the terminal component tree; Python remains authoritative for runtime
+ * and persisted conversation state.
+ *
+ * Event loop: React render and input callbacks share Node's event loop with backend-protocol
+ * processing, so rendering work must remain bounded.
+ *
+ * Change safety: Preserve props, keyboard/focus behavior, accessibility text, and transcript/event
+ * ordering expected by parent components.
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
@@ -10,6 +23,16 @@ import {WelcomeBanner} from './WelcomeBanner.js';
 type ToolPair = readonly [TranscriptItem, TranscriptItem];
 type GroupedItem = TranscriptItem | ToolPair;
 
+/**
+ * Derive group tool pairs from the current frontend state and inputs.
+ *
+ * Integration: Owned by `ConversationView.tsx` and collaborates with `push`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function groupToolPairs(items: TranscriptItem[]): GroupedItem[] {
 	const result: GroupedItem[] = [];
 	let i = 0;
@@ -27,6 +50,17 @@ function groupToolPairs(items: TranscriptItem[]): GroupedItem[] {
 	return result;
 }
 
+/**
+ * Render the ConversationViewInner React component.
+ *
+ * Integration: Owned by `ConversationView.tsx` and collaborates with `useTheme`, `slice`,
+ * `groupToolPairs`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function ConversationViewInner({
 	items,
 	assistantBuffer,
@@ -47,7 +81,10 @@ function ConversationViewInner({
 		<Box flexDirection="column" flexGrow={1}>
 			{showWelcome && items.length === 0 ? <WelcomeBanner /> : null}
 
-			{grouped.map((group, index) => {
+			{grouped.map(/*
+			 * map callback: uses isArray; keep event-loop work bounded and preserve the callback's
+			 * return contract.
+			 */ (group, index) => {
 				if (Array.isArray(group)) {
 					const [toolItem, resultItem] = group as [TranscriptItem, TranscriptItem];
 					return (
@@ -91,6 +128,17 @@ function ConversationViewInner({
 
 export const ConversationView = React.memo(ConversationViewInner);
 
+/**
+ * Render the MessageRow React component.
+ *
+ * Integration: Owned by `ConversationView.tsx` and invoked through its surrounding React or module
+ * boundary.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function MessageRow({
 	item,
 	theme,

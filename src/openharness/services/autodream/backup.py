@@ -1,4 +1,15 @@
-"""Backup, diff, and rollback helpers for auto-dream memory directories."""
+"""Backup, diff, and rollback helpers for auto-dream memory directories.
+
+Integration: This module participates in runtime support services such as compaction, sessions,
+cron, extraction, and autodream.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve persistence schemas, task/time bounds, compaction continuity,
+cancellation, atomic writes, and best-effort failure boundaries.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +22,15 @@ from openharness.config.paths import get_data_dir
 
 
 def default_backup_root(memory_dir: str | Path, *, app_label: str = "openharness") -> Path:
-    """Return the backup root for a memory directory."""
+    """Return the backup root for a memory directory.
+
+    Integration: Called by ``create_memory_backup``, ``latest_memory_backup`` and collaborates
+    with ``resolve``, ``strip``, ``expanduser``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
 
     memory_dir = Path(memory_dir).expanduser().resolve()
     if ".ohmo" in memory_dir.parts:
@@ -30,7 +49,17 @@ def create_memory_backup(
     backup_root: str | Path | None = None,
     app_label: str = "openharness",
 ) -> Path:
-    """Create a timestamped copy of ``memory_dir`` and return the backup path."""
+    """Create a timestamped copy of ``memory_dir`` and return the backup path.
+
+    Integration: Called by ``start_dream_now`` and collaborates with ``resolve``,
+    ``root.mkdir``, ``time.strftime``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
 
     memory_dir = Path(memory_dir).expanduser().resolve()
     root = Path(backup_root).expanduser().resolve() if backup_root is not None else default_backup_root(memory_dir, app_label=app_label)
@@ -49,7 +78,18 @@ def create_memory_backup(
 
 
 def diff_memory_dirs(before: str | Path, after: str | Path) -> dict[str, list[str]]:
-    """Return added/removed/changed file names between two memory dirs."""
+    """Return added/removed/changed file names between two memory dirs.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._dream_handler`` and collaborates with ``resolve``,
+    ``before.exists``, ``after.exists``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     before = Path(before).expanduser().resolve()
     after = Path(after).expanduser().resolve()
@@ -66,7 +106,18 @@ def diff_memory_dirs(before: str | Path, after: str | Path) -> dict[str, list[st
 
 
 def format_memory_diff(diff: dict[str, list[str]]) -> str:
-    """Format a compact memory diff summary."""
+    """Format a compact memory diff summary.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._dream_handler`` and collaborates with ``diff.get``,
+    ``join``, ``lines.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     lines: list[str] = []
     for label in ("added", "changed", "removed"):
@@ -77,7 +128,18 @@ def format_memory_diff(diff: dict[str, list[str]]) -> str:
 
 
 def latest_memory_backup(memory_dir: str | Path, *, app_label: str = "openharness") -> Path | None:
-    """Return the latest backup for a memory directory, if any."""
+    """Return the latest backup for a memory directory, if any.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._dream_handler`` and collaborates with
+    ``default_backup_root``, ``root.exists``, ``root.iterdir``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
 
     root = default_backup_root(memory_dir, app_label=app_label)
     if not root.exists():
@@ -89,7 +151,18 @@ def latest_memory_backup(memory_dir: str | Path, *, app_label: str = "openharnes
 
 
 def restore_memory_backup(backup_dir: str | Path, memory_dir: str | Path) -> None:
-    """Restore memory_dir from a backup directory."""
+    """Restore memory_dir from a backup directory.
+
+    Integration: Called by ``create_default_command_registry``,
+    ``create_default_command_registry._dream_handler`` and collaborates with ``resolve``,
+    ``memory_dir.with_name``, ``tmp.exists``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
 
     backup_dir = Path(backup_dir).expanduser().resolve()
     memory_dir = Path(memory_dir).expanduser().resolve()

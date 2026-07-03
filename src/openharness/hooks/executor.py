@@ -1,4 +1,15 @@
-"""Hook execution engine."""
+"""Hook execution engine.
+
+Integration: This module participates in extension callbacks around sessions, prompts,
+compaction, tools, notifications, and stopping.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve priority/order, blocking semantics, timeouts, untrusted arguments,
+failure policy, and async lifecycle.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +42,16 @@ from openharness.utils.shell import create_shell_subprocess
 
 @dataclass
 class HookExecutionContext:
-    """Context passed into hook execution."""
+    """Context passed into hook execution.
+
+    Integration: Constructed or referenced by ``build_runtime``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     cwd: Path
     api_client: SupportsStreamingMessages
@@ -39,14 +59,43 @@ class HookExecutionContext:
 
 
 class HookExecutor:
-    """Execute hooks for lifecycle events."""
+    """Execute hooks for lifecycle events.
+
+    Integration: Constructed or referenced by ``build_runtime``.
+
+    Event loop: Async methods ``execute``, ``_run_command_hook``, ``_run_http_hook``,
+    ``_run_prompt_like_hook`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, registry: HookRegistry, context: HookExecutionContext) -> None:
+        """Initialize ``HookExecutor`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``HookExecutor``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._registry = registry
         self._context = context
 
     def update_registry(self, registry: HookRegistry) -> None:
-        """Replace the active hook registry."""
+        """Replace the active hook registry.
+
+        Integration: Called by ``handle_line``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._registry = registry
 
     def update_context(
@@ -55,14 +104,33 @@ class HookExecutor:
         api_client: SupportsStreamingMessages | None = None,
         default_model: str | None = None,
     ) -> None:
-        """Update the active hook execution context."""
+        """Update the active hook execution context.
+
+        Integration: Called by ``refresh_runtime_client``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if api_client is not None:
             self._context.api_client = api_client
         if default_model is not None:
             self._context.default_model = default_model
 
     async def execute(self, event: HookEvent, payload: dict[str, Any]) -> AggregatedHookResult:
-        """Execute all matching hooks for an event."""
+        """Execute all matching hooks for an event.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_registry.get``, ``AggregatedHookResult``, ``_matches_hook``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         results: list[HookResult] = []
         for hook in self._registry.get(event):
             if not _matches_hook(hook, payload):
@@ -83,6 +151,17 @@ class HookExecutor:
         event: HookEvent,
         payload: dict[str, Any],
     ) -> HookResult:
+        """Run command hook for the enclosing subsystem.
+
+        Integration: Called by ``HookExecutor.execute`` and collaborates with
+        ``_inject_arguments``, ``join``, ``HookResult``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         command = _inject_arguments(hook.command, payload, shell_escape=True)
         try:
             process = await create_shell_subprocess(
@@ -141,6 +220,16 @@ class HookExecutor:
         event: HookEvent,
         payload: dict[str, Any],
     ) -> HookResult:
+        """Run http hook for the enclosing subsystem.
+
+        Integration: Called by ``HookExecutor.execute`` and collaborates with ``HookResult``,
+        ``httpx.AsyncClient``, ``client.post``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             async with httpx.AsyncClient(timeout=hook.timeout_seconds) as client:
                 response = await client.post(
@@ -174,6 +263,18 @@ class HookExecutor:
         *,
         agent_mode: bool,
     ) -> HookResult:
+        """Run prompt like hook for the enclosing subsystem.
+
+        Integration: Called by ``HookExecutor.execute`` and collaborates with
+        ``_inject_arguments``, ``ApiMessageRequest``, ``_context.api_client.stream_message``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         prompt = _inject_arguments(hook.prompt, payload)
         prefix = (
             "You are validating whether a hook condition passes in OpenHarness. "
@@ -213,6 +314,17 @@ class HookExecutor:
 
 
 def _matches_hook(hook: HookDefinition, payload: dict[str, Any]) -> bool:
+    """Determine whether matches hook holds for the current inputs.
+
+    Integration: Called by ``HookExecutor.execute`` and collaborates with ``fnmatch.fnmatch``,
+    ``payload.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     matcher = getattr(hook, "matcher", None)
     if not matcher:
         return True
@@ -223,6 +335,18 @@ def _matches_hook(hook: HookDefinition, payload: dict[str, Any]) -> bool:
 def _inject_arguments(
     template: str, payload: dict[str, Any], *, shell_escape: bool = False
 ) -> str:
+    """Derive inject arguments from the current inputs and subsystem state.
+
+    Integration: Called by ``HookExecutor._run_command_hook``,
+    ``HookExecutor._run_prompt_like_hook`` and collaborates with ``json.dumps``,
+    ``template.replace``, ``shlex.quote``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     serialized = json.dumps(payload, ensure_ascii=True)
     if shell_escape:
         serialized = shlex.quote(serialized)
@@ -230,6 +354,16 @@ def _inject_arguments(
 
 
 def _parse_hook_json(text: str) -> dict[str, Any]:
+    """Parse hook JSON for the enclosing subsystem.
+
+    Integration: Called by ``HookExecutor._run_prompt_like_hook`` and collaborates with
+    ``lower``, ``json.loads``, ``text.strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         parsed = json.loads(text)
         if isinstance(parsed, dict) and isinstance(parsed.get("ok"), bool):

@@ -1,6 +1,14 @@
 """System prompt builder for OpenHarness.
 
 Assembles the system prompt from environment info and user configuration.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
 """
 
 from __future__ import annotations
@@ -56,12 +64,29 @@ Carefully consider the reversibility and blast radius of actions. Freely take lo
 
 
 def get_base_system_prompt() -> str:
-    """Return the built-in base system prompt without environment info."""
+    """Return the built-in base system prompt without environment info.
+
+    Integration: Called by ``build_ohmo_system_prompt``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _BASE_SYSTEM_PROMPT
 
 
 def _format_environment_section(env: EnvironmentInfo) -> str:
-    """Format the environment info section of the system prompt."""
+    """Format the environment info section of the system prompt.
+
+    Integration: Called by ``build_system_prompt`` and collaborates with ``join``,
+    ``lines.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lines = [
         "# Environment",
         f"- OS: {env.os_name} {env.os_version}",
@@ -99,6 +124,14 @@ def build_system_prompt(
 
     Returns:
         The assembled system prompt string.
+
+    Integration: Called by ``build_runtime_system_prompt`` and collaborates with
+    ``_format_environment_section``, ``get_environment_info``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if env is None:
         env = get_environment_info(cwd=cwd)

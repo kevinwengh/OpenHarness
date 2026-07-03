@@ -1,4 +1,15 @@
-"""Unified authentication manager for OpenHarness providers."""
+"""Unified authentication manager for OpenHarness providers.
+
+Integration: This module participates in credential discovery, subscription login, and provider
+authentication.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve credential-store permissions, token refresh, source precedence,
+redaction, and noninteractive failure guidance.
+"""
 
 from __future__ import annotations
 
@@ -73,11 +84,29 @@ class AuthManager:
 
     Reads/writes credentials via :mod:`openharness.auth.storage` and keeps
     track of the currently active provider via settings.
+
+    Integration: Constructed or referenced by ``_prompt_provider_profile``, ``doctor_cmd``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self, settings: Any | None = None) -> None:
         # Lazy-load settings when not provided so that the manager can be
         # instantiated without importing the full config subsystem.
+        """Initialize ``AuthManager`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``AuthManager``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._settings = settings
 
     # ------------------------------------------------------------------
@@ -86,6 +115,17 @@ class AuthManager:
 
     @property
     def settings(self) -> Any:
+        """Return the effective settings used by auth manager.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``load_settings``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._settings is None:
             from openharness.config import load_settings
 
@@ -93,7 +133,17 @@ class AuthManager:
         return self._settings
 
     def _provider_from_settings(self) -> str:
-        """Return the provider name derived from the active profile."""
+        """Return the provider name derived from the active profile.
+
+        Integration: Called by ``AuthManager.get_active_provider`` and collaborates with
+        ``settings.resolve_profile``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         _, profile = self.settings.resolve_profile()
         return profile.provider
 
@@ -102,19 +152,60 @@ class AuthManager:
     # ------------------------------------------------------------------
 
     def get_active_provider(self) -> str:
-        """Return the name of the currently active provider."""
+        """Return the name of the currently active provider.
+
+        Integration: Called by ``AuthManager.get_auth_status`` and collaborates with
+        ``_provider_from_settings``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._provider_from_settings()
 
     def get_active_profile(self) -> str:
-        """Return the active provider profile name."""
+        """Return the active provider profile name.
+
+        Integration: Called by ``AuthManager.get_profile_statuses``,
+        ``AuthManager.remove_profile`` and collaborates with ``settings.resolve_profile``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.settings.resolve_profile()[0]
 
     def list_profiles(self) -> dict[str, ProviderProfile]:
-        """Return the configured provider profiles."""
+        """Return the configured provider profiles.
+
+        Integration: Called by ``handle_gateway_model_command``,
+        ``AuthManager.get_profile_statuses`` and collaborates with ``settings.merged_profiles``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.settings.merged_profiles()
 
     def get_auth_source_statuses(self) -> dict[str, Any]:
-        """Return auth source configuration status."""
+        """Return auth source configuration status.
+
+        Integration: Called by ``AuthManager.get_profile_statuses``, ``auth_status_cmd`` and
+        collaborates with ``settings.resolve_profile``, ``auth_source_provider_name``,
+        ``os.environ.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         import os
 
         from openharness.auth.external import describe_external_binding
@@ -196,6 +287,15 @@ class AuthManager:
                 },
                 ...
             }
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``get_active_provider``, ``os.environ.get``, ``load_external_binding``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         import os
 
@@ -289,7 +389,17 @@ class AuthManager:
         return result
 
     def get_profile_statuses(self) -> dict[str, Any]:
-        """Return the available provider profiles and whether their auth is configured."""
+        """Return the available provider profiles and whether their auth is configured.
+
+        Integration: Called by ``_prompt_provider_profile``, ``doctor_cmd`` and collaborates
+        with ``get_active_profile``, ``get_auth_source_statuses``, ``items``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         active = self.get_active_profile()
         auth_sources = self.get_auth_source_statuses()
         statuses: dict[str, Any] = {}
@@ -318,13 +428,31 @@ class AuthManager:
         return statuses
 
     def save_settings(self) -> None:
-        """Persist the in-memory settings."""
+        """Persist the in-memory settings.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         from openharness.config import save_settings
 
         save_settings(self.settings)
 
     def use_profile(self, name: str) -> None:
-        """Activate a provider profile."""
+        """Activate a provider profile.
+
+        Integration: Called by ``AuthManager.switch_provider``, ``setup_cmd`` and collaborates
+        with ``settings.merged_profiles``, ``materialize_active_profile``, ``save_settings``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         profiles = self.settings.merged_profiles()
         if name not in profiles:
             raise ValueError(f"Unknown provider profile: {name!r}")
@@ -334,7 +462,18 @@ class AuthManager:
         log.info("Switched active profile to %s", name)
 
     def upsert_profile(self, name: str, profile: ProviderProfile) -> None:
-        """Create or replace a provider profile."""
+        """Create or replace a provider profile.
+
+        Integration: Called by ``_configure_custom_profile_via_setup``,
+        ``_ensure_preset_profile`` and collaborates with ``settings.merged_profiles``,
+        ``settings.model_copy``, ``updated.materialize_active_profile``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         profiles = self.settings.merged_profiles()
         profiles[name] = profile
         updated = self.settings.model_copy(update={"profiles": profiles})
@@ -357,7 +496,17 @@ class AuthManager:
         context_window_tokens: int | None = None,
         auto_compact_threshold_tokens: int | None = None,
     ) -> None:
-        """Update a profile in-place."""
+        """Update a profile in-place.
+
+        Integration: Called by ``handle_gateway_model_command``,
+        ``AuthManager.switch_auth_source`` and collaborates with ``settings.merged_profiles``,
+        ``current.model_copy``, ``settings.model_copy``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         profiles = self.settings.merged_profiles()
         if name not in profiles:
             raise ValueError(f"Unknown provider profile: {name!r}")
@@ -391,7 +540,17 @@ class AuthManager:
         self.save_settings()
 
     def remove_profile(self, name: str) -> None:
-        """Remove a non-built-in provider profile."""
+        """Remove a non-built-in provider profile.
+
+        Integration: Called by ``provider_remove`` and collaborates with
+        ``settings.merged_profiles``, ``settings.model_copy``,
+        ``updated.materialize_active_profile``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if name == self.get_active_profile():
             raise ValueError("Cannot remove the active profile.")
         if name in builtin_provider_profile_names():
@@ -405,14 +564,32 @@ class AuthManager:
         self.save_settings()
 
     def switch_auth_source(self, auth_source: str, *, profile_name: str | None = None) -> None:
-        """Switch the auth source for a profile."""
+        """Switch the auth source for a profile.
+
+        Integration: Called by ``AuthManager.switch_provider`` and collaborates with
+        ``update_profile``, ``ValueError``, ``get_active_profile``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if auth_source not in _AUTH_SOURCES:
             raise ValueError(f"Unknown auth source: {auth_source!r}. Known auth sources: {_AUTH_SOURCES}")
         target = profile_name or self.get_active_profile()
         self.update_profile(target, auth_source=auth_source)
 
     def switch_provider(self, name: str) -> None:
-        """Backward-compatible switch entrypoint for profile/provider/auth source names."""
+        """Backward-compatible switch entrypoint for profile/provider/auth source names.
+
+        Integration: Called by ``auth_switch`` and collaborates with ``list_profiles``,
+        ``ValueError``, ``switch_auth_source``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if name in _AUTH_SOURCES:
             self.switch_auth_source(name)
             return
@@ -429,7 +606,17 @@ class AuthManager:
         )
 
     def store_credential(self, provider: str, key: str, value: str) -> None:
-        """Store a credential for the given provider."""
+        """Store a credential for the given provider.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``auth_source_provider_name``, ``settings.model_copy``,
+        ``updated.materialize_active_profile``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         store_credential(provider, key, value)
         # Keep the flattened active settings snapshot aligned for compatibility.
         if key == "api_key" and provider == auth_source_provider_name(self.settings.resolve_profile()[1].auth_source):
@@ -441,7 +628,17 @@ class AuthManager:
                 log.warning("Could not sync api_key to settings: %s", exc)
 
     def store_profile_credential(self, profile_name: str, key: str, value: str) -> None:
-        """Store a credential using the active storage namespace for a profile."""
+        """Store a credential using the active storage namespace for a profile.
+
+        Integration: Called by ``_configure_custom_profile_via_setup``, ``_ensure_profile_auth``
+        and collaborates with ``get``, ``credential_storage_provider_name``,
+        ``store_credential``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         profile = self.list_profiles().get(profile_name)
         if profile is None:
             raise ValueError(f"Unknown provider profile: {profile_name!r}")
@@ -456,7 +653,16 @@ class AuthManager:
                 log.warning("Could not sync api_key to settings: %s", exc)
 
     def clear_credential(self, provider: str) -> None:
-        """Remove all stored credentials for the given provider."""
+        """Remove all stored credentials for the given provider.
+
+        Integration: Called by ``auth_logout`` and collaborates with
+        ``clear_provider_credentials``, ``auth_source_provider_name``, ``settings.model_copy``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         clear_provider_credentials(provider)
         # Also clear api_key in settings if this is the active provider.
         if provider == auth_source_provider_name(self.settings.resolve_profile()[1].auth_source):
@@ -468,7 +674,16 @@ class AuthManager:
                 log.warning("Could not clear api_key from settings: %s", exc)
 
     def clear_profile_credential(self, profile_name: str) -> None:
-        """Remove credentials stored for a specific profile."""
+        """Remove credentials stored for a specific profile.
+
+        Integration: Called by ``auth_logout``, ``create_default_command_registry`` and
+        collaborates with ``get``, ``clear_provider_credentials``, ``ValueError``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         profile = self.list_profiles().get(profile_name)
         if profile is None:
             raise ValueError(f"Unknown provider profile: {profile_name!r}")

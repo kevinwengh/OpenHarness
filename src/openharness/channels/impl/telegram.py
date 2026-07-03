@@ -1,4 +1,15 @@
-"""Telegram channel implementation using python-telegram-bot."""
+"""Telegram channel implementation using python-telegram-bot.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 from __future__ import annotations
 
@@ -23,15 +34,33 @@ _TELEGRAM_URL_LOGGERS = ("httpx", "httpcore", "telegram.ext")
 
 
 def silence_telegram_token_url_loggers() -> None:
-    """Prevent Telegram bot tokens from appearing in dependency INFO logs."""
+    """Prevent Telegram bot tokens from appearing in dependency INFO logs.
+
+    Integration: Called by ``TelegramChannel.start`` and collaborates with ``setLevel``,
+    ``logging.getLogger``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     for name in _TELEGRAM_URL_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
 
 def _markdown_to_telegram_html(text: str) -> str:
-    """
-    Convert markdown to Telegram-safe HTML.
+    """Convert markdown to Telegram-safe HTML.
+
+    Integration: Called by ``TelegramChannel.send`` and collaborates with ``re.sub``,
+    ``replace``, ``code_blocks.append``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if not text:
         return ""
@@ -39,6 +68,17 @@ def _markdown_to_telegram_html(text: str) -> str:
     # 1. Extract and protect code blocks (preserve content from other processing)
     code_blocks: list[str] = []
     def save_code_block(m: re.Match) -> str:
+        """Persist code block for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``code_blocks.append``, ``m.group``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         code_blocks.append(m.group(1))
         return f"\x00CB{len(code_blocks) - 1}\x00"
 
@@ -47,6 +87,17 @@ def _markdown_to_telegram_html(text: str) -> str:
     # 2. Extract and protect inline code
     inline_codes: list[str] = []
     def save_inline_code(m: re.Match) -> str:
+        """Persist inline code for the enclosing subsystem.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``inline_codes.append``, ``m.group``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         inline_codes.append(m.group(1))
         return f"\x00IC{len(inline_codes) - 1}\x00"
 
@@ -93,10 +144,17 @@ def _markdown_to_telegram_html(text: str) -> str:
 
 
 class TelegramChannel(BaseChannel):
-    """
-    Telegram channel using long polling.
+    """Telegram channel using long polling.
 
     Simple and reliable - no webhook/public IP needed.
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``send``, ``_on_start`` run on their caller's
+    loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     name = "telegram"
@@ -115,6 +173,16 @@ class TelegramChannel(BaseChannel):
         bus: MessageBus,
         groq_api_key: str = "",
     ):
+        """Initialize ``TelegramChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``TelegramChannel``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: TelegramConfig = config
         self.groq_api_key = groq_api_key
@@ -127,7 +195,16 @@ class TelegramChannel(BaseChannel):
         self._media_group_tasks: dict[str, asyncio.Task] = {}
 
     async def start(self) -> None:
-        """Start the Telegram bot with long polling."""
+        """Start the Telegram bot with long polling.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``silence_telegram_token_url_loggers``, ``HTTPXRequest``, ``get_updates_request``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self.config.token:
             logger.error("Telegram bot token not configured")
             return
@@ -188,7 +265,18 @@ class TelegramChannel(BaseChannel):
             await asyncio.sleep(1)
 
     async def stop(self) -> None:
-        """Stop the Telegram bot."""
+        """Stop the Telegram bot.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_media_group_tasks.values``, ``_media_group_tasks.clear``,
+        ``_media_group_buffers.clear``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._running = False
         self.polling_started = False
 
@@ -210,7 +298,17 @@ class TelegramChannel(BaseChannel):
 
     @staticmethod
     def _get_media_type(path: str) -> str:
-        """Guess media type from file extension."""
+        """Guess media type from file extension.
+
+        Integration: Called by ``TelegramChannel.send`` and collaborates with ``lower``,
+        ``path.rsplit``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
         if ext in ("jpg", "jpeg", "png", "gif", "webp"):
             return "photo"
@@ -221,7 +319,17 @@ class TelegramChannel(BaseChannel):
         return "document"
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through Telegram."""
+        """Send a message through Telegram.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.warning``, ``msg.metadata.get``, ``_stop_typing``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         if not self._app:
             logger.warning("Telegram bot not running")
             return
@@ -311,7 +419,17 @@ class TelegramChannel(BaseChannel):
                         logger.error("Error sending Telegram message: %s", e2)
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /start command."""
+        """Handle /start command.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``update.message.reply_text``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not update.message or not update.effective_user:
             return
 
@@ -323,7 +441,17 @@ class TelegramChannel(BaseChannel):
         )
 
     async def _on_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /help command, bypassing ACL so all users can access it."""
+        """Handle /help command, bypassing ACL so all users can access it.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``update.message.reply_text``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not update.message:
             return
         await update.message.reply_text(
@@ -335,12 +463,32 @@ class TelegramChannel(BaseChannel):
 
     @staticmethod
     def _sender_id(user) -> str:
-        """Build sender_id with username for allowlist matching."""
+        """Build sender_id with username for allowlist matching.
+
+        Integration: Called by ``TelegramChannel._forward_command``,
+        ``TelegramChannel._on_message``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         sid = str(user.id)
         return f"{sid}|{user.username}" if user.username else sid
 
     async def _forward_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Forward slash commands to the bus for unified handling in AgentLoop."""
+        """Forward slash commands to the bus for unified handling in AgentLoop.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_handle_message``, ``_sender_id``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not update.message or not update.effective_user:
             return
         await self._handle_message(
@@ -350,7 +498,16 @@ class TelegramChannel(BaseChannel):
         )
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle incoming messages (text, photos, voice, documents)."""
+        """Handle incoming messages (text, photos, voice, documents).
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_sender_id``, ``logger.debug``, ``_start_typing``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not update.message or not update.effective_user:
             return
 
@@ -469,7 +626,17 @@ class TelegramChannel(BaseChannel):
         )
 
     async def _flush_media_group(self, key: str) -> None:
-        """Wait briefly, then forward buffered media-group as one turn."""
+        """Wait briefly, then forward buffered media-group as one turn.
+
+        Integration: Called by ``TelegramChannel._on_message`` and collaborates with
+        ``_media_group_tasks.pop``, ``asyncio.sleep``, ``join``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         try:
             await asyncio.sleep(0.6)
             if not (buf := self._media_group_buffers.pop(key, None)):
@@ -484,19 +651,48 @@ class TelegramChannel(BaseChannel):
             self._media_group_tasks.pop(key, None)
 
     def _start_typing(self, chat_id: str) -> None:
-        """Start sending 'typing...' indicator for a chat."""
+        """Start sending 'typing...' indicator for a chat.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_stop_typing``, ``asyncio.create_task``, ``_typing_loop``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         # Cancel any existing typing task for this chat
         self._stop_typing(chat_id)
         self._typing_tasks[chat_id] = asyncio.create_task(self._typing_loop(chat_id))
 
     def _stop_typing(self, chat_id: str) -> None:
-        """Stop the typing indicator for a chat."""
+        """Stop the typing indicator for a chat.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_typing_tasks.pop``, ``task.cancel``, ``task.done``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         task = self._typing_tasks.pop(chat_id, None)
         if task and not task.done():
             task.cancel()
 
     async def _typing_loop(self, chat_id: str) -> None:
-        """Repeatedly send 'typing' action until cancelled."""
+        """Repeatedly send 'typing' action until cancelled.
+
+        Integration: Called by ``TelegramChannel._start_typing`` and collaborates with
+        ``logger.debug``, ``_app.bot.send_chat_action``, ``asyncio.sleep``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             while self._app:
                 await self._app.bot.send_chat_action(chat_id=int(chat_id), action="typing")
@@ -507,12 +703,33 @@ class TelegramChannel(BaseChannel):
             logger.debug("Typing indicator stopped for %s: %s", chat_id, e)
 
     async def _on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Log polling / handler errors instead of silently swallowing them."""
+        """Log polling / handler errors instead of silently swallowing them.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``logger.error``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.last_error = str(context.error)
         logger.error("Telegram error: %s", context.error)
 
     def _get_extension(self, media_type: str, mime_type: str | None) -> str:
-        """Get file extension based on media type."""
+        """Get file extension based on media type.
+
+        Integration: Called by ``TelegramChannel._on_message`` and collaborates with
+        ``type_map.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if mime_type:
             ext_map = {
                 "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",

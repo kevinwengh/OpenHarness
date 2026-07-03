@@ -1,4 +1,15 @@
-"""Skill exports."""
+"""Skill exports.
+
+Integration: This module participates in instruction discovery and precedence used by runtime
+prompt assembly.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve root ordering, frontmatter compatibility, project overrides, bounded
+prompt metadata, and no import-time execution.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +30,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    """Resolve a lazily exported attribute from ``this module``.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``AttributeError``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if name in {"discover_project_skill_dirs", "get_user_skill_dirs", "get_user_skills_dir", "load_skill_registry"}:
         from openharness.skills.loader import (
             discover_project_skill_dirs,

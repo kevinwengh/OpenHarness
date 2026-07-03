@@ -1,4 +1,15 @@
-"""Project-level repo autopilot state, intake, and execution helpers."""
+"""Project-level repo autopilot state, intake, and execution helpers.
+
+Integration: This module participates in repository task intake, policy, execution,
+verification, PR, journal, and dashboard export.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve state-machine transitions, Git/worktree safety, retries, human gates,
+idempotent comments, and atomic artifacts.
+"""
 
 from __future__ import annotations
 
@@ -115,6 +126,18 @@ _DEFAULT_RELEASE_POLICY = {
 
 
 def _shorten(text: str, *, limit: int = 120) -> str:
+    """Derive shorten from the current inputs and subsystem state.
+
+    Integration: Called by ``RepoAutopilotStore.update_status``,
+    ``RepoAutopilotStore.rebuild_active_context`` and collaborates with ``join``,
+    ``text.split``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = " ".join(text.split())
     if len(normalized) <= limit:
         return normalized
@@ -122,12 +145,32 @@ def _shorten(text: str, *, limit: int = 120) -> str:
 
 
 def _safe_text(value: object) -> str:
+    """Derive safe text from the current inputs and subsystem state.
+
+    Integration: Called by ``RepoAutopilotStore.scan_github_issues``,
+    ``RepoAutopilotStore.scan_github_prs`` and collaborates with ``strip``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if value is None:
         return ""
     return str(value).strip()
 
 
 def _json_default(value: object) -> object:
+    """Derive JSON default from the current inputs and subsystem state.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(value, Path):
         return str(value)
     return str(value)
@@ -144,6 +187,14 @@ class _VerificationCommand:
     When ``shell`` is true, ``raw`` is handed to the shell (explicit opt-in).
     ``error`` signals a policy entry that must not be executed; callers emit
     an error step so the verification gate fails loudly.
+
+    Integration: Constructed or referenced by ``_parse_verification_entry``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     raw: str
@@ -153,6 +204,15 @@ class _VerificationCommand:
 
 
 def _parse_verification_entry(entry: object) -> _VerificationCommand:
+    """Parse verification entry for the enclosing subsystem.
+
+    Integration: Called by ``RepoAutopilotStore._verification_commands`` and collaborates with
+    ``any``, ``_VerificationCommand``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     if isinstance(entry, dict):
         raw = str(entry.get("command", "")).strip()
         if not raw:
@@ -197,6 +257,16 @@ def _parse_verification_entry(entry: object) -> _VerificationCommand:
 
 
 def _looks_available(command: str, cwd: Path) -> bool:
+    """Return whether runtime support is available for looks.
+
+    Integration: Called by ``RepoAutopilotStore._verification_commands`` and collaborates with
+    ``command.lower``, ``lowered.startswith``, ``exists``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     lowered = command.lower()
     if lowered.startswith("uv "):
         return (cwd / "pyproject.toml").exists()
@@ -210,6 +280,16 @@ def _looks_available(command: str, cwd: Path) -> bool:
 
 
 def _source_ref_number(source_ref: str, prefix: str) -> int | None:
+    """Derive source ref number from the current inputs and subsystem state.
+
+    Integration: Called by ``RepoAutopilotStore._issue_number_for_card``,
+    ``RepoAutopilotStore._linked_pr_number`` and collaborates with ``source_ref.strip``,
+    ``normalized.startswith``, ``normalized.split``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     normalized = source_ref.strip()
     if not normalized.startswith(f"{prefix}:"):
         return None
@@ -220,13 +300,43 @@ def _source_ref_number(source_ref: str, prefix: str) -> int | None:
 
 
 def _bilingual_lines(zh: str, en: str) -> str:
+    """Derive bilingual lines from the current inputs and subsystem state.
+
+    Integration: Called by ``RepoAutopilotStore._comment_started``,
+    ``RepoAutopilotStore._comment_pr_opened`` and collaborates with ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return f"{zh}\n{en}".strip()
 
 
 class RepoAutopilotStore:
-    """Persist and query project-level autopilot state."""
+    """Persist and query project-level autopilot state.
+
+    Integration: Constructed or referenced by ``autopilot_status_cmd``, ``autopilot_list_cmd``.
+
+    Event loop: Async methods ``run_next``, ``run_card``, ``tick``, ``_wait_for_pr_ci`` run on
+    their caller's loop; instances must retain clear task, cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     def __init__(self, cwd: str | Path) -> None:
+        """Initialize ``RepoAutopilotStore`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``RepoAutopilotStore`` and collaborates with ``resolve``,
+        ``get_project_autopilot_registry_path``, ``get_project_repo_journal_path``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._cwd = Path(cwd).resolve()
         self._registry_path = get_project_autopilot_registry_path(self._cwd)
         self._journal_path = get_project_repo_journal_path(self._cwd)
@@ -236,27 +346,89 @@ class RepoAutopilotStore:
 
     @property
     def registry_path(self) -> Path:
+        """Return the filesystem path for registry.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._registry_path
 
     @property
     def journal_path(self) -> Path:
+        """Return the filesystem path for journal.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._journal_path
 
     @property
     def context_path(self) -> Path:
+        """Return the filesystem path for context.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._context_path
 
     @property
     def runs_dir(self) -> Path:
+        """Derive runs directory from the current inputs and subsystem state.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._runs_dir
 
     def list_cards(self, *, status: RepoTaskStatus | None = None) -> list[RepoTaskCard]:
+        """List cards for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.tick``, ``autopilot_list_cmd`` and
+        collaborates with ``_load_registry``, ``card.title.lower``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         cards = self._load_registry().cards
         if status is not None:
             cards = [card for card in cards if card.status == status]
         return sorted(cards, key=lambda card: (-card.score, -card.updated_at, card.title.lower()))
 
     def get_card(self, card_id: str) -> RepoTaskCard | None:
+        """Return card for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``create_default_command_registry`` and collaborates with ``_load_registry``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for card in self._load_registry().cards:
             if card.id == card_id:
                 return card
@@ -272,6 +444,18 @@ class RepoAutopilotStore:
         labels: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> tuple[RepoTaskCard, bool]:
+        """Enqueue card for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.scan_github_issues``,
+        ``RepoAutopilotStore.scan_github_prs`` and collaborates with ``_load_registry``,
+        ``time.time``, ``title.strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         registry = self._load_registry()
         now = time.time()
         normalized_title = title.strip()
@@ -332,6 +516,17 @@ class RepoAutopilotStore:
         return card, True
 
     def pick_next_card(self) -> RepoTaskCard | None:
+        """Select next card for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_next``, ``RepoAutopilotStore.tick`` and
+        collaborates with ``_load_registry``, ``card.title.lower``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         queued = [card for card in self._load_registry().cards if card.status == "queued"]
         if not queued:
             return None
@@ -345,6 +540,17 @@ class RepoAutopilotStore:
         note: str | None = None,
         metadata_updates: dict[str, Any] | None = None,
     ) -> RepoTaskCard:
+        """Update status for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with
+        ``_load_registry``, ``time.time``, ``_score_card``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         registry = self._load_registry()
         card = next((item for item in registry.cards if item.id == card_id), None)
         if card is None:
@@ -365,6 +571,18 @@ class RepoAutopilotStore:
         return card
 
     def load_journal(self, *, limit: int = 12) -> list[RepoJournalEntry]:
+        """Load journal for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.rebuild_active_context``,
+        ``RepoAutopilotStore._build_dashboard_snapshot`` and collaborates with ``splitlines``,
+        ``_journal_path.exists``, ``line.strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         if not self._journal_path.exists():
             return []
         entries: list[RepoJournalEntry] = []
@@ -386,6 +604,18 @@ class RepoAutopilotStore:
         task_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> RepoJournalEntry:
+        """Append journal for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.enqueue_card``,
+        ``RepoAutopilotStore.update_status`` and collaborates with ``RepoJournalEntry``,
+        ``_journal_path.open``, ``handle.write``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         entry = RepoJournalEntry(
             timestamp=time.time(),
             kind=kind,
@@ -398,11 +628,35 @@ class RepoAutopilotStore:
         return entry
 
     def load_active_context(self) -> str:
+        """Load active context for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore._build_dashboard_snapshot``,
+        ``autopilot_context_cmd`` and collaborates with ``strip``, ``_context_path.exists``,
+        ``_context_path.read_text``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         if not self._context_path.exists():
             return ""
         return self._context_path.read_text(encoding="utf-8", errors="replace").strip()
 
     def rebuild_active_context(self) -> str:
+        """Rebuild active context for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.enqueue_card``,
+        ``RepoAutopilotStore.update_status`` and collaborates with ``lines.extend``,
+        ``load_journal``, ``atomic_write_text``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         cards = self._load_registry().cards
         running = [card for card in cards if card.status in {"preparing", "running", "verifying", "waiting_ci", "repairing"}]
         accepted = [card for card in cards if card.status in {"accepted", "pr_open"}]
@@ -484,12 +738,35 @@ class RepoAutopilotStore:
         return content
 
     def stats(self) -> dict[str, int]:
+        """Derive stats from the current inputs and subsystem state.
+
+        Integration: Called by ``autopilot_status_cmd``, ``create_default_command_registry`` and
+        collaborates with ``_load_registry``, ``counts.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         counts: dict[str, int] = {}
         for card in self._load_registry().cards:
             counts[card.status] = counts.get(card.status, 0) + 1
         return counts
 
     def load_policies(self) -> dict[str, Any]:
+        """Load policies for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_read_yaml``, ``get_project_autopilot_policy_path``,
+        ``get_project_verification_policy_path``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return {
             "autopilot": self._read_yaml(get_project_autopilot_policy_path(self._cwd), _DEFAULT_AUTOPILOT_POLICY),
             "verification": self._read_yaml(
@@ -500,6 +777,17 @@ class RepoAutopilotStore:
         }
 
     def scan_github_issues(self, *, limit: int = 10) -> list[RepoTaskCard]:
+        """Scan github issues for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.scan_all_sources``, ``autopilot_scan_cmd``
+        and collaborates with ``_run_gh_json``, ``item.get``, ``enqueue_card``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         raw = self._run_gh_json(
             [
                 "gh",
@@ -534,6 +822,17 @@ class RepoAutopilotStore:
         return cards
 
     def scan_github_prs(self, *, limit: int = 10) -> list[RepoTaskCard]:
+        """Scan github prs for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.scan_all_sources``, ``autopilot_scan_cmd``
+        and collaborates with ``_run_gh_json``, ``item.get``, ``enqueue_card``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         raw = self._run_gh_json(
             [
                 "gh",
@@ -578,6 +877,16 @@ class RepoAutopilotStore:
         limit: int = 10,
         root: str | Path | None = None,
     ) -> list[RepoTaskCard]:
+        """Scan claude code candidates for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.scan_all_sources``, ``autopilot_scan_cmd``
+        and collaborates with ``resolve``, ``candidate_root.exists``, ``ValueError``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         candidate_root = Path(root or Path.home() / "claude-code").expanduser().resolve()
         if not candidate_root.exists():
             raise ValueError(f"claude-code root not found: {candidate_root}")
@@ -607,6 +916,17 @@ class RepoAutopilotStore:
         return cards
 
     def scan_all_sources(self, *, issue_limit: int = 10, pr_limit: int = 10) -> dict[str, int]:
+        """Scan all sources for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.tick``, ``autopilot_scan_cmd`` and
+        collaborates with ``append_journal``, ``rebuild_active_context``,
+        ``scan_github_issues``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         counts = {"github_issue": 0, "github_pr": 0, "claude_code_candidate": 0}
         try:
             counts["github_issue"] = len(self.scan_github_issues(limit=issue_limit))
@@ -631,6 +951,16 @@ class RepoAutopilotStore:
         max_turns: int | None = None,
         permission_mode: str | None = None,
     ) -> RepoRunResult:
+        """Run next for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.tick``, ``autopilot_run_next_cmd`` and
+        collaborates with ``pick_next_card``, ``ValueError``, ``run_card``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         card = self.pick_next_card()
         if card is None:
             raise ValueError("No queued autopilot cards.")
@@ -649,6 +979,17 @@ class RepoAutopilotStore:
         max_turns: int | None = None,
         permission_mode: str | None = None,
     ) -> RepoRunResult:
+        """Run card for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_next``,
+        ``create_default_command_registry`` and collaborates with ``get_card``,
+        ``load_policies``, ``_max_attempts``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         card = self.get_card(card_id)
         if card is None:
             raise ValueError(f"No autopilot card found with ID: {card_id}")
@@ -1158,6 +1499,17 @@ class RepoAutopilotStore:
         issue_limit: int = 10,
         pr_limit: int = 10,
     ) -> RepoRunResult | None:
+        """Run one scheduled autopilot processing iteration.
+
+        Integration: Called by ``autopilot_tick_cmd``, ``create_default_command_registry`` and
+        collaborates with ``scan_all_sources``, ``any``, ``append_journal``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.scan_all_sources(issue_limit=issue_limit, pr_limit=pr_limit)
         if any(card.status in {"preparing", "running", "verifying", "waiting_ci", "repairing"} for card in self.list_cards()):
             self.append_journal(kind="tick_skip", summary="Skipped run-next because another card is active")
@@ -1172,6 +1524,17 @@ class RepoAutopilotStore:
         )
 
     def install_default_cron(self) -> list[str]:
+        """Derive install default cron from the current inputs and subsystem state.
+
+        Integration: Called by ``autopilot_install_cron_cmd``,
+        ``create_default_command_registry`` and collaborates with ``upsert_cron_job``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         from openharness.services.cron import upsert_cron_job
 
         jobs = [
@@ -1193,6 +1556,18 @@ class RepoAutopilotStore:
         return [job["name"] for job in jobs]
 
     def export_dashboard(self, output_dir: str | Path | None = None) -> Path:
+        """Export dashboard for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.rebuild_active_context``,
+        ``autopilot_export_dashboard_cmd`` and collaborates with ``target_dir.resolve``,
+        ``target_dir.mkdir``, ``_build_dashboard_snapshot``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects expected
+        by callers.
+        """
         target_dir = Path(output_dir) if output_dir is not None else self._cwd / "docs" / "autopilot"
         target_dir = target_dir.resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1206,6 +1581,17 @@ class RepoAutopilotStore:
         return target_dir
 
     def _max_attempts(self, policies: dict[str, Any]) -> int:
+        """Derive max attempts from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with ``get``,
+        ``execution.get``, ``repair.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         execution = dict(policies.get("autopilot", {}).get("execution", {}))
         repair = dict(policies.get("autopilot", {}).get("repair", {}))
         execution_attempts = int(execution.get("max_attempts", 3) or 3)
@@ -1213,15 +1599,47 @@ class RepoAutopilotStore:
         return max(execution_attempts, repair_rounds + 1, 1)
 
     def _base_branch(self, policies: dict[str, Any]) -> str:
+        """Derive base branch from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with ``get``,
+        ``_safe_text``, ``execution.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         execution = dict(policies.get("autopilot", {}).get("execution", {}))
         return _safe_text(execution.get("base_branch")) or "main"
 
     def _head_branch(self, card: RepoTaskCard, policies: dict[str, Any]) -> str:
+        """Derive head branch from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with ``get``,
+        ``_safe_text``, ``github_policy.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         github_policy = dict(policies.get("autopilot", {}).get("github", {}))
         prefix = _safe_text(github_policy.get("pr_branch_prefix")) or "autopilot/"
         return f"{prefix}{card.id}"
 
     def _worktree_slug(self, card: RepoTaskCard) -> str:
+        """Derive worktree slug from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return f"autopilot/{card.id}"
 
     def _run_command(
@@ -1233,6 +1651,17 @@ class RepoAutopilotStore:
         shell: bool = False,
         check: bool = False,
     ) -> subprocess.CompletedProcess[str]:
+        """Run command for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore._run_git``, ``RepoAutopilotStore._run_gh``
+        and collaborates with ``subprocess.run``, ``RuntimeError``, ``strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         completed = subprocess.run(
             command,
             cwd=cwd or self._cwd,
@@ -1249,12 +1678,46 @@ class RepoAutopilotStore:
         return completed
 
     def _run_git(self, args: list[str], *, cwd: Path | None = None, check: bool = False) -> subprocess.CompletedProcess[str]:
+        """Run git for the enclosing subsystem.
+
+        Integration: Exposed through ``RepoAutopilotStore`` and collaborates with
+        ``_run_command``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._run_command(["git", *args], cwd=cwd, check=check)
 
     def _run_gh(self, args: list[str], *, cwd: Path | None = None, check: bool = False) -> subprocess.CompletedProcess[str]:
+        """Run gh for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore._gh_json``,
+        ``RepoAutopilotStore._best_effort_add_labels`` and collaborates with ``_run_command``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._run_command(["gh", *args], cwd=cwd, check=check)
 
     def _gh_json(self, args: list[str], *, cwd: Path | None = None) -> Any:
+        """Derive gh JSON from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore._current_repo_full_name``,
+        ``RepoAutopilotStore._find_open_pr_for_branch`` and collaborates with ``_run_gh``,
+        ``strip``, ``json.loads``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         completed = self._run_gh(args, cwd=cwd, check=True)
         raw = (completed.stdout or "").strip()
         if not raw:
@@ -1262,14 +1725,47 @@ class RepoAutopilotStore:
         return json.loads(raw)
 
     def _git_has_changes(self, cwd: Path) -> bool:
+        """Return whether git has changes.
+
+        Integration: Called by ``RepoAutopilotStore._git_commit_all`` and collaborates with
+        ``_run_git``, ``strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         completed = self._run_git(["status", "--porcelain"], cwd=cwd, check=True)
         return bool((completed.stdout or "").strip())
 
     def _is_git_repo(self, cwd: Path) -> bool:
+        """Return whether git repo for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_run_git``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         completed = self._run_git(["rev-parse", "--git-dir"], cwd=cwd)
         return completed.returncode == 0
 
     def _git_commit_all(self, cwd: Path, message: str) -> bool:
+        """Determine whether git commit all holds for the current inputs.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_run_git``, ``_git_has_changes``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not self._git_has_changes(cwd):
             return False
         self._run_git(["add", "-A"], cwd=cwd, check=True)
@@ -1277,9 +1773,30 @@ class RepoAutopilotStore:
         return True
 
     def _git_push_branch(self, cwd: Path, branch: str) -> None:
+        """Apply git push branch to the enclosing subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_run_git``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._run_git(["push", "-u", "origin", branch], cwd=cwd, check=True)
 
     def _git_branch_has_progress(self, cwd: Path, *, base_branch: str) -> bool:
+        """Return whether git branch has progress.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_run_git``, ``strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         completed = self._run_git(
             ["rev-list", "--count", f"origin/{base_branch}..HEAD"],
             cwd=cwd,
@@ -1292,6 +1809,17 @@ class RepoAutopilotStore:
             return False
 
     def _sync_worktree_to_base(self, cwd: Path, *, base_branch: str, head_branch: str, reset: bool) -> None:
+        """Apply sync worktree to base to the enclosing subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_run_git``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._run_git(["fetch", "origin", base_branch], cwd=cwd, check=True)
         if reset:
             self._run_git(["checkout", "-B", head_branch, f"origin/{base_branch}"], cwd=cwd, check=True)
@@ -1299,6 +1827,17 @@ class RepoAutopilotStore:
         self._run_git(["checkout", head_branch], cwd=cwd, check=True)
 
     def _issue_number_for_card(self, card: RepoTaskCard) -> int | None:
+        """Derive issue number for card from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._build_pr_body`` and collaborates with ``card.metadata.get``,
+        ``_source_ref_number``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         linked = card.metadata.get("linked_issue_numbers")
         if isinstance(linked, list) and linked:
             try:
@@ -1308,6 +1847,16 @@ class RepoAutopilotStore:
         return _source_ref_number(card.source_ref, "issue")
 
     def _linked_pr_number(self, card: RepoTaskCard) -> int | None:
+        """Derive linked pr number from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``card.metadata.get``, ``_source_ref_number``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         linked = card.metadata.get("linked_pr_number")
         if linked is not None:
             try:
@@ -1317,6 +1866,16 @@ class RepoAutopilotStore:
         return _source_ref_number(card.source_ref, "pr")
 
     def _current_repo_full_name(self) -> str:
+        """Derive current repo full name from the current inputs and subsystem state.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_safe_text``, ``_gh_json``, ``info.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         info = self._gh_json(["repo", "view", "--json", "nameWithOwner"], cwd=self._cwd) or {}
         repo = _safe_text(info.get("nameWithOwner"))
         if not repo:
@@ -1324,6 +1883,17 @@ class RepoAutopilotStore:
         return repo
 
     def _find_open_pr_for_branch(self, head_branch: str) -> dict[str, Any] | None:
+        """Find open pr for branch for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore._upsert_pull_request`` and collaborates with
+        ``_gh_json``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         data = self._gh_json(
             [
                 "pr",
@@ -1342,6 +1912,16 @@ class RepoAutopilotStore:
         return None
 
     def _best_effort_add_labels(self, pr_number: int, labels: list[str]) -> None:
+        """Apply best effort add labels to the enclosing subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore._upsert_pull_request`` and collaborates with
+        ``_run_gh``, ``append_journal``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         normalized = [label for label in labels if label]
         if not normalized:
             return
@@ -1361,6 +1941,17 @@ class RepoAutopilotStore:
         run_report_path: Path,
         verification_report_path: Path,
     ) -> str:
+        """Build pr body for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore._upsert_pull_request`` and collaborates with
+        ``_issue_number_for_card``, ``body.extend``, ``strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         issue_number = self._issue_number_for_card(card)
         body = [
             "## Autopilot Summary",
@@ -1392,6 +1983,17 @@ class RepoAutopilotStore:
         run_report_path: Path,
         verification_report_path: Path,
     ) -> dict[str, Any]:
+        """Derive upsert pull request from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_find_open_pr_for_branch``, ``_build_pr_body``, ``_best_effort_add_labels``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         existing = self._find_open_pr_for_branch(head_branch)
         if existing is not None:
             self._best_effort_add_labels(existing.get("number"), ["autopilot"])
@@ -1433,6 +2035,16 @@ class RepoAutopilotStore:
         return created
 
     def _comment_on_issue(self, issue_number: int, comment: str) -> None:
+        """Post a status comment for on issue for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_run_gh``, ``append_journal``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             self._run_gh(["issue", "comment", str(issue_number), "--body", comment], cwd=self._cwd, check=True)
         except Exception as exc:
@@ -1443,6 +2055,17 @@ class RepoAutopilotStore:
             )
 
     def _comment_on_pr(self, pr_number: int, comment: str) -> None:
+        """Post a status comment for on pr for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with ``_run_gh``,
+        ``append_journal``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             self._run_gh(["pr", "comment", str(pr_number), "--body", comment], cwd=self._cwd, check=True)
         except Exception as exc:
@@ -1453,48 +2076,139 @@ class RepoAutopilotStore:
             )
 
     def _comment_started(self, card: RepoTaskCard, attempt_count: int) -> str:
+        """Post a status comment for started for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_bilingual_lines``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return _bilingual_lines(
             f"OpenHarness autopilot 已开始处理 `{card.id}`，当前第 {attempt_count} 轮执行。",
             f"OpenHarness autopilot started processing `{card.id}`. Attempt {attempt_count} is now running.",
         )
 
     def _comment_pr_opened(self, pr_number: int, pr_url: str) -> str:
+        """Post a status comment for pr opened for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_bilingual_lines``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return _bilingual_lines(
             f"已创建或更新 PR #{pr_number}: {pr_url}",
             f"Created or updated PR #{pr_number}: {pr_url}",
         )
 
     def _comment_ci_failed(self, attempt_count: int, summary: str) -> str:
+        """Post a status comment for ci failed for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_bilingual_lines``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return _bilingual_lines(
             f"远端 CI 失败，准备进入第 {attempt_count + 1} 轮自动修复。摘要：{summary}",
             f"Remote CI failed. Preparing repair round {attempt_count + 1}. Summary: {summary}",
         )
 
     def _comment_local_failed(self, attempt_count: int, summary: str) -> str:
+        """Post a status comment for local failed for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_bilingual_lines``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return _bilingual_lines(
             f"本地 verification 失败，准备进入第 {attempt_count + 1} 轮自动修复。摘要：{summary}",
             f"Local verification failed. Preparing repair round {attempt_count + 1}. Summary: {summary}",
         )
 
     def _comment_merged(self, pr_number: int) -> str:
+        """Post a status comment for merged for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with
+        ``_bilingual_lines``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return _bilingual_lines(
             f"PR #{pr_number} 已自动合并，任务闭环完成。",
             f"PR #{pr_number} was auto-merged. The autopilot loop has completed.",
         )
 
     def _comment_human_gate(self, pr_number: int) -> str:
+        """Post a status comment for human gate for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with
+        ``_bilingual_lines``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return _bilingual_lines(
             f"PR #{pr_number} 的本地验证和远端 CI 都已通过，但仍需人工 gate 或 merge label。",
             f"PR #{pr_number} passed local verification and remote CI, but still requires a human gate or merge label.",
         )
 
     def _comment_terminal_failure(self, summary: str) -> str:
+        """Post a status comment for terminal failure for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with
+        ``_bilingual_lines``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return _bilingual_lines(
             f"自动化流程已停止。失败原因：{summary}",
             f"The automated loop has stopped. Failure reason: {summary}",
         )
 
     def _pr_status_snapshot(self, pr_number: int) -> dict[str, Any]:
+        """Derive pr status snapshot from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore._wait_for_pr_ci`` and collaborates with
+        ``_gh_json``, ``_safe_text``, ``label.get``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         payload = self._gh_json(
             [
                 "pr",
@@ -1513,6 +2227,17 @@ class RepoAutopilotStore:
         return payload
 
     def _ci_rollup(self, pr_snapshot: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
+        """Derive ci rollup from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore._wait_for_pr_ci`` and collaborates with
+        ``any``, ``pr_snapshot.get``, ``_safe_text``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         checks = pr_snapshot.get("statusCheckRollup") or []
         normalized: list[dict[str, Any]] = []
         if not isinstance(checks, list):
@@ -1546,6 +2271,18 @@ class RepoAutopilotStore:
         return "success", "All reported remote checks passed.", normalized
 
     async def _wait_for_pr_ci(self, pr_number: int, policies: dict[str, Any]) -> tuple[str, str, dict[str, Any], list[dict[str, Any]]]:
+        """Wait for for pr ci for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with ``get``,
+        ``time.time``, ``_pr_status_snapshot``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         github_policy = dict(policies.get("autopilot", {}).get("github", {}))
         timeout_seconds = int(github_policy.get("ci_timeout_seconds", 1800) or 1800)
         poll_interval = int(github_policy.get("ci_poll_interval_seconds", 20) or 20)
@@ -1572,6 +2309,18 @@ class RepoAutopilotStore:
             await asyncio.sleep(max(poll_interval, 5))
 
     def _automerge_eligible(self, pr_snapshot: dict[str, Any], policies: dict[str, Any]) -> bool:
+        """Determine whether automerge eligible holds for the current inputs.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with ``get``,
+        ``github_policy.get``, ``_safe_text``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         github_policy = dict(policies.get("autopilot", {}).get("github", {}))
         auto_merge = dict(github_policy.get("auto_merge", {}))
         mode = _safe_text(auto_merge.get("mode")) or "label_gated"
@@ -1586,6 +2335,17 @@ class RepoAutopilotStore:
         return required_label.lower() in labels
 
     def _merge_pull_request(self, pr_number: int) -> None:
+        """Merge pull request for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card``,
+        ``RepoAutopilotStore._process_existing_pr_card`` and collaborates with ``_run_gh``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._run_gh(
             ["pr", "merge", str(pr_number), "--squash"],
             cwd=self._cwd,
@@ -1602,6 +2362,17 @@ class RepoAutopilotStore:
         failure_stage: str | None,
         failure_summary: str | None,
     ) -> str:
+        """Prepare repair prompt for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_build_execution_prompt``, ``extras.extend``, ``extras.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         prompt = self._build_execution_prompt(card, policies)
         if attempt_count <= 1 or not failure_stage:
             return prompt
@@ -1631,6 +2402,17 @@ class RepoAutopilotStore:
         pr_number: int,
         policies: dict[str, Any],
     ) -> RepoRunResult:
+        """Process existing pr card for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``update_status``, ``_safe_text``, ``_automerge_eligible``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         current_run_report = self._runs_dir / f"{card.id}-run.md"
         current_verification_report = self._runs_dir / f"{card.id}-verification.md"
         self.update_status(
@@ -1700,6 +2482,17 @@ class RepoAutopilotStore:
         )
 
     def _build_dashboard_snapshot(self) -> dict[str, Any]:
+        """Build dashboard snapshot for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.export_dashboard`` and collaborates with
+        ``_load_registry``, ``append``, ``time.time``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         registry = self._load_registry()
         cards = sorted(
             registry.cards,
@@ -1766,6 +2559,17 @@ class RepoAutopilotStore:
         }
 
     def _serialize_card(self, card: RepoTaskCard) -> dict[str, Any]:
+        """Serialize card for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore._build_dashboard_snapshot`` and collaborates
+        with ``card.metadata.get``, ``verification_steps.append``, ``_safe_text``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         verification_steps = []
         for step in card.metadata.get("verification_steps", []) or []:
             if isinstance(step, dict):
@@ -1808,6 +2612,17 @@ class RepoAutopilotStore:
         }
 
     def _status_sort_key(self, status: str) -> int:
+        """Derive status sort key from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore._build_dashboard_snapshot`` and collaborates
+        with ``order.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         order = {
             "repairing": 0,
             "waiting_ci": 1,
@@ -1833,6 +2648,15 @@ class RepoAutopilotStore:
         no pre-built ``index.html`` already exists in the output
         directory, so local ``snapshot.json`` generation still works
         without a Node.js toolchain.
+
+        Integration: Called by ``RepoAutopilotStore.export_dashboard`` and collaborates with
+        ``escape``, ``time.strftime``, ``time.gmtime``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         repo_name = escape(_safe_text(snapshot.get("repo_name")) or "OpenHarness")
         generated = time.strftime(
@@ -1886,6 +2710,17 @@ class RepoAutopilotStore:
 """
 
     def _ensure_layout(self) -> None:
+        """Ensure layout for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.__init__`` and collaborates with
+        ``_registry_path.exists``, ``_save_registry``, ``_context_path.exists``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         for path, payload in (
             (get_project_autopilot_policy_path(self._cwd), _DEFAULT_AUTOPILOT_POLICY),
             (get_project_verification_policy_path(self._cwd), _DEFAULT_VERIFICATION_POLICY),
@@ -1899,6 +2734,19 @@ class RepoAutopilotStore:
             self.rebuild_active_context()
 
     def _load_registry(self) -> RepoAutopilotRegistry:
+        """Load registry for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.list_cards``,
+        ``RepoAutopilotStore.get_card`` and collaborates with
+        ``RepoAutopilotRegistry.model_validate``, ``_registry_path.exists``,
+        ``RepoAutopilotRegistry``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         if not self._registry_path.exists():
             return RepoAutopilotRegistry(updated_at=time.time(), cards=[])
         try:
@@ -1908,6 +2756,18 @@ class RepoAutopilotStore:
         return RepoAutopilotRegistry.model_validate(payload)
 
     def _save_registry(self, registry: RepoAutopilotRegistry) -> None:
+        """Persist registry for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.enqueue_card``,
+        ``RepoAutopilotStore.update_status`` and collaborates with ``time.time``,
+        ``atomic_write_text``, ``json.dumps``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         registry.updated_at = time.time()
         atomic_write_text(
             self._registry_path,
@@ -1928,11 +2788,34 @@ class RepoAutopilotStore:
         title: str,
         body: str,
     ) -> str:
+        """Build fingerprint for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.enqueue_card`` and collaborates with
+        ``source_ref.strip``, ``hexdigest``, ``title.strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         basis = source_ref.strip() or f"{title.strip()}\n{body.strip()}"
         digest = sha1(basis.encode("utf-8")).hexdigest()[:16]
         return f"{source_kind}:{digest}"
 
     def _score_card(self, card: RepoTaskCard) -> tuple[int, list[str]]:
+        """Derive score card from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore.enqueue_card``,
+        ``RepoAutopilotStore.update_status`` and collaborates with ``_SOURCE_BASE_SCORES.get``,
+        ``lower``, ``label.lower``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         score = _SOURCE_BASE_SCORES.get(card.source_kind, 50)
         reasons = [f"source={card.source_kind}"]
         text = f"{card.title}\n{card.body}".lower()
@@ -1970,14 +2853,47 @@ class RepoAutopilotStore:
         return score, reasons
 
     def _normalize_labels(self, labels: list[str] | None) -> list[str]:
+        """Normalize labels for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.enqueue_card`` and collaborates with
+        ``label.strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not labels:
             return []
         return sorted({label.strip() for label in labels if label and label.strip()})
 
     def _merge_labels(self, existing: list[str], incoming: list[str]) -> list[str]:
+        """Merge labels for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.enqueue_card``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return sorted({*existing, *incoming})
 
     def _run_gh_json(self, command: list[str]) -> list[dict[str, Any]]:
+        """Run gh JSON for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.scan_github_issues``,
+        ``RepoAutopilotStore.scan_github_prs`` and collaborates with ``strip``, ``json.loads``,
+        ``subprocess.run``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         try:
             completed = subprocess.run(
                 command,
@@ -2000,6 +2916,17 @@ class RepoAutopilotStore:
         return [item for item in payload if isinstance(item, dict)]
 
     def _read_yaml(self, path: Path, default: dict[str, Any]) -> dict[str, Any]:
+        """Read yaml for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.load_policies`` and collaborates with
+        ``path.exists``, ``yaml.safe_load``, ``path.read_text``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         if not path.exists():
             return dict(default)
         try:
@@ -2011,6 +2938,17 @@ class RepoAutopilotStore:
         return payload
 
     def _build_execution_prompt(self, card: RepoTaskCard, policies: dict[str, Any]) -> str:
+        """Build execution prompt for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore._prepare_repair_prompt`` and collaborates
+        with ``strip``, ``yaml.safe_dump``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         autopilot_policy = yaml.safe_dump(policies["autopilot"], sort_keys=False).strip()
         verification_policy = yaml.safe_dump(policies["verification"], sort_keys=False).strip()
         release_policy = yaml.safe_dump(policies["release"], sort_keys=False).strip()
@@ -2047,12 +2985,44 @@ class RepoAutopilotStore:
         permission_mode: str,
         cwd: Path | None = None,
     ) -> str:
+        """Run agent prompt for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with ``strip``,
+        ``build_runtime``, ``start_runtime``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         from openharness.ui.runtime import build_runtime, close_runtime, start_runtime
 
         async def _allow(_tool_name: str, _reason: str) -> bool:
+            """Approve the pending non-interactive operation.
+
+            Integration: Used as an internal helper or callback at this module boundary.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             return True
 
         async def _ask(_question: str) -> str:
+            """Resolve the pending question through the configured callback.
+
+            Integration: Used as an internal helper or callback at this module boundary.
+
+            Event loop: This coroutine executes synchronously until it returns; filesystem or
+            process work therefore runs inline on the caller's loop. Keep that work bounded or
+            offload it before it can block.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             return ""
 
         bundle = await build_runtime(
@@ -2080,6 +3050,17 @@ class RepoAutopilotStore:
         return "".join(collected).strip()
 
     def _verification_commands(self, policies: dict[str, Any]) -> list[_VerificationCommand]:
+        """Derive verification commands from the current inputs and subsystem state.
+
+        Integration: Called by ``RepoAutopilotStore._run_verification_steps`` and collaborates
+        with ``get``, ``_parse_verification_entry``, ``_looks_available``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         configured = policies.get("verification", {}).get("commands", [])
         parsed = [_parse_verification_entry(entry) for entry in configured]
         selected: list[_VerificationCommand] = []
@@ -2092,6 +3073,17 @@ class RepoAutopilotStore:
         return selected
 
     def _run_verification_steps(self, policies: dict[str, Any], *, cwd: Path | None = None) -> list[RepoVerificationStep]:
+        """Run verification steps for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``_verification_commands``, ``steps.append``, ``subprocess.run``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception
+        and fallback behavior expected by callers.
+        """
         steps: list[RepoVerificationStep] = []
         for cmd in self._verification_commands(policies):
             if cmd.error is not None:
@@ -2159,6 +3151,17 @@ class RepoAutopilotStore:
         card: RepoTaskCard,
         steps: list[RepoVerificationStep],
     ) -> str:
+        """Render verification report for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``lines.append``, ``lines.extend``, ``strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lines = [
             f"# Verification Report: {card.id}",
             "",
@@ -2191,6 +3194,17 @@ class RepoAutopilotStore:
         verification_steps: list[RepoVerificationStep],
         verification_status: str,
     ) -> str:
+        """Render run report for the enclosing subsystem.
+
+        Integration: Called by ``RepoAutopilotStore.run_card`` and collaborates with
+        ``lines.extend``, ``strip``, ``agent_summary.strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lines = [
             f"# Autopilot Run Report: {card.id}",
             "",

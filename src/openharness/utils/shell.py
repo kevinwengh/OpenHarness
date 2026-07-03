@@ -1,4 +1,13 @@
-"""Shared shell and subprocess helpers."""
+"""Shared shell and subprocess helpers.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +29,17 @@ def resolve_shell_command(
     platform_name: PlatformName | None = None,
     prefer_pty: bool = False,
 ) -> list[str]:
-    """Return argv for the best available shell on the current platform."""
+    """Return argv for the best available shell on the current platform.
+
+    Integration: Called by ``create_shell_subprocess`` and collaborates with ``shutil.which``,
+    ``get_platform``, ``os.environ.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     resolved_platform = platform_name or get_platform()
     if resolved_platform == "windows":
         bash = shutil.which("bash")
@@ -59,7 +78,21 @@ async def create_shell_subprocess(
     stderr: int | None = None,
     env: Mapping[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
-    """Spawn a shell command with platform-aware shell selection and sandboxing."""
+    """Spawn a shell command with platform-aware shell selection and sandboxing.
+
+    Integration: Called by
+    ``TestShellIntegration.test_create_shell_subprocess_routes_through_docker``,
+    ``TestShellIntegration.test_create_shell_subprocess_routes_through_docker._run`` and
+    collaborates with ``resolve_shell_command``, ``wrap_command_for_sandbox``,
+    ``load_settings``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    argv boundaries, timeouts, and child cleanup; preserve exception and fallback behavior
+    expected by callers.
+    """
     resolved_settings = settings or load_settings()
 
     # Docker backend: route through docker exec
@@ -110,6 +143,16 @@ def _wrap_command_with_script(
     *,
     platform_name: PlatformName | None = None,
 ) -> list[str] | None:
+    """Derive wrap command with script from the current inputs and subsystem state.
+
+    Integration: Called by ``resolve_shell_command`` and collaborates with ``shutil.which``,
+    ``get_platform``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     resolved_platform = platform_name or get_platform()
     if resolved_platform == "macos":
         return None
@@ -127,6 +170,13 @@ def _bash_is_usable(bash_path: str) -> bool:
     On Windows, ``shutil.which("bash")`` can find WSL's ``bash.exe`` even when no
     WSL distribution is installed. In that case the executable exists but every
     command fails, so fall back to PowerShell/cmd instead of selecting it.
+
+    Integration: Called by ``resolve_shell_command`` and collaborates with ``subprocess.run``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve argv boundaries, timeouts, and child cleanup; preserve exception and
+    fallback behavior expected by callers.
     """
     try:
         result = subprocess.run(
@@ -141,6 +191,17 @@ def _bash_is_usable(bash_path: str) -> bool:
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:
+    """Clean up after exit for the enclosing subsystem.
+
+    Integration: Called by ``create_shell_subprocess`` and collaborates with
+    ``cleanup_path.unlink``, ``process.wait``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects expected by
+    callers.
+    """
     try:
         await process.wait()
     finally:

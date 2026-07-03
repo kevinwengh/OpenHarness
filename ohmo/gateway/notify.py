@@ -1,4 +1,15 @@
-"""Proactive notification helpers for ohmo gateway channels."""
+"""Proactive notification helpers for ohmo gateway channels.
+
+Integration: This ohmo module specializes the reusable OpenHarness runtime with personal
+workspace, memory, session, gateway, or channel behavior; core modules must not depend on it.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve the ohmo workspace boundary, conversation/session isolation, attachment
+and channel contracts, credential redaction, and cleanup of per-session runtimes.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +25,29 @@ logger = logging.getLogger(__name__)
 
 
 class OhmoNotificationError(RuntimeError):
-    """Raised when a proactive notification cannot be delivered."""
+    """Raised when a proactive notification cannot be delivered.
+
+    Integration: Constructed or referenced by ``_send_feishu_text_sync``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
 
 def _chunk_text(text: str, *, max_chars: int = 1800) -> list[str]:
-    """Split text into message-sized chunks without losing content."""
+    """Split text into message-sized chunks without losing content.
+
+    Integration: Called by ``_send_feishu_text_sync`` and collaborates with ``text.strip``,
+    ``remaining.rfind``, ``chunks.append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     stripped = text.strip()
     if not stripped:
         return []
@@ -36,7 +65,15 @@ def _chunk_text(text: str, *, max_chars: int = 1800) -> list[str]:
 
 
 def _send_feishu_text_sync(*, user_open_id: str, content: str, workspace: str | Path | None = None) -> None:
-    """Send a Feishu direct message using ohmo gateway Feishu credentials."""
+    """Send a Feishu direct message using ohmo gateway Feishu credentials.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``load_gateway_config``, ``config.channel_configs.get``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     try:
         import lark_oapi as lark
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
@@ -73,6 +110,16 @@ def _send_feishu_text_sync(*, user_open_id: str, content: str, workspace: str | 
 
 
 async def send_feishu_dm(*, user_open_id: str, content: str, workspace: str | Path | None = None) -> None:
-    """Send a proactive Feishu direct message to a user open_id."""
+    """Send a proactive Feishu direct message to a user open_id.
+
+    Integration: Called by ``_notify_job_result`` and collaborates with ``logger.info``,
+    ``asyncio.to_thread``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     await asyncio.to_thread(_send_feishu_text_sync, user_open_id=user_open_id, content=content, workspace=workspace)
     logger.info("Sent proactive Feishu DM to open_id=%s", user_open_id)

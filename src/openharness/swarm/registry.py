@@ -1,4 +1,15 @@
-"""Backend registry for teammate execution."""
+"""Backend registry for teammate execution.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +39,15 @@ def _detect_tmux() -> bool:
     Checks:
     1. ``$TMUX`` environment variable (set by tmux for attached clients).
     2. The ``tmux`` binary is available on PATH.
+
+    Integration: Called by ``BackendRegistry.detect_backend``,
+    ``BackendRegistry.detect_pane_backend`` and collaborates with ``logger.debug``,
+    ``os.environ.get``, ``shutil.which``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if not os.environ.get("TMUX"):
         logger.debug("[BackendRegistry] _detect_tmux: $TMUX not set")
@@ -43,6 +63,14 @@ def _detect_iterm2() -> bool:
     """Return True if the process is running inside an iTerm2 terminal.
 
     Checks ``$ITERM_SESSION_ID`` which iTerm2 sets for every terminal session.
+
+    Integration: Called by ``BackendRegistry.detect_pane_backend`` and collaborates with
+    ``os.environ.get``, ``logger.debug``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     if os.environ.get("ITERM_SESSION_ID"):
         logger.debug("[BackendRegistry] _detect_iterm2: ITERM_SESSION_ID=%s", os.environ["ITERM_SESSION_ID"])
@@ -52,14 +80,32 @@ def _detect_iterm2() -> bool:
 
 
 def _is_it2_cli_available() -> bool:
-    """Return True if the ``it2`` CLI is installed (used for iTerm2 pane control)."""
+    """Return True if the ``it2`` CLI is installed (used for iTerm2 pane control).
+
+    Integration: Called by ``BackendRegistry.detect_pane_backend`` and collaborates with
+    ``logger.debug``, ``shutil.which``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     available = shutil.which("it2") is not None
     logger.debug("[BackendRegistry] _is_it2_cli_available: %s", available)
     return available
 
 
 def _get_tmux_install_instructions() -> str:
-    """Return platform-specific tmux installation instructions."""
+    """Return platform-specific tmux installation instructions.
+
+    Integration: Called by ``BackendRegistry.detect_pane_backend`` and collaborates with
+    ``get_platform``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     system = get_platform()
     if system == "macos":
         return (
@@ -107,9 +153,28 @@ class BackendRegistry:
         registry = BackendRegistry()
         executor = registry.get_executor()           # auto-detect best backend
         executor = registry.get_executor("in_process")  # explicit selection
+
+    Integration: Constructed or referenced by ``get_backend_registry``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self) -> None:
+        """Initialize ``BackendRegistry`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``BackendRegistry`` and collaborates with
+        ``_register_defaults``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._backends: dict[BackendType, TeammateExecutor] = {}
         self._detected: BackendType | None = None
         self._detection_result: BackendDetectionResult | None = None
@@ -121,7 +186,17 @@ class BackendRegistry:
     # ------------------------------------------------------------------
 
     def register_backend(self, executor: TeammateExecutor) -> None:
-        """Register a custom executor under its declared ``type`` key."""
+        """Register a custom executor under its declared ``type`` key.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.debug``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._backends[executor.type] = executor
         logger.debug("Registered backend: %s", executor.type)
 
@@ -135,6 +210,16 @@ class BackendRegistry:
 
         Returns:
             The detected :data:`BackendType` string.
+
+        Integration: Called by ``BackendRegistry.get_executor``,
+        ``BackendRegistry.get_preferred_backend`` and collaborates with ``logger.debug``,
+        ``_detect_tmux``, ``BackendDetectionResult``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         if self._detected is not None:
             logger.debug(
@@ -200,6 +285,14 @@ class BackendRegistry:
 
         Raises:
             RuntimeError: When no pane backend is available.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.debug``, ``_detect_tmux``, ``_detect_iterm2``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         logger.debug("[BackendRegistry] Starting pane backend detection...")
 
@@ -279,6 +372,15 @@ class BackendRegistry:
 
         Raises:
             KeyError: If the requested backend has not been registered.
+
+        Integration: Called by ``_kill_orphaned_teammate_panes``,
+        ``_kill_orphaned_teammate_panes._kill_one`` and collaborates with ``_backends.get``,
+        ``detect_backend``, ``KeyError``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         resolved = backend or self.detect_backend()
         executor = self._backends.get(resolved)
@@ -300,6 +402,15 @@ class BackendRegistry:
 
         Returns:
             The resolved :data:`BackendType`.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.debug``, ``config.get``, ``os.environ.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         if config:
             mode = config.get("teammate_mode", "auto")
@@ -322,6 +433,15 @@ class BackendRegistry:
         Called when no pane backend was available. After this,
         ``get_executor()`` will keep returning the in-process backend for the
         lifetime of the process (the environment won't change mid-session).
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.debug``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         logger.debug("[BackendRegistry] Marking in-process fallback as active")
         self._in_process_fallback_active = True
@@ -330,11 +450,30 @@ class BackendRegistry:
         self._detection_result = None
 
     def get_cached_detection_result(self) -> BackendDetectionResult | None:
-        """Return the cached :class:`BackendDetectionResult`, or *None* if not yet detected."""
+        """Return the cached :class:`BackendDetectionResult`, or *None* if not yet detected.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._detection_result
 
     def available_backends(self) -> list[BackendType]:
-        """Return sorted list of registered backend types."""
+        """Return sorted list of registered backend types.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_backends.keys``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return sorted(self._backends.keys())  # type: ignore[return-value]
 
     def health_check(self) -> dict[str, Any]:
@@ -343,6 +482,15 @@ class BackendRegistry:
         Returns:
             Dict with backend_name -> {available: bool, type: str} mapping,
             plus a total_count of available backends.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_backends.items``, ``executor.is_available``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         results: dict[str, dict[str, Any]] = {}
         available_count = 0
@@ -365,6 +513,15 @@ class BackendRegistry:
         """Clear detection cache and re-register defaults.
 
         Intended for testing — allows re-detection after env changes.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_backends.clear``, ``_register_defaults``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         self._detected = None
         self._detection_result = None
@@ -377,7 +534,18 @@ class BackendRegistry:
     # ------------------------------------------------------------------
 
     def _register_defaults(self) -> None:
-        """Register built-in backends that are unconditionally available."""
+        """Register built-in backends that are unconditionally available.
+
+        Integration: Called by ``BackendRegistry.__init__``, ``BackendRegistry.reset`` and
+        collaborates with ``SubprocessBackend``, ``get_platform_capabilities``,
+        ``InProcessBackend``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         from openharness.swarm.subprocess_backend import SubprocessBackend
 
         self._backends["subprocess"] = SubprocessBackend()
@@ -398,7 +566,17 @@ _registry: BackendRegistry | None = None
 
 
 def get_backend_registry() -> BackendRegistry:
-    """Return the process-wide singleton BackendRegistry."""
+    """Return the process-wide singleton BackendRegistry.
+
+    Integration: Called by ``mark_in_process_fallback``, ``_kill_orphaned_teammate_panes`` and
+    collaborates with ``BackendRegistry``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     global _registry
     if _registry is None:
         _registry = BackendRegistry()
@@ -406,5 +584,14 @@ def get_backend_registry() -> BackendRegistry:
 
 
 def mark_in_process_fallback() -> None:
-    """Module-level convenience: mark in-process fallback on the singleton registry."""
+    """Module-level convenience: mark in-process fallback on the singleton registry.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``get_backend_registry``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     get_backend_registry().mark_in_process_fallback()

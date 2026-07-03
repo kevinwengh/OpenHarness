@@ -1,4 +1,15 @@
-"""Structured protocol models for the React TUI backend."""
+"""Structured protocol models for the React TUI backend.
+
+Integration: This module participates in runtime composition and adapters for CLI, React,
+Textual, headless, and ohmo callers.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve startup/readiness, protocol ordering, callback ownership, interruption,
+persistence, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +24,21 @@ from openharness.tasks.types import TaskRecord
 
 
 class FrontendImageAttachment(BaseModel):
-    """Base64 image payload submitted from the React TUI."""
+    """Validate an image payload crossing from React into Python.
+
+    ``useBackendSession`` serializes this shape and ``backend_host`` converts it
+    into engine content blocks. Keep fields synchronized with the TypeScript
+    protocol and validate before base64 data reaches prompt construction.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     media_type: str
     data: str
@@ -22,6 +47,12 @@ class FrontendImageAttachment(BaseModel):
     @field_validator("media_type")
     @classmethod
     def _validate_media_type(cls, value: str) -> str:
+        """Reject non-image media types at the process protocol boundary.
+
+        This synchronous Pydantic validator runs while the backend request reader
+        parses a line; keep it deterministic and aligned with supported image
+        blocks when formats change.
+        """
         if not value.startswith("image/"):
             raise ValueError("image attachment media_type must start with image/")
         return value
@@ -29,13 +60,36 @@ class FrontendImageAttachment(BaseModel):
     @field_validator("data")
     @classmethod
     def _validate_data(cls, value: str) -> str:
+        """Require a non-empty encoded payload before building an image block.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``field_validator``, ``value.strip``, ``ValueError``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not value.strip():
             raise ValueError("image attachment data is required")
         return value
 
 
 class FrontendRequest(BaseModel):
-    """One request sent from the React frontend to the Python backend."""
+    """Describe one newline-delimited request sent to the Python backend.
+
+    The backend reader validates this discriminated-by-convention shape before
+    queueing work or resolving a modal future. New request types or fields must be
+    added to the TypeScript union, host dispatch, and protocol tests together.
+
+    Integration: Constructed or referenced by ``ReactBackendHost._read_requests``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal[
         "submit_line",
@@ -58,7 +112,21 @@ class FrontendRequest(BaseModel):
 
 
 class TranscriptItem(BaseModel):
-    """One transcript row rendered by the frontend."""
+    """Carry one presentation-safe transcript row to the React renderer.
+
+    This is not durable conversation state. Keep roles and optional tool fields
+    aligned with frontend rendering without leaking internal message objects or
+    sensitive metadata.
+
+    Integration: Constructed or referenced by ``ReactBackendHost._run_active_request``,
+    ``ReactBackendHost._process_line``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     role: Literal["system", "user", "assistant", "tool", "tool_result", "log"]
     text: str
@@ -68,7 +136,21 @@ class TranscriptItem(BaseModel):
 
 
 class TaskSnapshot(BaseModel):
-    """UI-safe task representation."""
+    """Represent the bounded task fields exposed across the UI protocol.
+
+    Task management retains the authoritative ``TaskRecord``; this snapshot is a
+    presentation copy. Schema changes require matching TypeScript types and must
+    avoid serializing live process handles or arbitrary objects.
+
+    Integration: Consumed by Pydantic validation and JSON/schema boundaries in the owning
+    subsystem.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     id: str
     type: str
@@ -78,6 +160,20 @@ class TaskSnapshot(BaseModel):
 
     @classmethod
     def from_record(cls, record: TaskRecord) -> "TaskSnapshot":
+        """Copy a task record into the JSON-safe frontend schema.
+
+        Backend snapshots call this synchronously on the event loop, so conversion
+        must remain side-effect-free and bounded.
+
+        Integration: Called by ``BackendEvent.ready``, ``BackendEvent.tasks_snapshot`` and
+        collaborates with ``cls``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             id=record.id,
             type=record.type,
@@ -88,7 +184,22 @@ class TaskSnapshot(BaseModel):
 
 
 class BackendEvent(BaseModel):
-    """One event sent from the Python backend to the React frontend."""
+    """Describe one prefixed JSON event emitted to the React frontend.
+
+    ``ReactBackendHost`` serializes these models under ``OHJSON:`` and
+    ``useBackendSession`` dispatches on ``type``. Optional fields support several
+    event variants; any contract change must update both languages, preserve
+    ordering semantics, and keep ``line_complete`` as the end-of-turn boundary.
+
+    Integration: Constructed or referenced by ``ReactBackendHost.run``,
+    ``ReactBackendHost._read_requests``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Treat field names, defaults, validators, and serialized values as a
+    compatibility contract for every producer and consumer.
+    """
 
     type: Literal[
         "ready",
@@ -141,6 +252,20 @@ class BackendEvent(BaseModel):
         tasks: list[TaskRecord],
         commands: list[str],
     ) -> "BackendEvent":
+        """Build the initial state/task/command payload that unlocks frontend input.
+
+        The host emits this once runtime startup completes. Keep it comprehensive
+        enough for first render and free of resources that cannot be JSON encoded.
+
+        Integration: Called by ``ReactBackendHost.run`` and collaborates with ``cls``,
+        ``_state_payload``, ``TaskSnapshot.from_record``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             type="ready",
             state=_state_payload(state),
@@ -152,10 +277,33 @@ class BackendEvent(BaseModel):
 
     @classmethod
     def state_snapshot(cls, state: AppState) -> "BackendEvent":
+        """Build a lightweight authoritative application-state refresh.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``cls``, ``_state_payload``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(type="state_snapshot", state=_state_payload(state))
 
     @classmethod
     def tasks_snapshot(cls, tasks: list[TaskRecord]) -> "BackendEvent":
+        """Build a task-list refresh while preserving task-manager ordering.
+
+        Integration: Called by ``ReactBackendHost._run_active_request``,
+        ``ReactBackendHost._process_line`` and collaborates with ``cls``,
+        ``TaskSnapshot.from_record``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return cls(
             type="tasks_snapshot",
             tasks=[TaskSnapshot.from_record(task) for task in tasks],
@@ -169,6 +317,12 @@ class BackendEvent(BaseModel):
         mcp_servers: list[McpConnectionStatus],
         bridge_sessions: list[BridgeSessionRecord],
     ) -> "BackendEvent":
+        """Build the richer state refresh including MCP and bridge status.
+
+        The backend emits this after line processing and relevant commands.
+        Conversion is synchronous on the event loop; keep lists bounded upstream,
+        JSON-safe, and synchronized with frontend status consumers.
+        """
         return cls(
             type="state_snapshot",
             state=_state_payload(state),
@@ -200,6 +354,20 @@ class BackendEvent(BaseModel):
 
 
 def _state_payload(state: AppState) -> dict[str, Any]:
+    """Project authoritative runtime state into the stable frontend payload.
+
+    This function centralizes field naming for ready and subsequent snapshots.
+    Additions require TypeScript updates; do not expose credentials or mutable
+    internal objects, and retain permission-mode formatting for presentation.
+
+    Integration: Called by ``BackendEvent.ready``, ``BackendEvent.state_snapshot`` and
+    collaborates with ``_format_permission_mode``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         "model": state.model,
         "cwd": state.cwd,
@@ -234,7 +402,19 @@ _MODE_LABELS = {
 
 
 def _format_permission_mode(raw: str) -> str:
-    """Convert raw permission mode to human-readable label."""
+    """Convert stored permission-mode values into frontend display labels.
+
+    Both enum stringification and plain configuration values occur at this
+    boundary. Unknown values pass through for forward compatibility; keep labels
+    synchronized with frontend mode selectors.
+
+    Integration: Called by ``_state_payload`` and collaborates with ``_MODE_LABELS.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return _MODE_LABELS.get(raw, raw)
 
 

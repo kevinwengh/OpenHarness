@@ -1,4 +1,13 @@
-"""Extract local rules from session conversation history."""
+"""Extract local rules from session conversation history.
+
+Integration: This module participates in the shared OpenHarness runtime.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve public contracts, state ownership, error behavior, and resource cleanup.
+"""
 
 from __future__ import annotations
 
@@ -44,7 +53,16 @@ _FACT_PATTERNS: list[tuple[str, str, re.Pattern]] = [
 
 
 def extract_facts_from_text(text: str) -> list[dict]:
-    """Extract environment-specific facts from conversation text using patterns."""
+    """Extract environment-specific facts from conversation text using patterns.
+
+    Integration: Called by ``extract_local_rules``, ``update_rules_from_session`` and
+    collaborates with ``pattern.finditer``, ``rstrip``, ``seen_keys.add``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     facts = []
     seen_keys = set()
 
@@ -83,6 +101,14 @@ def extract_local_rules(session_messages: list[dict]) -> list[dict]:
 
     Returns:
         List of fact dicts with key, type, label, value, confidence.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``join``, ``extract_facts_from_text``, ``msg.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     all_text = []
     for msg in session_messages:
@@ -99,7 +125,16 @@ def extract_local_rules(session_messages: list[dict]) -> list[dict]:
 
 
 def facts_to_rules_markdown(facts: list[dict]) -> str:
-    """Convert extracted facts to a markdown rules document."""
+    """Convert extracted facts to a markdown rules document.
+
+    Integration: Called by ``update_rules_from_session`` and collaborates with
+    ``grouped.items``, ``join``, ``append``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if not facts:
         return ""
 

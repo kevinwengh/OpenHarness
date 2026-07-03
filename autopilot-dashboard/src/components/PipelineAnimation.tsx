@@ -1,10 +1,32 @@
 /**
+ * Implement the autopilot dashboard's pipeline animation module.
+ *
+ * Integration: Consumed by the Vite/React dashboard and its generated autopilot snapshot data.
+ *
+ * Event loop: Rendering and animation callbacks run in the browser event loop; avoid blocking
+ * frames or leaking scheduled work.
+ *
+ * Change safety: Preserve component props, snapshot-data assumptions, responsive rendering, and the
+ * dashboard build contract.
+ */
+
+/**
  * PipelineAnimation — a rich, orbital visualization of the autopilot pipeline.
  *
  * Central hub surrounded by 5 stage nodes in a circuit layout, with
  * data packets flowing through connecting paths, background grid,
  * ambient particles, and pulsing energy rings. Fills the entire
  * container with minimal dead space.
+ */
+/**
+ * Render the PipelineAnimation React component.
+ *
+ * Integration: Owned by `PipelineAnimation.tsx` and collaborates with `map`, `join`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
  */
 export function PipelineAnimation() {
   const cx = 200;
@@ -18,7 +40,10 @@ export function PipelineAnimation() {
     { label: "RUN", angle: Math.PI + (Math.PI * 2 / 5) * 2 },
     { label: "CHECK", angle: Math.PI + (Math.PI * 2 / 5) * 3 },
     { label: "MERGE", angle: Math.PI + (Math.PI * 2 / 5) * 4 },
-  ].map((s) => ({
+  ].map(/*
+   * map callback: uses cos, sin; keep event-loop work bounded and preserve the callback's
+   * return contract.
+   */ (s) => ({
     ...s,
     x: cx + Math.cos(s.angle) * rx,
     y: cy + Math.sin(s.angle) * ry,
@@ -26,7 +51,10 @@ export function PipelineAnimation() {
 
   // Build the orbital path for traveling packets
   const orbitPath = stages
-    .map((s, i) => `${i === 0 ? "M" : "L"} ${s.x.toFixed(1)} ${s.y.toFixed(1)}`)
+    .map(/*
+     * map callback: uses toFixed; keep event-loop work bounded and preserve the callback's
+     * return contract.
+     */ (s, i) => `${i === 0 ? "M" : "L"} ${s.x.toFixed(1)} ${s.y.toFixed(1)}`)
     .join(" ") + " Z";
 
   // Ambient floating particles
@@ -77,11 +105,17 @@ export function PipelineAnimation() {
       </defs>
 
       {/* Background grid */}
-      {hLines.map((y, i) => (
+      {hLines.map(/*
+       * map callback: computes its callback result; keep event-loop work bounded and preserve
+       * the callback's return contract.
+       */ (y, i) => (
         <line key={`h${i}`} x1="0" y1={y} x2="400" y2={y}
           stroke="#00d4aa" strokeOpacity="0.04" strokeWidth="1" />
       ))}
-      {vLines.map((x, i) => (
+      {vLines.map(/*
+       * map callback: computes its callback result; keep event-loop work bounded and preserve
+       * the callback's return contract.
+       */ (x, i) => (
         <line key={`v${i}`} x1={x} y1="0" x2={x} y2="210"
           stroke="#00d4aa" strokeOpacity="0.04" strokeWidth="1" />
       ))}
@@ -99,7 +133,10 @@ export function PipelineAnimation() {
       </path>
 
       {/* Spokes from center to each node */}
-      {stages.map((s, i) => (
+      {stages.map(/*
+       * map callback: computes its callback result; keep event-loop work bounded and preserve
+       * the callback's return contract.
+       */ (s, i) => (
         <g key={`spoke-${i}`}>
           <line x1={cx} y1={cy} x2={s.x} y2={s.y}
             stroke="#00d4aa" strokeOpacity="0.06" strokeWidth="1" />
@@ -118,7 +155,10 @@ export function PipelineAnimation() {
       ))}
 
       {/* Stage nodes */}
-      {stages.map((s, i) => {
+      {stages.map(/*
+       * map callback: computes its callback result; keep event-loop work bounded and preserve
+       * the callback's return contract.
+       */ (s, i) => {
         const colors = ["#64748b", "#0f766e", "#00d4aa", "#3b82f6", "#8b5cf6"];
         const c = colors[i];
         return (
@@ -195,7 +235,10 @@ export function PipelineAnimation() {
       </circle>
 
       {/* Ambient particles */}
-      {particles.map((p, i) => (
+      {particles.map(/*
+       * map callback: computes its callback result; keep event-loop work bounded and preserve
+       * the callback's return contract.
+       */ (p, i) => (
         <circle key={`p${i}`} cx={p.x} cy={p.y} r={p.r}
           fill={i % 3 === 0 ? "#8b5cf6" : "#00d4aa"}>
           <animate attributeName="opacity" values="0.05;0.25;0.05"

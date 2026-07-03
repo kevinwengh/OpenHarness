@@ -1,4 +1,15 @@
-"""Feishu/Lark channel implementation using lark-oapi SDK with WebSocket long connection."""
+"""Feishu/Lark channel implementation using lark-oapi SDK with WebSocket long connection.
+
+Integration: This module participates in chat transport adapters and normalized inbound/outbound
+message flow.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve authorization and mentions, attachment bounds, SDK task lifecycle,
+reconnect/backoff, rate limits, and credential redaction.
+"""
 
 import asyncio
 import json
@@ -35,21 +46,62 @@ MSG_TYPE_MAP = {
 
 @dataclass(frozen=True)
 class _FeishuSenderInfo:
+    """Coordinate the feishu sender info responsibilities for this subsystem.
+
+    Integration: Constructed or referenced by
+    ``FeishuChannel._resolve_sender_display_name_sync``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
     open_id: str
     display_name: str
 
 
 def _clean_mention_value(value: Any) -> str:
+    """Derive clean mention value from the current inputs and subsystem state.
+
+    Integration: Called by ``_extract_feishu_mentions``, ``_extract_feishu_mentions.add`` and
+    collaborates with ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if value is None:
         return ""
     return str(value).strip()
 
 
 def _normalize_mention_name(value: str) -> str:
+    """Normalize mention name for the enclosing subsystem.
+
+    Integration: Called by ``_configured_bot_names``, ``_feishu_mentions_bot`` and collaborates
+    with ``lower``, ``strip``, ``lstrip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return value.strip().lstrip("@").strip().lower()
 
 
 def _configured_bot_names(config: FeishuConfig) -> set[str]:
+    """Derive configured bot names from the current inputs and subsystem state.
+
+    Integration: Called by ``_feishu_mentions_bot`` and collaborates with
+    ``_normalize_mention_name``, ``item.strip``, ``strip``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     raw_names = getattr(config, "bot_names", []) or []
     if isinstance(raw_names, str):
         items = [item.strip() for item in raw_names.split(",")]
@@ -60,12 +112,32 @@ def _configured_bot_names(config: FeishuConfig) -> set[str]:
 
 
 def _mention_value(raw: Any, key: str) -> Any:
+    """Derive mention value from the current inputs and subsystem state.
+
+    Integration: Called by ``_extract_feishu_mentions``, ``_extract_feishu_mentions.add`` and
+    collaborates with ``raw.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(raw, dict):
         return raw.get(key)
     return getattr(raw, key, None)
 
 
 def _mention_id_value(raw_id: Any, key: str) -> Any:
+    """Derive mention identifier value from the current inputs and subsystem state.
+
+    Integration: Called by ``_extract_feishu_mentions``, ``_extract_feishu_mentions.add`` and
+    collaborates with ``raw_id.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if isinstance(raw_id, dict):
         return raw_id.get(key)
     return getattr(raw_id, key, None)
@@ -75,11 +147,32 @@ def _extract_feishu_mentions(
     content_json: dict,
     raw_mentions: list[Any] | tuple[Any, ...] | None = None,
 ) -> list[dict[str, str]]:
-    """Return normalized mention metadata from Feishu text/post payloads."""
+    """Return normalized mention metadata from Feishu text/post payloads.
+
+    Integration: Called by ``_feishu_mentions_bot``, ``FeishuChannel._on_message`` and
+    collaborates with ``content_json.get``, ``walk``, ``_mention_value``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     mentions: list[dict[str, str]] = []
     seen: set[tuple[str, str, str, str, str]] = set()
 
     def add(raw: Any) -> None:
+        """Add one normalized value to the enclosing collector.
+
+        Integration: Exposed through ``_extract_feishu_mentions`` and collaborates with
+        ``_mention_value``, ``_clean_mention_value``, ``any``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         mention_id = _mention_value(raw, "id") or {}
         record = {
             "key": _clean_mention_value(_mention_value(raw, "key")),
@@ -110,6 +203,17 @@ def _extract_feishu_mentions(
                 add(item)
 
     def walk(value: Any) -> None:
+        """Walk nested values and collect the relevant entries.
+
+        Integration: Called by ``EmailChannel._extract_text_body``, ``_extract_feishu_mentions``
+        and collaborates with ``value.values``, ``value.get``, ``add``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if isinstance(value, dict):
             if value.get("tag") == "at":
                 add(value)
@@ -130,7 +234,17 @@ def _feishu_mentions_bot(
     *,
     mentions: list[dict[str, str]] | None = None,
 ) -> bool:
-    """Best-effort bot mention detection for Feishu group messages."""
+    """Best-effort bot mention detection for Feishu group messages.
+
+    Integration: Called by ``FeishuChannel._on_message`` and collaborates with ``strip``,
+    ``_configured_bot_names``, ``lower``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     bot_open_id = str(getattr(config, "bot_open_id", "") or "").strip()
     bot_names = _configured_bot_names(config)
     for mention in mentions if mentions is not None else _extract_feishu_mentions(content_json):
@@ -149,6 +263,15 @@ def _feishu_mentions_bot(
 
 
 def _normalize_feishu_group_policy(value: str | None) -> str:
+    """Normalize feishu group policy for the enclosing subsystem.
+
+    Integration: Used as an internal helper or callback at this module boundary.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     normalized = str(value or "").strip().lower().replace("-", "_")
     aliases = {
         "all": "open",
@@ -166,6 +289,15 @@ def _normalize_feishu_group_policy(value: str | None) -> str:
 
 
 def _is_ohmo_managed_feishu_group(chat_id: str) -> bool:
+    """Return whether ohmo managed feishu group for the enclosing subsystem.
+
+    Integration: Called by ``_should_process_feishu_group_message`` and collaborates with
+    ``os.environ.get``, ``load_managed_group_record``, ``logger.exception``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     workspace = os.environ.get("OHMO_WORKSPACE")
     if not workspace:
         return False
@@ -189,6 +321,17 @@ def _should_process_feishu_group_message(
     mentions_bot: bool,
     config: FeishuConfig,
 ) -> bool:
+    """Return whether process feishu group message for the enclosing subsystem.
+
+    Integration: Called by ``FeishuChannel._on_message`` and collaborates with
+    ``_normalize_feishu_group_policy``, ``lower``, ``_is_ohmo_managed_feishu_group``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     if str(chat_type or "").strip().lower() != "group":
         return True
     policy = _normalize_feishu_group_policy(getattr(config, "group_policy", "managed_or_mention"))
@@ -204,11 +347,31 @@ def _should_process_feishu_group_message(
 
 
 class FeishuApiError(RuntimeError):
-    """Raised when Feishu returns an unsuccessful API response."""
+    """Raised when Feishu returns an unsuccessful API response.
+
+    Integration: Constructed or referenced by ``FeishuChannel._create_managed_group_sync``,
+    ``FeishuChannel._rename_group_sync``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
 
 def _extract_share_card_content(content_json: dict, msg_type: str) -> str:
-    """Extract text representation from share cards and interactive messages."""
+    """Extract text representation from share cards and interactive messages.
+
+    Integration: Called by ``FeishuChannel._on_message`` and collaborates with ``parts.append``,
+    ``join``, ``parts.extend``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parts = []
 
     if msg_type == "share_chat":
@@ -228,7 +391,15 @@ def _extract_share_card_content(content_json: dict, msg_type: str) -> str:
 
 
 def _extract_interactive_content(content: dict) -> list[str]:
-    """Recursively extract text and links from interactive card content."""
+    """Recursively extract text and links from interactive card content.
+
+    Integration: Called by ``_extract_share_card_content`` and collaborates with
+    ``content.get``, ``parts.extend``, ``header.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
+    """
     parts = []
 
     if isinstance(content, str):
@@ -269,7 +440,16 @@ def _extract_interactive_content(content: dict) -> list[str]:
 
 
 def _extract_element_content(element: dict) -> list[str]:
-    """Extract content from a single card element."""
+    """Extract content from a single card element.
+
+    Integration: Called by ``_extract_interactive_content`` and collaborates with
+    ``element.get``, ``parts.append``, ``text.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     parts = []
 
     if not isinstance(element, dict):
@@ -348,9 +528,29 @@ def _extract_post_content(content_json: dict) -> tuple[str, list[str]]:
     - Direct:    {"title": "...", "content": [[...]]}
     - Localized: {"zh_cn": {"title": "...", "content": [...]}}
     - Wrapped:   {"post": {"zh_cn": {"title": "...", "content": [...]}}}
+
+    Integration: Called by ``_extract_post_text``, ``FeishuChannel._on_message`` and
+    collaborates with ``root.values``, ``_parse_block``, ``block.get``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking; retain lock scope and release behavior.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
 
     def _parse_block(block: dict) -> tuple[str | None, list[str]]:
+        """Parse block for the enclosing subsystem.
+
+        Integration: Called by ``_extract_post_content`` and collaborates with ``block.get``,
+        ``texts.append``, ``el.get``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if not isinstance(block, dict) or not isinstance(block.get("content"), list):
             return None, []
         texts, images = [], []
@@ -403,14 +603,21 @@ def _extract_post_text(content_json: dict) -> str:
     """Extract plain text from Feishu post (rich text) message content.
 
     Legacy wrapper for _extract_post_content, returns only text.
+
+    Integration: Used as an internal helper or callback at this module boundary and collaborates
+    with ``_extract_post_content``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     text, _ = _extract_post_content(content_json)
     return text
 
 
 class FeishuChannel(BaseChannel):
-    """
-    Feishu/Lark channel using WebSocket long connection.
+    """Feishu/Lark channel using WebSocket long connection.
 
     Uses WebSocket to receive events - no public IP or webhook required.
 
@@ -418,11 +625,30 @@ class FeishuChannel(BaseChannel):
     - App ID and App Secret from Feishu Open Platform
     - Bot capability enabled
     - Event subscription enabled (im.message.receive_v1)
+
+    Integration: Constructed or referenced by ``ChannelManager._init_channels``.
+
+    Event loop: Async methods ``start``, ``stop``, ``_add_reaction``,
+    ``_download_and_save_media`` run on their caller's loop; instances must retain clear task,
+    cancellation, and cleanup ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     name = "feishu"
 
     def __init__(self, config: FeishuConfig, bus: MessageBus):
+        """Initialize ``FeishuChannel`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``FeishuChannel`` and collaborates with ``OrderedDict``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         super().__init__(config, bus)
         self.config: FeishuConfig = config
         self._client: Any = None
@@ -433,7 +659,17 @@ class FeishuChannel(BaseChannel):
         self._loop: asyncio.AbstractEventLoop | None = None
 
     def _ensure_rest_client(self) -> bool:
-        """Initialize the Feishu REST client without starting the WebSocket receiver."""
+        """Initialize the Feishu REST client without starting the WebSocket receiver.
+
+        Integration: Called by ``FeishuChannel.start``, ``FeishuChannel.send`` and collaborates
+        with ``build``, ``logger.error``, ``log_level``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         if self._client is not None:
             return True
         if not FEISHU_AVAILABLE:
@@ -453,7 +689,16 @@ class FeishuChannel(BaseChannel):
         return True
 
     async def start(self) -> None:
-        """Start the Feishu bot with WebSocket long connection."""
+        """Start the Feishu bot with WebSocket long connection.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``asyncio.get_running_loop``, ``build``, ``lark.ws.Client``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not FEISHU_AVAILABLE:
             logger.error("Feishu SDK not installed. Run: pip install lark-oapi")
             return
@@ -492,6 +737,16 @@ class FeishuChannel(BaseChannel):
         # instead of the already-running main asyncio loop, which would cause
         # "This event loop is already running" errors.
         def run_ws():
+            """Run ws for the enclosing subsystem.
+
+            Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+            ``asyncio.new_event_loop``, ``asyncio.set_event_loop``, ``ws_loop.close``.
+
+            Concurrency: This is synchronous; preserve deterministic behavior for its direct
+            callers.
+
+            Change safety: Preserve exception and fallback behavior expected by callers.
+            """
             import time
             import lark_oapi.ws.client as _lark_ws_client
             ws_loop = asyncio.new_event_loop()
@@ -520,18 +775,39 @@ class FeishuChannel(BaseChannel):
             await asyncio.sleep(1)
 
     async def stop(self) -> None:
-        """
-        Stop the Feishu bot.
+        """Stop the Feishu bot.
 
-        Notice: lark.ws.Client does not expose stop method， simply exiting the program will close the client.
+        Notice: lark.ws.Client does not expose stop method， simply exiting the program will
+        close the client.
 
-        Reference: https://github.com/larksuite/oapi-sdk-python/blob/v2_main/lark_oapi/ws/client.py#L86
+        Reference: https://github.com/larksuite/oapi-sdk-
+        python/blob/v2_main/lark_oapi/ws/client.py#L86
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``logger.info``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         self._running = False
         logger.info("Feishu bot stopped")
 
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
-        """Sync helper for adding reaction (runs in thread pool)."""
+        """Sync helper for adding reaction (runs in thread pool).
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``build``, ``_client.im.v1.message_reaction.create``,
+        ``response.success``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         from lark_oapi.api.im.v1 import CreateMessageReactionRequest, CreateMessageReactionRequestBody, Emoji
         try:
             request = CreateMessageReactionRequest.builder() \
@@ -552,10 +828,18 @@ class FeishuChannel(BaseChannel):
             logger.warning("Error adding reaction: %s", e)
 
     async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> None:
-        """
-        Add a reaction emoji to a message (non-blocking).
+        """Add a reaction emoji to a message (non-blocking).
 
         Common emoji types: THUMBSUP, OK, EYES, DONE, OnIt, HEART
+
+        Integration: Called by ``FeishuChannel._on_message`` and collaborates with
+        ``asyncio.get_running_loop``, ``loop.run_in_executor``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         if not self._client:
             return
@@ -575,11 +859,32 @@ class FeishuChannel(BaseChannel):
 
     @staticmethod
     def _parse_md_table(table_text: str) -> dict | None:
-        """Parse a markdown table into a Feishu table element."""
+        """Parse a markdown table into a Feishu table element.
+
+        Integration: Called by ``FeishuChannel._build_card_elements`` and collaborates with
+        ``split``, ``_line.strip``, ``c.strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         lines = [_line.strip() for _line in table_text.strip().split("\n") if _line.strip()]
         if len(lines) < 3:
             return None
         def split(_line: str) -> list[str]:
+            """Split one payload into bounded transport-safe parts.
+
+            Integration: Called by ``_prompt_channels``, ``_run_gateway_config_wizard`` and
+            collaborates with ``c.strip``, ``_line.strip``.
+
+            Event loop: Async callers invoke this synchronous helper inline, so keep its work
+            bounded and non-blocking.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             return [c.strip() for c in _line.strip("|").split("|")]
         headers = split(lines[0])
         rows = [split(_line) for _line in lines[2:]]
@@ -593,7 +898,17 @@ class FeishuChannel(BaseChannel):
         }
 
     def _build_card_elements(self, content: str) -> list[dict]:
-        """Split content into div/markdown + table elements for Feishu card."""
+        """Split content into div/markdown + table elements for Feishu card.
+
+        Integration: Called by ``FeishuChannel.send`` and collaborates with
+        ``_TABLE_RE.finditer``, ``remaining.strip``, ``before.strip``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         elements, last_end = [], 0
         for m in self._TABLE_RE.finditer(content):
             before = content[last_end:m.start()]
@@ -613,6 +928,15 @@ class FeishuChannel(BaseChannel):
         Feishu cards have a hard limit of one table per card (API error 11310).
         When the rendered content contains multiple markdown tables each table is
         placed in a separate card message so every table reaches the user.
+
+        Integration: Called by ``FeishuChannel.send`` and collaborates with ``groups.append``,
+        ``el.get``, ``current.append``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         if not elements:
             return [[]]
@@ -635,7 +959,17 @@ class FeishuChannel(BaseChannel):
         return groups or [[]]
 
     def _split_headings(self, content: str) -> list[dict]:
-        """Split content by headings, converting headings to div elements."""
+        """Split content by headings, converting headings to div elements.
+
+        Integration: Called by ``FeishuChannel._build_card_elements`` and collaborates with
+        ``_CODE_BLOCK_RE.finditer``, ``_HEADING_RE.finditer``, ``strip``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers; retain lock scope and release behavior.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         protected = content
         code_blocks = []
         for m in self._CODE_BLOCK_RE.finditer(content):
@@ -709,6 +1043,15 @@ class FeishuChannel(BaseChannel):
         - ``"text"``        – plain text, short and no markdown
         - ``"post"``        – rich text (links only, moderate length)
         - ``"interactive"`` – card with full markdown rendering
+
+        Integration: Called by ``FeishuChannel.send`` and collaborates with ``content.strip``,
+        ``_COMPLEX_MD_RE.search``, ``_SIMPLE_MD_RE.search``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         stripped = content.strip()
 
@@ -745,6 +1088,15 @@ class FeishuChannel(BaseChannel):
 
         Handles links ``[text](url)`` as ``a`` tags; everything else as ``text`` tags.
         Each line becomes a paragraph (row) in the post body.
+
+        Integration: Called by ``FeishuChannel.send`` and collaborates with ``split``,
+        ``json.dumps``, ``_MD_LINK_RE.finditer``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         lines = content.strip().split("\n")
         paragraphs: list[list[dict]] = []
@@ -792,7 +1144,17 @@ class FeishuChannel(BaseChannel):
     }
 
     def _upload_image_sync(self, file_path: str) -> str | None:
-        """Upload an image to Feishu and return the image_key."""
+        """Upload an image to Feishu and return the image_key.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``open``, ``build``, ``_client.im.v1.image.create``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         from lark_oapi.api.im.v1 import CreateImageRequest, CreateImageRequestBody
         try:
             with open(file_path, "rb") as f:
@@ -816,7 +1178,17 @@ class FeishuChannel(BaseChannel):
             return None
 
     def _upload_file_sync(self, file_path: str) -> str | None:
-        """Upload a file to Feishu and return the file_key."""
+        """Upload a file to Feishu and return the file_key.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``lower``, ``_FILE_TYPE_MAP.get``, ``os.path.basename``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+        exception and fallback behavior expected by callers.
+        """
         from lark_oapi.api.im.v1 import CreateFileRequest, CreateFileRequestBody
         ext = os.path.splitext(file_path)[1].lower()
         file_type = self._FILE_TYPE_MAP.get(ext, "stream")
@@ -844,7 +1216,17 @@ class FeishuChannel(BaseChannel):
             return None
 
     def _download_image_sync(self, message_id: str, image_key: str) -> tuple[bytes | None, str | None]:
-        """Download an image from Feishu message by message_id and image_key."""
+        """Download an image from Feishu message by message_id and image_key.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``build``, ``_client.im.v1.message_resource.get``,
+        ``response.success``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         from lark_oapi.api.im.v1 import GetMessageResourceRequest
         try:
             request = GetMessageResourceRequest.builder() \
@@ -869,7 +1251,17 @@ class FeishuChannel(BaseChannel):
     def _download_file_sync(
         self, message_id: str, file_key: str, resource_type: str = "file"
     ) -> tuple[bytes | None, str | None]:
-        """Download a file/audio/media from a Feishu message by message_id and file_key."""
+        """Download a file/audio/media from a Feishu message by message_id and file_key.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``build``, ``_client.im.v1.message_resource.get``,
+        ``response.success``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         from lark_oapi.api.im.v1 import GetMessageResourceRequest
 
         # Feishu API only accepts 'image' or 'file' as type parameter
@@ -904,11 +1296,19 @@ class FeishuChannel(BaseChannel):
         content_json: dict,
         message_id: str | None = None
     ) -> tuple[str | None, str]:
-        """
-        Download media from Feishu and save to local disk.
+        """Download media from Feishu and save to local disk.
 
         Returns:
             (file_path, content_text) - file_path is None if download failed
+
+        Integration: Called by ``FeishuChannel._on_message`` and collaborates with
+        ``asyncio.get_running_loop``, ``resolve_channel_media_dir``, ``content_json.get``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         loop = asyncio.get_running_loop()
         media_dir = resolve_channel_media_dir(self.name)
@@ -958,6 +1358,14 @@ class FeishuChannel(BaseChannel):
         When *reply_in_thread* (a message_id) is provided, the message is
         posted as a reply inside the originating thread via
         ``ReplyMessageRequest`` instead of a standalone message.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``logger.debug``, ``build``, ``_client.im.v1.message.reply``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
         try:
@@ -998,6 +1406,17 @@ class FeishuChannel(BaseChannel):
 
     @staticmethod
     def _format_response_error(action: str, response: Any) -> str:
+        """Format response error for the enclosing subsystem.
+
+        Integration: Called by ``FeishuChannel._create_managed_group_sync``,
+        ``FeishuChannel._rename_group_sync`` and collaborates with ``response.get_log_id``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         log_id = response.get_log_id() if hasattr(response, "get_log_id") else ""
         return (
             f"{action} failed: code={getattr(response, 'code', '')}, "
@@ -1005,7 +1424,16 @@ class FeishuChannel(BaseChannel):
         )
 
     def _create_managed_group_sync(self, user_open_id: str, name: str) -> str:
-        """Create a Feishu group containing the user and the app bot."""
+        """Create a Feishu group containing the user and the app bot.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``build``, ``_client.im.v1.chat.create``, ``logger.info``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         from lark_oapi.api.im.v1 import CreateChatRequest, CreateChatRequestBody
 
         if not self._client:
@@ -1034,12 +1462,31 @@ class FeishuChannel(BaseChannel):
         return str(chat_id)
 
     async def create_managed_group(self, *, user_open_id: str, name: str) -> str:
-        """Create a Feishu group for a single user and the ohmo bot."""
+        """Create a Feishu group for a single user and the ohmo bot.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``asyncio.get_running_loop``, ``loop.run_in_executor``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._create_managed_group_sync, user_open_id, name)
 
     def _rename_group_sync(self, chat_id: str, name: str) -> None:
-        """Rename a Feishu group."""
+        """Rename a Feishu group.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``build``, ``_client.im.v1.chat.update``, ``logger.info``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         from lark_oapi.api.im.v1 import UpdateChatRequest, UpdateChatRequestBody
 
         if not self._client:
@@ -1057,12 +1504,31 @@ class FeishuChannel(BaseChannel):
         logger.info("Renamed Feishu group chat_id=%s name=%r", chat_id, name)
 
     async def rename_group(self, *, chat_id: str, name: str) -> None:
-        """Rename a Feishu group."""
+        """Rename a Feishu group.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``asyncio.get_running_loop``, ``loop.run_in_executor``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._rename_group_sync, chat_id, name)
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through Feishu, including media (images/files) if present."""
+        """Send a message through Feishu, including media (images/files) if present.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_ensure_rest_client``, ``logger.warning``, ``asyncio.get_running_loop``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         if not self._ensure_rest_client():
             logger.warning("Feishu client not initialized")
             return
@@ -1165,7 +1631,17 @@ class FeishuChannel(BaseChannel):
             logger.error("Error sending Feishu message: %s", e)
 
     def _resolve_sender_display_name_sync(self, open_id: str) -> str:
-        """Resolve a human-friendly sender name from Feishu contact APIs."""
+        """Resolve a human-friendly sender name from Feishu contact APIs.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_sender_cache.get``, ``_FeishuSenderInfo``,
+        ``_sender_cache.move_to_end``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         cached = self._sender_cache.get(open_id)
         if cached is not None:
             self._sender_cache.move_to_end(open_id)
@@ -1203,15 +1679,34 @@ class FeishuChannel(BaseChannel):
         return display_name
 
     def _on_message_sync(self, data: "P2ImMessageReceiveV1") -> None:  # noqa: F821
-        """
-        Sync handler for incoming messages (called from WebSocket thread).
+        """Sync handler for incoming messages (called from WebSocket thread).
         Schedules async handling in the main event loop.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``_loop.is_running``, ``asyncio.run_coroutine_threadsafe``,
+        ``_on_message``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self._on_message(data), self._loop)
 
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:  # noqa: F821
-        """Handle incoming message from Feishu."""
+        """Handle incoming message from Feishu.
+
+        Integration: Used as an internal helper or callback at this module boundary and
+        collaborates with ``asyncio.get_running_loop``, ``_extract_feishu_mentions``,
+        ``_processed_message_ids.popitem``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
+        """
         try:
             event = data.event
             message = event.message

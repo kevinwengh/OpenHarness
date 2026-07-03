@@ -1,4 +1,15 @@
-"""Scan project memory files."""
+"""Scan project memory files.
+
+Integration: This module participates in durable project memory selection, indexing, migration,
+and usage metadata.
+
+Concurrency: This module is synchronous unless collaborators document otherwise; async callers
+execute its helpers inline, so filesystem, process, parsing, and serialization work must remain
+bounded.
+
+Change safety: Preserve project scoping, bounded prompt content, deterministic schemas, atomic
+updates, and separation from session/personal memory.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +36,16 @@ def scan_memory_files(
     include_expired: bool = False,
     memory_dir: str | Path | None = None,
 ) -> list[MemoryHeader]:
-    """Return memory headers sorted by newest first."""
+    """Return memory headers sorted by newest first.
+
+    Integration: Called by ``list_memory_files``, ``add_memory_entry`` and collaborates with
+    ``memory_dir.glob``, ``headers.sort``, ``Path``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
+    exception and fallback behavior expected by callers.
+    """
     memory_dir = Path(memory_dir) if memory_dir is not None else get_project_memory_dir(cwd)
     headers: list[MemoryHeader] = []
     for path in memory_dir.glob("*.md"):
@@ -48,7 +68,16 @@ def scan_memory_files(
 
 
 def _parse_memory_file(path: Path, content: str) -> MemoryHeader:
-    """Parse a memory file, extracting YAML frontmatter when present."""
+    """Parse a memory file, extracting YAML frontmatter when present.
+
+    Integration: Called by ``scan_memory_files`` and collaborates with ``split_memory_file``,
+    ``body.splitlines``, ``metadata.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     metadata, body, _, _ = split_memory_file(content)
     lines = body.splitlines()
     title = path.stem
@@ -109,6 +138,15 @@ def _parse_memory_file(path: Path, content: str) -> MemoryHeader:
 
 
 def _metadata_from_header(header: MemoryHeader) -> dict[str, object]:
+    """Extract normalized memory metadata from a document header.
+
+    Integration: Called by ``scan_memory_files``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     return {
         "created_at": header.created_at,
         "updated_at": header.updated_at,

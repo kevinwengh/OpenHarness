@@ -1,3 +1,15 @@
+/**
+ * Implement the autopilot dashboard's app module.
+ *
+ * Integration: Consumed by the Vite/React dashboard and its generated autopilot snapshot data.
+ *
+ * Event loop: Rendering and animation callbacks run in the browser event loop; avoid blocking
+ * frames or leaking scheduled work.
+ *
+ * Change safety: Preserve component props, snapshot-data assumptions, responsive rendering, and the
+ * dashboard build contract.
+ */
+
 import { useEffect, useState } from "react";
 import { HeroBackground } from "./components/HeroBackground";
 import { PipelineAnimation } from "./components/PipelineAnimation";
@@ -6,6 +18,16 @@ import { STATUS_LABELS, STATUS_COLORS, KANBAN_GROUPS } from "./types";
 
 /* ── Helpers ─────────────────────────────────── */
 
+/**
+ * Derive fmt ago from the current frontend state and inputs.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `max`, `floor`, `now`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function fmtAgo(ts?: number): string {
   if (!ts) return "-";
   const delta = Math.max(0, Math.floor(Date.now() / 1000 - ts));
@@ -15,6 +37,16 @@ function fmtAgo(ts?: number): string {
   return `${Math.floor(delta / 86400)}d ago`;
 }
 
+/**
+ * Derive status badge class from the current frontend state and inputs.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `includes`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function statusBadgeClass(status: string): string {
   if (["running", "completed", "merged", "preparing"].includes(status)) return "badge-teal";
   if (["repairing"].includes(status)) return "badge-orange";
@@ -27,10 +59,23 @@ function statusBadgeClass(status: string): string {
 
 /* ── Card Component ──────────────────────────── */
 
+/**
+ * Render the CardView React component.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `filter`, `join`, `slice`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function CardView({ card }: { card: TaskCard }) {
   const labels = [...(card.labels || []), card.source_kind].filter(Boolean);
   const verification = (card.metadata?.verification_steps || [])
-    .map((step) => `${step.status} · ${step.command}`)
+    .map(/*
+     * map callback: computes its callback result; keep event-loop work bounded and preserve the
+     * callback's return contract.
+     */ (step) => `${step.status} · ${step.command}`)
     .slice(0, 2)
     .join(" | ");
   const borderColor = STATUS_COLORS[card.status] || "#333";
@@ -52,7 +97,10 @@ function CardView({ card }: { card: TaskCard }) {
       )}
       {labels.length > 0 && (
         <div className="card-tags">
-          {labels.map((tag, i) => (
+          {labels.map(/*
+           * map callback: computes its callback result; keep event-loop work bounded and
+           * preserve the callback's return contract.
+           */ (tag, i) => (
             <span key={i} className="tag">{tag}</span>
           ))}
         </div>
@@ -76,6 +124,16 @@ function CardView({ card }: { card: TaskCard }) {
 
 /* ── Grouped Column Component ────────────────── */
 
+/**
+ * Render the GroupColumnView React component.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `map`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function GroupColumnView({ label, color, cards }: {
   label: string;
   color: string;
@@ -92,7 +150,10 @@ function GroupColumnView({ label, color, cards }: {
       </div>
       <div className="cards">
         {cards.length > 0
-          ? cards.map((card) => <CardView key={card.id} card={card} />)
+          ? cards.map(/*
+           * map callback: computes its callback result; keep event-loop work bounded and
+           * preserve the callback's return contract.
+           */ (card) => <CardView key={card.id} card={card} />)
           : <div className="empty">No cards.</div>
         }
       </div>
@@ -102,6 +163,16 @@ function GroupColumnView({ label, color, cards }: {
 
 /* ── Journal Component ───────────────────────── */
 
+/**
+ * Render the JournalView React component.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `map`, `reverse`, `slice`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 function JournalView({ entries }: { entries: JournalEntry[] }) {
   return (
     <section className="journal">
@@ -113,7 +184,10 @@ function JournalView({ entries }: { entries: JournalEntry[] }) {
       </div>
       <div className="journal-list">
         {entries.length > 0
-          ? entries.slice().reverse().map((entry, i) => (
+          ? entries.slice().reverse().map(/*
+           * map callback: uses replace, toISOString; keep event-loop work bounded and preserve
+           * the callback's return contract.
+           */ (entry, i) => (
               <article key={i} className="journal-item">
                 <time>
                   {new Date(entry.timestamp * 1000)
@@ -137,16 +211,35 @@ function JournalView({ entries }: { entries: JournalEntry[] }) {
 
 /* ── Main App ────────────────────────────────── */
 
+/**
+ * Render the App React component.
+ *
+ * Integration: Owned by `App.tsx` and collaborates with `useState`, `useEffect`, `toLowerCase`.
+ *
+ * Event loop: Runs synchronously during render or callback dispatch; keep it pure or bounded unless
+ * asynchronous ownership is explicit.
+ *
+ * Change safety: Preserve parameters, return shape, state ownership, and caller-visible ordering.
+ */
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  useEffect(/*
+   * React effect: uses catch, then, fetch after render; keep dependencies, asynchronous work,
+   * and returned cleanup synchronized.
+   */ () => {
     fetch("./snapshot.json", { cache: "no-store" })
-      .then((r) => r.json())
+      .then(/*
+       * then callback: uses json; keep event-loop work bounded and preserve the callback's
+       * return contract.
+       */ (r) => r.json())
       .then(setSnapshot)
-      .catch((e) => setError(String(e)));
+      .catch(/*
+       * catch callback: uses setError, String; keep event-loop work bounded and preserve the
+       * callback's return contract.
+       */ (e) => setError(String(e)));
   }, []);
 
   if (error) {
@@ -171,9 +264,18 @@ export function App() {
   const normalizedFilter = filter.trim().toLowerCase();
 
   // Group cards into 4 kanban columns
-  const groupedColumns = KANBAN_GROUPS.map((group) => {
-    const allCards = group.statuses.flatMap((s) => snapshot.columns?.[s] || []);
-    const cards = allCards.filter((card) => {
+  const groupedColumns = KANBAN_GROUPS.map(/*
+   * map callback: uses flatMap, filter; keep event-loop work bounded and preserve the
+   * callback's return contract.
+   */ (group) => {
+    const allCards = group.statuses.flatMap(/*
+     * flatMap callback: computes its callback result; keep event-loop work bounded and preserve
+     * the callback's return contract.
+     */ (s) => snapshot.columns?.[s] || []);
+    const cards = allCards.filter(/*
+     * filter callback: uses toLowerCase, join, includes; keep event-loop work bounded and
+     * preserve the callback's return contract.
+     */ (card) => {
       if (!normalizedFilter) return true;
       const haystack = [
         card.id, card.title, card.body, card.source_kind, card.source_ref,
@@ -263,7 +365,10 @@ export function App() {
             type="search"
             placeholder="Filter by title, body, source, label, or task id..."
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={/*
+             * onChange callback: uses setFilter; keep event-loop work bounded and preserve the
+             * callback's return contract.
+             */ (e) => setFilter(e.target.value)}
           />
           <div className="hint">
             Reads <code>snapshot.json</code> — no backend required
@@ -272,7 +377,10 @@ export function App() {
 
         {/* ── Kanban Board ───────────────── */}
         <section className="board">
-          {groupedColumns.map((group) => (
+          {groupedColumns.map(/*
+           * map callback: computes its callback result; keep event-loop work bounded and
+           * preserve the callback's return contract.
+           */ (group) => (
             <GroupColumnView
               key={group.key}
               label={group.label}

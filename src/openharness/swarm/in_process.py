@@ -18,6 +18,16 @@ Architecture summary
 * :class:`InProcessBackend` – implements
   :class:`~openharness.swarm.types.TeammateExecutor` and manages the dict of
   live asyncio Tasks.
+
+Integration: This module participates in multi-agent team, mailbox, permission, subprocess, and
+worktree coordination.
+
+Event loop: Coroutines and async generators execute on their caller's loop; preserve
+cancellation, ordering, task ownership, bounded synchronous work, and cleanup of every acquired
+resource.
+
+Change safety: Preserve identity and mailbox schemas, lock/atomicity, cancellation, permission
+routing, Git isolation, and teardown.
 """
 
 from __future__ import annotations
@@ -58,9 +68,28 @@ class TeammateAbortController:
 
     Mirrors the TypeScript ``AbortController`` / linked-controller pattern used
     in ``spawnInProcess.ts`` and ``InProcessBackend.ts``.
+
+    Integration: Constructed or referenced by ``InProcessBackend.spawn``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     def __init__(self) -> None:
+        """Initialize ``TeammateAbortController`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``TeammateAbortController`` and collaborates with
+        ``asyncio.Event``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self.cancel_event: asyncio.Event = asyncio.Event()
         """Set to request graceful cancellation of the agent loop."""
 
@@ -71,7 +100,17 @@ class TeammateAbortController:
 
     @property
     def is_cancelled(self) -> bool:
-        """Return True if either cancellation signal has been set."""
+        """Return True if either cancellation signal has been set.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``cancel_event.is_set``, ``force_cancel.is_set``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.cancel_event.is_set() or self.force_cancel.is_set()
 
     def request_cancel(self, reason: str | None = None, *, force: bool = False) -> None:
@@ -81,6 +120,15 @@ class TeammateAbortController:
             reason: Human-readable reason for the cancellation (for logging).
             force: When True, set ``force_cancel`` for immediate termination.
                    When False, set ``cancel_event`` for graceful shutdown.
+
+        Integration: Called by ``_drain_mailbox``, ``InProcessBackend.shutdown`` and
+        collaborates with ``logger.debug``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         self._reason = reason
         if force:
@@ -98,7 +146,16 @@ class TeammateAbortController:
 
     @property
     def reason(self) -> str | None:
-        """The reason provided to the most recent :meth:`request_cancel` call."""
+        """The reason provided to the most recent :meth:`request_cancel` call.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self._reason
 
 
@@ -116,6 +173,14 @@ class TeammateContext:
 
     Stored in a :data:`ContextVar` so that each asyncio Task sees its own
     copy without any locking.
+
+    Integration: Constructed or referenced by ``start_in_process_teammate``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     agent_id: str
@@ -166,7 +231,16 @@ class TeammateContext:
     # continues to work without modification.
     @property
     def cancel_event(self) -> asyncio.Event:
-        """Graceful cancellation event (delegates to :attr:`abort_controller`)."""
+        """Graceful cancellation event (delegates to :attr:`abort_controller`).
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return self.abort_controller.cancel_event
 
 
@@ -179,12 +253,29 @@ def get_teammate_context() -> TeammateContext | None:
     """Return the :class:`TeammateContext` for the currently-running teammate task.
 
     Returns ``None`` when called outside of an in-process teammate.
+
+    Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+    ``_teammate_context_var.get``.
+
+    Concurrency: This is synchronous; preserve deterministic behavior for its direct callers.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
     """
     return _teammate_context_var.get()
 
 
 def set_teammate_context(ctx: TeammateContext) -> None:
-    """Bind *ctx* to the current async context (task-local)."""
+    """Bind *ctx* to the current async context (task-local).
+
+    Integration: Called by ``start_in_process_teammate``.
+
+    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
+    and non-blocking.
+
+    Change safety: Preserve the signature, return value, and side-effect contract expected by
+    callers.
+    """
     _teammate_context_var.set(ctx)
 
 
@@ -228,6 +319,14 @@ async def start_in_process_teammate(
         :class:`~openharness.engine.query.QueryContext`.  When *None* this
         function runs a stub that respects the cancel signals so tests and
         direct invocations still work.
+
+    Integration: Called by ``InProcessBackend.spawn`` and collaborates with ``TeammateContext``,
+    ``set_teammate_context``, ``TeammateMailbox``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     ctx = TeammateContext(
         agent_id=agent_id,
@@ -300,6 +399,14 @@ async def _drain_mailbox(
 
     Returns:
         True if a shutdown message was received (caller should stop the loop).
+
+    Integration: Called by ``_run_query_loop`` and collaborates with ``mailbox.read_all``,
+    ``logger.debug``, ``ctx.abort_controller.request_cancel``.
+
+    Event loop: This coroutine awaits collaborators on the caller's loop and must avoid blocking
+    I/O.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     try:
         pending = await mailbox.read_all(unread_only=True)
@@ -345,6 +452,14 @@ async def _run_query_loop(
     - Inject queued user messages as additional turns.
     - Check the abort controller.
     - Track tool_use_count and total_tokens.
+
+    Integration: Called by ``start_in_process_teammate`` and collaborates with ``run_query``,
+    ``ConversationMessage.from_user_text``, ``contextlib.suppress``.
+
+    Event loop: This coroutine coordinates child tasks; preserve cancellation, completion, and
+    exception ownership.
+
+    Change safety: Preserve exception and fallback behavior expected by callers.
     """
     # Deferred import to avoid circular dependencies at module load time.
     from openharness.engine.query import run_query
@@ -402,7 +517,16 @@ async def _run_query_loop(
 
 @dataclass
 class _TeammateEntry:
-    """Internal registry entry for a running in-process teammate."""
+    """Internal registry entry for a running in-process teammate.
+
+    Integration: Constructed or referenced by ``InProcessBackend.spawn``.
+
+    Concurrency: The class is synchronous unless a collaborator documents otherwise; keep
+    methods bounded when async callers use them inline.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
+    """
 
     task: asyncio.Task[None]
     abort_controller: TeammateAbortController
@@ -417,12 +541,31 @@ class InProcessBackend:
     :class:`asyncio.Task` runs with its own copy of the context, so
     :func:`get_teammate_context` returns the correct identity for every
     concurrent agent.
+
+    Integration: Constructed or referenced by ``BackendRegistry._register_defaults``.
+
+    Event loop: Async methods ``spawn``, ``send_message``, ``shutdown``, ``_cleanup_teammate``
+    run on their caller's loop; instances must retain clear task, cancellation, and cleanup
+    ownership.
+
+    Change safety: Preserve constructor invariants, public method contracts, state ownership,
+    and cleanup expectations used by collaborators.
     """
 
     type: BackendType = "in_process"
 
     def __init__(self) -> None:
         # Maps agent_id -> _TeammateEntry
+        """Initialize ``InProcessBackend`` and bind its runtime dependencies.
+
+        Integration: Exposed through ``InProcessBackend``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         self._active: dict[str, _TeammateEntry] = {}
 
     # ------------------------------------------------------------------
@@ -430,7 +573,16 @@ class InProcessBackend:
     # ------------------------------------------------------------------
 
     def is_available(self) -> bool:
-        """In-process backend is always available — no external dependencies."""
+        """In-process backend is always available — no external dependencies.
+
+        Integration: Exposed as a public entrypoint for this subsystem.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return True
 
     async def spawn(self, config: TeammateSpawnConfig) -> SpawnResult:
@@ -439,6 +591,15 @@ class InProcessBackend:
         Creates a :class:`TeammateAbortController`, binds it to a new Task via
         :mod:`contextvars` copy-on-create semantics, and registers the task in
         :attr:`_active`.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``TeammateAbortController``, ``asyncio.create_task``, ``_TeammateEntry``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         agent_id = f"{config.name}@{config.team}"
         task_id = f"in_process_{uuid.uuid4().hex[:12]}"
@@ -478,6 +639,17 @@ class InProcessBackend:
         self._active[agent_id] = entry
 
         def _on_done(t: asyncio.Task[None]) -> None:
+            """Handle the done lifecycle event.
+
+            Integration: Used as an internal helper or callback at this module boundary and
+            collaborates with ``_active.pop``, ``_on_teammate_error``, ``t.cancelled``.
+
+            Concurrency: This is synchronous; preserve deterministic behavior for its direct
+            callers.
+
+            Change safety: Preserve the signature, return value, and side-effect contract
+            expected by callers.
+            """
             self._active.pop(agent_id, None)
             if not t.cancelled() and t.exception() is not None:
                 self._on_teammate_error(agent_id, t.exception())  # type: ignore[arg-type]
@@ -502,6 +674,14 @@ class InProcessBackend:
         is accessible, the message is also pushed directly into
         ``ctx.message_queue`` for low-latency delivery without a filesystem
         round-trip.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``agent_id.split``, ``MailboxMessage``, ``TeammateMailbox``.
+
+        Event loop: This coroutine awaits collaborators on the caller's loop and must avoid
+        blocking I/O.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         if "@" not in agent_id:
             raise ValueError(
@@ -546,6 +726,14 @@ class InProcessBackend:
         -------
         bool
             *True* if the agent was found and termination was initiated.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_active.get``, ``entry.task.done``, ``logger.debug``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve exception and fallback behavior expected by callers.
         """
         entry = self._active.get(agent_id)
         if entry is None:
@@ -596,6 +784,16 @@ class InProcessBackend:
 
         This is called automatically from the task's done-callback and from
         :meth:`shutdown`.
+
+        Integration: Called by ``InProcessBackend.shutdown`` and collaborates with
+        ``_active.pop``, ``logger.debug``, ``entry.abort_controller.request_cancel``.
+
+        Event loop: This coroutine executes synchronously until it returns; filesystem or
+        process work therefore runs inline on the caller's loop. Keep that work bounded or
+        offload it before it can block.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         entry = self._active.pop(agent_id, None)
         if entry is None:
@@ -614,6 +812,15 @@ class InProcessBackend:
 
         Logs a structured error report and removes the entry from the registry.
         In future this can emit a TaskNotification to the leader mailbox.
+
+        Integration: Called by ``InProcessBackend.spawn``, ``InProcessBackend.spawn._on_done``
+        and collaborates with ``_active.get``, ``logger.error``, ``_active.pop``.
+
+        Event loop: Async callers invoke this synchronous helper inline, so keep its work
+        bounded and non-blocking.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         duration = 0.0
         entry = self._active.get(agent_id)
@@ -643,6 +850,15 @@ class InProcessBackend:
                 "is_done": bool,
                 "duration_s": float,
             }
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_active.get``, ``entry.task.done``, ``time.time``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         entry = self._active.get(agent_id)
         if entry is None:
@@ -660,6 +876,15 @@ class InProcessBackend:
 
         ``is_running`` is True if the task is alive and not done.
         ``duration_seconds`` is the wall-clock time since spawn.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``time.time``, ``_active.items``, ``result.append``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
         """
         now = time.time()
         result = []
@@ -674,18 +899,48 @@ class InProcessBackend:
     # ------------------------------------------------------------------
 
     def is_active(self, agent_id: str) -> bool:
-        """Return *True* if the teammate has a running (not-done) Task."""
+        """Return *True* if the teammate has a running (not-done) Task.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_active.get``, ``entry.task.done``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         entry = self._active.get(agent_id)
         if entry is None:
             return False
         return not entry.task.done()
 
     def active_agents(self) -> list[str]:
-        """Return a list of agent_ids with currently running Tasks."""
+        """Return a list of agent_ids with currently running Tasks.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_active.items``, ``entry.task.done``.
+
+        Concurrency: This is synchronous; preserve deterministic behavior for its direct
+        callers.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         return [aid for aid, entry in self._active.items() if not entry.task.done()]
 
     async def shutdown_all(self, *, force: bool = False, timeout: float = 10.0) -> None:
-        """Gracefully (or forcefully) terminate all active teammates."""
+        """Gracefully (or forcefully) terminate all active teammates.
+
+        Integration: Exposed as a public entrypoint for this subsystem and collaborates with
+        ``_active.keys``, ``asyncio.gather``, ``shutdown``.
+
+        Event loop: This coroutine coordinates child tasks; preserve cancellation, completion,
+        and exception ownership.
+
+        Change safety: Preserve the signature, return value, and side-effect contract expected
+        by callers.
+        """
         agent_ids = list(self._active.keys())
         await asyncio.gather(
             *(self.shutdown(aid, force=force, timeout=timeout) for aid in agent_ids),
