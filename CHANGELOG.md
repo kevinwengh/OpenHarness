@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- A focused LM Studio guide covering Anthropic-compatible provider profiles, local and token-based authentication, verification, tool-use expectations, and troubleshooting.
 - Focused critical-flow documentation covering CLI entrypoints, runtime bootstrap, prompt/tool execution, permissions/hooks/sandboxing, memory/session/compaction, MCP, extension discovery, the terminal protocol, `ohmo` composition, and background agents.
 - Structured maintainer documentation with a docs hub, new-developer onboarding path, source and change-impact guide, evidence-backed improvement backlog, current-state architecture, extension contracts, and test selection, plus repository-local skills for general development, tool work, and provider work.
 - Hooks now support a `priority` field (default `0`). Within an event, hooks run highest-priority first, and hooks sharing a priority keep their registration order. This lets users order, for example, a security-check hook ahead of a logging hook regardless of where each is declared in settings or contributed by plugins.

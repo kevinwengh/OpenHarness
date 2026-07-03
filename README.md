@@ -338,6 +338,9 @@ Typical examples:
 | **Zhipu / GLM** | custom Anthropic-compatible endpoint | `glm-4.5` |
 | **MiniMax** | custom Anthropic-compatible endpoint | `minimax-m1` |
 
+To run OpenHarness against LM Studio's local Anthropic Messages endpoint, follow the
+[LM Studio Anthropic-compatible setup guide](docs/providers/LM_STUDIO_ANTHROPIC.md).
+
 #### OpenAI-Compatible API
 
 Any provider implementing the OpenAI `/v1/chat/completions` style API works:

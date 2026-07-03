@@ -30,6 +30,7 @@ provider, extension, UI, and `ohmo` work.
 | Change the model/tool loop | [Architecture](ARCHITECTURE.md#main-runtime-flows) | `src/openharness/engine/query.py` and `tests/test_engine/` |
 | Add a tool, skill, plugin, hook, or MCP server | [Extending OpenHarness](EXTENDING.md) | The matching source and `tests/test_*` directory |
 | Add or change a provider | [Codebase guide](developer/CODEBASE_GUIDE.md#provider-and-authentication-path) | `src/openharness/api/`, `auth/`, `config/`, and provider tests |
+| Use a local LM Studio model through the Anthropic API | [LM Studio Anthropic-compatible guide](providers/LM_STUDIO_ANTHROPIC.md) | Provider profiles, local authentication, verification, and troubleshooting |
 | Change permissions or sandboxing | [Codebase guide](developer/CODEBASE_GUIDE.md#tool-execution-and-safety-path) | `src/openharness/permissions/`, `sandbox/`, and their tests |
 | Change the terminal UI | [Development guide](DEVELOPMENT.md#pythontypescript-ui-protocol) | `src/openharness/ui/`, `frontend/terminal/`, and `tests/test_ui/` |
 | Change `ohmo` | [Codebase guide](developer/CODEBASE_GUIDE.md#openharness-and-ohmo-boundary) | `ohmo/` and `tests/test_ohmo/` |
@@ -47,6 +48,7 @@ provider, extension, UI, and `ohmo` work.
 | [Testing and validation](TESTING.md) | CI, test selection, or an environment-specific check changes |
 | [Codebase guide](developer/CODEBASE_GUIDE.md) | Entrypoints or subsystem ownership move |
 | [Critical runtime flows](developer/flows/README.md) | A documented lifecycle, call order, state owner, or failure path changes |
+| [LM Studio Anthropic-compatible guide](providers/LM_STUDIO_ANTHROPIC.md) | LM Studio's endpoint, authentication, or OpenHarness profile workflow changes |
 | [Improvement backlog](developer/IMPROVEMENTS.md) | Evidence changes, an item is completed, or priorities are reconsidered |
 
 `docs/autopilot/` is generated/published dashboard output. Edit `autopilot-dashboard/` or the
