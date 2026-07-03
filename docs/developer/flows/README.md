@@ -8,20 +8,24 @@ source, state, failure behavior, and tests that own it.
 
 1. [How the `oh` command reaches Python](CLI_ENTRYPOINTS.md)
 2. [How one runtime is assembled and closed](RUNTIME_BOOTSTRAP.md)
-3. [How a prompt becomes model and tool turns](PROMPT_TOOL_LOOP.md)
-4. [How permissions, hooks, and sandboxing govern a tool](TOOL_GOVERNANCE.md)
-5. [How project memory, session memory, snapshots, and compaction interact](MEMORY_SESSION_COMPACTION.md)
-6. [How MCP servers become model-callable tools and resources](MCP_INTEGRATION.md)
-7. [How skills, plugins, hooks, commands, and tools are discovered](EXTENSION_DISCOVERY.md)
-8. [How the React terminal and Python backend communicate](TERMINAL_UI_PROTOCOL.md)
-9. [How `ohmo` composes and specializes OpenHarness](OHMO_INTEGRATION.md)
-10. [How background tasks and agents are spawned and observed](BACKGROUND_AGENTS.md)
+3. [How an interactive `uv run oh` session crosses the React/Python boundary](INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md)
+4. [How a prompt uses memory, tools, compaction, and persistence end to end](PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md)
+5. [How one prompt becomes model and tool turns](PROMPT_TOOL_LOOP.md)
+6. [How permissions, hooks, and sandboxing govern a tool](TOOL_GOVERNANCE.md)
+7. [How project memory, session memory, snapshots, and compaction interact](MEMORY_SESSION_COMPACTION.md)
+8. [How MCP servers become model-callable tools and resources](MCP_INTEGRATION.md)
+9. [How skills, plugins, hooks, commands, and tools are discovered](EXTENSION_DISCOVERY.md)
+10. [How the terminal protocol is structured](TERMINAL_UI_PROTOCOL.md)
+11. [How `ohmo` composes and specializes OpenHarness](OHMO_INTEGRATION.md)
+12. [How background tasks and agents are spawned and observed](BACKGROUND_AGENTS.md)
 
 ## Find the flow by symptom
 
 | Symptom or question | Flow |
 | --- | --- |
 | The shell cannot find `oh`, or a new CLI option is ignored | [CLI entrypoints](CLI_ENTRYPOINTS.md) |
+| `uv run oh` starts, hangs, interrupts, or exits incorrectly across its processes | [Interactive frontend/backend end to end](INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md) |
+| A prompt uses the wrong memory, loses tool results, or exceeds its context | [Prompt, memory, tools, and compaction end to end](PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md) |
 | A setting/profile/plugin does not appear in a session | [Runtime bootstrap](RUNTIME_BOOTSTRAP.md) |
 | The model responds once but a tool result is not replayed | [Prompt and tool loop](PROMPT_TOOL_LOOP.md) |
 | A tool is unexpectedly denied, approved, or unsandboxed | [Tool governance](TOOL_GOVERNANCE.md) |

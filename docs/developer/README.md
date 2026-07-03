@@ -17,8 +17,8 @@ standalone answer to a common “how does this actually work?” question and li
 
 ### Agent runtime or tool-loop work
 
-1. [CLI entrypoints](flows/CLI_ENTRYPOINTS.md), [runtime bootstrap](flows/RUNTIME_BOOTSTRAP.md), and
-   [prompt/tool loop](flows/PROMPT_TOOL_LOOP.md)
+1. [Prompt, memory, tools, and compaction end to end](flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md),
+   then the shorter [prompt/tool loop](flows/PROMPT_TOOL_LOOP.md)
 2. [Tool governance](flows/TOOL_GOVERNANCE.md) for permissions, hooks, and sandboxing
 3. [Architecture: main runtime flows](../ARCHITECTURE.md#main-runtime-flows)
 4. `src/openharness/ui/runtime.py`, `src/openharness/engine/query_engine.py`, and
@@ -41,7 +41,8 @@ standalone answer to a common “how does this actually work?” question and li
 
 ### Terminal UI or dashboard work
 
-1. [Terminal UI protocol](flows/TERMINAL_UI_PROTOCOL.md)
+1. [Interactive `uv run oh` frontend/backend flow](flows/INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md),
+   then the shorter [terminal UI protocol](flows/TERMINAL_UI_PROTOCOL.md)
 2. [Development: Python/TypeScript UI protocol](../DEVELOPMENT.md#pythontypescript-ui-protocol)
 3. [Testing: test selection matrix](../TESTING.md#test-selection-matrix)
 4. `src/openharness/ui/` with `frontend/terminal/`, or `src/openharness/autopilot/` with
@@ -56,7 +57,8 @@ standalone answer to a common “how does this actually work?” question and li
 
 ### Memory, sessions, or background agents
 
-1. [Memory, sessions, and compaction](flows/MEMORY_SESSION_COMPACTION.md) or
+1. [Prompt, memory, tools, and compaction end to end](flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md),
+   [memory, sessions, and compaction](flows/MEMORY_SESSION_COMPACTION.md), or
    [background agents](flows/BACKGROUND_AGENTS.md)
 2. The owning `memory/`, `services/`, `tasks/`, or `swarm/` source and tests
 3. The [prompt/tool loop](flows/PROMPT_TOOL_LOOP.md) where state enters or leaves a model turn

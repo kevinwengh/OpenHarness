@@ -8,6 +8,9 @@ compaction preserve a long-running task?
 OpenHarness has several related but distinct state layers. Treating them as one memory system causes
 the most common maintenance mistakes.
 
+For the complete path from prompt ingestion through tool-result replay and post-turn persistence,
+see [Prompt, memory, tools, and compaction end to end](PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md).
+
 ## State layers
 
 | Layer | Purpose | Lifetime | Primary owner |

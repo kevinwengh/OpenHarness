@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- Dedicated end-to-end developer guides for the interactive `uv run oh` Python/React process flow and for prompt ingestion, memory selection, tool-result replay, context compaction, and session persistence.
 - A layered local LM Studio manual-test runbook covering provider setup, dry-run inspection, headless `oh`, the React terminal frontend/backend, `ohmo` workspace and memory behavior, and optional channel-gateway validation.
 - A focused LM Studio guide covering Anthropic-compatible provider profiles, local and token-based authentication, verification, tool-use expectations, and troubleshooting.
 - Focused critical-flow documentation covering CLI entrypoints, runtime bootstrap, prompt/tool execution, permissions/hooks/sandboxing, memory/session/compaction, MCP, extension discovery, the terminal protocol, `ohmo` composition, and background agents.

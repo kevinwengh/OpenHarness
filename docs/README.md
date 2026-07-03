@@ -27,6 +27,8 @@ provider, extension, UI, and `ohmo` work.
 | Goal | Start here | Then inspect |
 | --- | --- | --- |
 | Understand how `oh` launches | [CLI entrypoints](developer/flows/CLI_ENTRYPOINTS.md) | `pyproject.toml`, `cli.py`, and `ui/app.py` |
+| Trace an entire interactive `uv run oh` session | [Interactive frontend/backend flow](developer/flows/INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md) | Python launcher, React terminal, backend host, protocol, interruption, and shutdown |
+| Trace prompt memory, tools, compaction, and persistence | [Prompt lifecycle end to end](developer/flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md) | Runtime prompt assembly, query engine, compactor, memory, and session storage |
 | Change the model/tool loop | [Architecture](ARCHITECTURE.md#main-runtime-flows) | `src/openharness/engine/query.py` and `tests/test_engine/` |
 | Add a tool, skill, plugin, hook, or MCP server | [Extending OpenHarness](EXTENDING.md) | The matching source and `tests/test_*` directory |
 | Add or change a provider | [Codebase guide](developer/CODEBASE_GUIDE.md#provider-and-authentication-path) | `src/openharness/api/`, `auth/`, `config/`, and provider tests |

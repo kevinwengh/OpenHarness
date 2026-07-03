@@ -5,6 +5,9 @@
 How does the TypeScript Ink terminal communicate with the Python runtime, and why does an ordinary
 interactive `oh` session involve a frontend process and a backend process?
 
+For the complete shell-to-launch-to-prompt-to-shutdown trace, see
+[Interactive `uv run oh`: frontend/backend end-to-end flow](INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md).
+
 ## Process topology
 
 ```text

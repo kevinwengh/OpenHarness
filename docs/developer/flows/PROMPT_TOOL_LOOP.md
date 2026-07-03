@@ -5,6 +5,9 @@
 What happens from the moment a user submits ordinary chat text until OpenHarness produces a final
 assistant answer, including multiple model turns and tool-result replay?
 
+For the broader lifecycle including all memory layers, compaction stages, tool governance, and
+persistence, see [Prompt, memory, tools, and compaction end to end](PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md).
+
 ## End-to-end sequence
 
 ```text
