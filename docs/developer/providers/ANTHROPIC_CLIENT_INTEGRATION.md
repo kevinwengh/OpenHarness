@@ -4,6 +4,8 @@ This document explains the complete Anthropic request path in OpenHarness, from 
 selection and credential resolution through streaming, tool execution, replay, and cleanup. It is
 an implementation reference for contributors. For operator setup, see the
 [LM Studio Anthropic-compatible guide](../../providers/LM_STUDIO_ANTHROPIC.md).
+For the other runtime clients and the named-provider map, see the
+[provider integration index](README.md).
 
 The source is authoritative. This guide describes the current implementation, including gaps that
 are easy to miss when reading the broad provider protocol docstrings.

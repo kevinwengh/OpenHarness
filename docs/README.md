@@ -31,8 +31,8 @@ provider, extension, UI, and `ohmo` work.
 | Trace prompt memory, tools, compaction, and persistence | [Prompt lifecycle end to end](developer/flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md) | Runtime prompt assembly, query engine, compactor, memory, and session storage |
 | Change the model/tool loop | [Architecture](ARCHITECTURE.md#main-runtime-flows) | `src/openharness/engine/query.py` and `tests/test_engine/` |
 | Add a tool, skill, plugin, hook, or MCP server | [Extending OpenHarness](EXTENDING.md) | The matching source and `tests/test_*` directory |
-| Understand or change the Anthropic client | [Anthropic client integration](developer/providers/ANTHROPIC_CLIENT_INTEGRATION.md) | Profiles, authentication, SDK streaming, response parsing, tools, retries, and compatibility gaps |
-| Add or change another provider | [Codebase guide](developer/CODEBASE_GUIDE.md#provider-and-authentication-path) | `src/openharness/api/`, `auth/`, `config/`, and provider tests |
+| Understand or change a provider client | [Provider integration index](developer/providers/README.md) | Anthropic, OpenAI-compatible, Codex subscription, and GitHub Copilot deep references |
+| Add a provider or profile | [Codebase guide](developer/CODEBASE_GUIDE.md#provider-and-authentication-path) | `src/openharness/api/`, `auth/`, `config/`, and provider tests |
 | Use a local LM Studio model through the Anthropic API | [LM Studio Anthropic-compatible guide](providers/LM_STUDIO_ANTHROPIC.md) | Provider profiles, local authentication, verification, and troubleshooting |
 | Manually validate LM Studio across `oh`, the terminal, and `ohmo` | [LM Studio local manual test flow](testing/LM_STUDIO_LOCAL_MANUAL_TEST.md) | Layered pass criteria, failure localization, and state ownership |
 | Change permissions or sandboxing | [Codebase guide](developer/CODEBASE_GUIDE.md#tool-execution-and-safety-path) | `src/openharness/permissions/`, `sandbox/`, and their tests |
@@ -52,7 +52,7 @@ provider, extension, UI, and `ohmo` work.
 | [Testing and validation](TESTING.md) | CI, test selection, or an environment-specific check changes |
 | [Codebase guide](developer/CODEBASE_GUIDE.md) | Entrypoints or subsystem ownership move |
 | [Critical runtime flows](developer/flows/README.md) | A documented lifecycle, call order, state owner, or failure path changes |
-| [Anthropic client integration](developer/providers/ANTHROPIC_CLIENT_INTEGRATION.md) | Anthropic profile, authentication, request conversion, streaming, parsing, retry, or tool-replay behavior changes |
+| [Provider integration guides](developer/providers/README.md) | Provider profiles, auth, client selection, wire conversion, streaming, retries, or tool-replay behavior changes |
 | [LM Studio Anthropic-compatible guide](providers/LM_STUDIO_ANTHROPIC.md) | LM Studio's endpoint, authentication, or OpenHarness profile workflow changes |
 | [LM Studio local manual test flow](testing/LM_STUDIO_LOCAL_MANUAL_TEST.md) | Local provider, terminal, or `ohmo` validation steps and pass criteria change |
 | [Improvement backlog](developer/IMPROVEMENTS.md) | Evidence changes, an item is completed, or priorities are reconsidered |

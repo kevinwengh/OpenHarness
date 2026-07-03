@@ -27,11 +27,13 @@ standalone answer to a common “how does this actually work?” question and li
 
 ### Provider or authentication work
 
-1. [Anthropic client integration](providers/ANTHROPIC_CLIENT_INTEGRATION.md) for the complete
-   profile, authentication, request, streaming, tool replay, and compatibility path
-2. [Codebase guide: provider and authentication path](CODEBASE_GUIDE.md#provider-and-authentication-path)
-3. [Extending: provider](../EXTENDING.md#add-or-modify-a-provider)
-4. `.claude/skills/openharness-add-provider/SKILL.md`
+1. [Provider integration index](providers/README.md) to map profiles and registry names to the
+   Anthropic, OpenAI-compatible, Codex subscription, or GitHub Copilot runtime client
+2. The matching detailed client guide for authentication, request conversion, streaming, tool
+   replay, retries, capability boundaries, tests, and known gaps
+3. [Codebase guide: provider and authentication path](CODEBASE_GUIDE.md#provider-and-authentication-path)
+4. [Extending: provider](../EXTENDING.md#add-or-modify-a-provider)
+5. `.claude/skills/openharness-add-provider/SKILL.md`
 
 ### Tools and extensions
 
