@@ -8,19 +8,19 @@ The React terminal UI (`frontend/terminal`) communicates with the OpenHarness en
 
 ```mermaid
 flowchart LR
-    subgraph Ink["frontend/terminal (Node.js + tsx)"]
-        index["index.tsx\n(config parser)"] --> App["App.tsx\n(theme + session hook)"]
-        session["useBackendSession.ts\n(spawn backend, read/write OHJSON:)"]
+    subgraph Ink["frontend/terminal Node.js tsx"]
+        index["index.tsx config parser"] --> App["App.tsx theme session hook"]
+        session["useBackendSession spawn backend read write OHJSON"]
         App --> session
     end
 
-    subgraph Python["src/openharness/ui (Python + asyncio)"]
-        host["backend_host.py\n(ReactBackendHost)\nboot engine, dispatch requests]
-        protocol["protocol.py\n(Pydantic: FrontendRequest /\n  BackendEvent)"]
+    subgraph Python["src openharness ui Python asyncio"]
+        host["backend_host ReactBackendHost boot engine dispatch requests"]
+        protocol["protocol Pydantic FrontendRequest and BackendEvent"]
     end
 
-    index -->|"OPENHARNESS_FRONTEND_CONFIG\n(env var)"| App
-    session <-->|"OHJSON:\nstdin ↔ stdout"| host
+    index -- "OPENHARNESS_FRONTEND_CONFIG env var" --> App
+    session <-->|"OHJSON stdin stdout"| host
 ```
 
 **Key evidence:** `src/openharness/ui/react_launcher.py`, `frontend/terminal/src/hooks/useBackendSession.ts`, `src/openharness/ui/backend_host.py`, `src/openharness/ui/protocol.py`.
