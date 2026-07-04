@@ -6,22 +6,7 @@
 
 The React terminal UI (`frontend/terminal`) communicates with the OpenHarness engine through a **single parent/child process pair** using stdin/stdout pipes with a custom newline-delimited JSON protocol prefixed with `OHJSON:`. There is **no WebSocket layer**. The Python backend runs as a child process spawned by the TypeScript frontend, and all data exchange happens over that pipe.
 
-```mermaid
-flowchart LR
-    subgraph Ink["frontend/terminal Node.js tsx"]
-        index["index.tsx config parser"] --> App["App.tsx theme session hook"]
-        session["useBackendSession spawn backend read write OHJSON"]
-        App --> session
-    end
-
-    subgraph Python["src openharness ui Python asyncio"]
-        host["backend_host ReactBackendHost boot engine dispatch requests"]
-        protocol["protocol Pydantic FrontendRequest and BackendEvent"]
-    end
-
-    index -- "OPENHARNESS_FRONTEND_CONFIG env var" --> App
-    session <-->|"OHJSON stdin stdout"| host
-```
+![Frontend/backend process and protocol boundary](diagrams/frontend-backend-ipc.svg)
 
 **Key evidence:** `src/openharness/ui/react_launcher.py`, `frontend/terminal/src/hooks/useBackendSession.ts`, `src/openharness/ui/backend_host.py`, `src/openharness/ui/protocol.py`.
 
@@ -353,6 +338,85 @@ User-level settings live at `~/.openharness/settings.json` and are loaded by `lo
 **File:** `src/openharness/ui/textual_app.py`, lines 1-496
 
 An alternative UI built on the Textual framework (`textual.app.App`). It does **not** use the OHJSON protocol — it directly drives `build_runtime()` and `handle_line()` from within its own app, rendering through Rich/Textual widgets. It is referenced in the codebase but not wired into `run_repl()` as the default path; only the Ink-based React TUI (`react_launcher.py`) is the active frontend today.
+
+## Decisions and trade-offs
+
+### Parent/child pipes instead of a socket server
+
+**Decision.** Keep the terminal frontend and backend in one process tree and exchange prefixed
+newline-delimited JSON over pipes.
+
+**Benefits.** There is no listening port, authentication layer, server discovery, or remote cleanup
+protocol. Process lifetime and terminal ownership are direct, and non-protocol backend output can
+still appear as transcript logs.
+
+**Costs.** The transport is one frontend to one backend, local only, and tied to process stdio. It
+does not provide reconnect, replay, multi-client fan-out, flow-control negotiation, or a stable
+remote API.
+
+### Pydantic in Python and structural types in TypeScript
+
+**Decision.** Python validates request/event models while TypeScript mirrors their shapes.
+
+**Benefits.** Backend input has runtime validation and the frontend gets compile-time assistance.
+
+**Costs.** There is no generated schema or compatibility test proving both definitions remain
+identical. A Python field/event can compile while the TypeScript handler is stale, or vice versa.
+
+### Backend owns domain state; frontend owns presentation state
+
+**Decision.** Messages, tools, permissions, sessions, and task state live behind
+`ReactBackendHost`; Ink owns input, modal, transcript, and rendering state.
+
+**Benefits.** The engine stays reusable across renderers and the frontend never needs provider or
+tool credentials as an API client.
+
+**Costs.** The protocol must carry every state transition needed to reconstruct a coherent UI.
+Buffered/debounced deltas improve rendering performance but add another ordering and shutdown edge.
+
+## Failure model
+
+| Failure | Current behavior | Residual risk |
+| --- | --- | --- |
+| Backend prints a non-`OHJSON:` line | Frontend records it as a log transcript item | A leaked secret in backend stdout would become visible |
+| Malformed prefixed JSON | `JSON.parse()` throws in the line callback | No local recovery, validation, version negotiation, or replay |
+| Backend exits | Child exit handler updates UI and cleanup path | In-flight deltas or modal responses can be lost |
+| Frontend exits or receives a signal | Cleanup kills the backend/process group | Platform-specific process trees can still complicate cleanup |
+| User interrupts a query | An `interrupt` request reaches the backend task | Cancellation remains cooperative inside clients/tools |
+| Permission modal is pending | Request ID maps response to a backend future | Backend death abandons the future and decision |
+
+## Current limitations
+
+- `OHJSON:` is an internal protocol without an explicit version or compatibility window.
+- Python protocol models and TypeScript types/handlers are maintained manually.
+- Pipes provide no application-level backpressure; frontend batching mitigates rendering load but
+  does not bound backend event production.
+- A protocol prefix collision in ordinary stdout is possible, so backend libraries should use
+  stderr/logging rather than emit arbitrary prefixed lines.
+- Passing explicit `--api-key` through the backend child argv can expose it to local process
+  inspection on some platforms; persisted/environment-based secret resolution is preferable.
+- Automatic dependency installation at first launch adds network latency and supply-chain exposure
+  to an interactive startup path.
+- The frontend currently runs TypeScript through `tsx`; packaging, Node resolution, and platform
+  signal behavior are part of the runtime dependency surface.
+- Source line annotations in this document are navigational hints and can drift after refactoring;
+  symbols and tests are authoritative.
+
+## Future improvements
+
+These are **proposed**:
+
+1. Generate Python and TypeScript protocol artifacts from one versioned schema, with compatibility
+   fixtures for every event/request variant.
+2. Add bounded event buffering and an explicit slow-consumer policy for large tool output and fast
+   token streams.
+3. Remove secrets from child argv by passing a protected reference or resolving credentials only in
+   the backend.
+4. Separate dependency installation from launch and provide an actionable preflight failure.
+5. Add deterministic frontend component tests for ordering, malformed events, backend death,
+   interruption, and modal correlation.
+6. Define protocol version negotiation before supporting remote, reconnecting, or multiple clients;
+   do not evolve the pipe protocol into a network API accidentally.
 
 ## Related files at a glance
 

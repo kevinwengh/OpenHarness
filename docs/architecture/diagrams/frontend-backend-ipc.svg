@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1250" height="700" viewBox="0 0 1250 700" role="img" aria-labelledby="title desc">
+  <title id="title">Frontend and backend process and protocol boundary</title>
+  <desc id="desc">The initial Python process launches an Ink TypeScript frontend. The frontend spawns a Python backend child and exchanges newline-delimited JSON requests and prefixed events over pipes.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+    <style>.bg{fill:#f8fafc}.py{fill:#e0f2fe;stroke:#0284c7;stroke-width:2}.node{fill:#ecfdf5;stroke:#059669;stroke-width:2}.proto{fill:#fff7ed;stroke:#ea580c;stroke-width:2}.zone{fill:#fff;stroke:#94a3b8;stroke-width:2}.line{stroke:#475569;stroke-width:2;fill:none;marker-end:url(#arrow)}.bi{stroke:#475569;stroke-width:3;fill:none;marker-start:url(#arrow);marker-end:url(#arrow)}.dash{stroke-dasharray:7 5}.title{font:700 25px system-ui,sans-serif;fill:#0f172a}.section{font:700 14px system-ui,sans-serif;fill:#475569}.label{font:600 17px system-ui,sans-serif;fill:#0f172a}.small{font:14px system-ui,sans-serif;fill:#334155}.tiny{font:13px system-ui,sans-serif;fill:#475569}</style>
+  </defs>
+  <rect class="bg" width="1250" height="700"/>
+  <text class="title" x="40" y="42">React terminal: local process tree and OHJSON protocol</text>
+
+  <rect class="zone" x="35" y="75" width="350" height="500" rx="16"/>
+  <text class="section" x="58" y="105">PYTHON LAUNCHER PROCESS</text>
+  <rect class="py" x="65" y="135" width="290" height="78" rx="10"/>
+  <text class="label" x="210" y="166" text-anchor="middle">oh CLI → run_repl()</text>
+  <text class="small" x="210" y="190" text-anchor="middle">selects interactive React path</text>
+  <rect class="py" x="65" y="265" width="290" height="95" rx="10"/>
+  <text class="label" x="210" y="297" text-anchor="middle">react_launcher.py</text>
+  <text class="small" x="210" y="321" text-anchor="middle">builds backend argv + config</text>
+  <text class="small" x="210" y="343" text-anchor="middle">spawns tsx / index.tsx</text>
+  <rect class="proto" x="65" y="420" width="290" height="105" rx="10"/>
+  <text class="label" x="210" y="451" text-anchor="middle">Frontend bootstrap config</text>
+  <text class="small" x="210" y="477" text-anchor="middle">OPENHARNESS_FRONTEND_CONFIG</text>
+  <text class="small" x="210" y="500" text-anchor="middle">backend argv, prompt, theme</text>
+  <path class="line" d="M210 213V265"/><path class="line" d="M210 360V420"/>
+
+  <rect class="zone" x="450" y="75" width="350" height="500" rx="16"/>
+  <text class="section" x="473" y="105">NODE / INK FRONTEND PROCESS</text>
+  <rect class="node" x="480" y="135" width="290" height="78" rx="10"/>
+  <text class="label" x="625" y="166" text-anchor="middle">index.tsx → App</text>
+  <text class="small" x="625" y="190" text-anchor="middle">parses config; owns terminal UI</text>
+  <rect class="node" x="480" y="265" width="290" height="95" rx="10"/>
+  <text class="label" x="625" y="297" text-anchor="middle">useBackendSession</text>
+  <text class="small" x="625" y="321" text-anchor="middle">spawns backend child</text>
+  <text class="small" x="625" y="343" text-anchor="middle">buffers events; correlates modals</text>
+  <rect class="proto" x="480" y="420" width="290" height="105" rx="10"/>
+  <text class="label" x="625" y="451" text-anchor="middle">Pipe endpoint</text>
+  <text class="small" x="625" y="477" text-anchor="middle">stdin requests: plain JSON lines</text>
+  <text class="small" x="625" y="500" text-anchor="middle">stdout events: OHJSON: + JSON</text>
+  <path class="line" d="M625 213V265"/><path class="line" d="M625 360V420"/>
+
+  <rect class="zone" x="865" y="75" width="350" height="500" rx="16"/>
+  <text class="section" x="888" y="105">PYTHON BACKEND CHILD PROCESS</text>
+  <rect class="py" x="895" y="135" width="290" height="78" rx="10"/>
+  <text class="label" x="1040" y="166" text-anchor="middle">oh --backend-only</text>
+  <text class="small" x="1040" y="190" text-anchor="middle">same interpreter/package</text>
+  <rect class="py" x="895" y="265" width="290" height="95" rx="10"/>
+  <text class="label" x="1040" y="297" text-anchor="middle">ReactBackendHost</text>
+  <text class="small" x="1040" y="321" text-anchor="middle">validates requests; owns runtime</text>
+  <text class="small" x="1040" y="343" text-anchor="middle">emits typed BackendEvent objects</text>
+  <rect class="proto" x="895" y="420" width="290" height="105" rx="10"/>
+  <text class="label" x="1040" y="451" text-anchor="middle">Pydantic protocol</text>
+  <text class="small" x="1040" y="477" text-anchor="middle">request queue + response futures</text>
+  <text class="small" x="1040" y="500" text-anchor="middle">flushes every prefixed event</text>
+  <path class="line" d="M1040 213V265"/><path class="line" d="M1040 360V420"/>
+
+  <path class="line dash" d="M355 313H480"/><text class="tiny" x="417" y="303" text-anchor="middle">spawn + env</text>
+  <path class="line dash" d="M770 313H895"/><text class="tiny" x="832" y="303" text-anchor="middle">spawn argv</text>
+  <path class="bi" d="M770 472H895"/>
+  <text class="tiny" x="832" y="450" text-anchor="middle">local stdin / stdout pipes</text>
+
+  <rect class="proto" x="245" y="610" width="760" height="55" rx="10"/>
+  <text class="small" x="625" y="643" text-anchor="middle">No listening port • no WebSocket • no remote clients • stderr remains diagnostic output</text>
+</svg>

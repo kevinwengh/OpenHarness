@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850" role="img" aria-labelledby="title desc">
+  <title id="title">Runtime construction and agent turn sequence</title>
+  <desc id="desc">A host builds and starts a runtime, submits a message to QueryEngine, which streams through a provider and tool governance loop, then persists and closes resources.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+    <style>.bg{fill:#f8fafc}.head{fill:#e0f2fe;stroke:#0284c7;stroke-width:2}.life{stroke:#94a3b8;stroke-width:1.5;stroke-dasharray:6 5}.call{stroke:#475569;stroke-width:2;fill:none;marker-end:url(#arrow)}.ret{stroke:#64748b;stroke-width:2;stroke-dasharray:6 4;fill:none;marker-end:url(#arrow)}.phase{fill:#fff7ed;stroke:#fb923c;stroke-width:1.5}.loop{fill:#ecfdf5;stroke:#10b981;stroke-width:1.5}.title{font:700 25px system-ui,sans-serif;fill:#0f172a}.label{font:600 16px system-ui,sans-serif;fill:#0f172a}.small{font:14px system-ui,sans-serif;fill:#334155}.note{font:13px system-ui,sans-serif;fill:#475569}</style>
+  </defs>
+  <rect class="bg" width="1400" height="850"/>
+  <text class="title" x="40" y="42">Runtime construction and one tool-using query</text>
+  <g>
+    <rect class="head" x="35" y="70" width="180" height="55" rx="9"/><text class="label" x="125" y="103" text-anchor="middle">Host / UI</text>
+    <rect class="head" x="260" y="70" width="180" height="55" rx="9"/><text class="label" x="350" y="103" text-anchor="middle">Runtime</text>
+    <rect class="head" x="485" y="70" width="180" height="55" rx="9"/><text class="label" x="575" y="103" text-anchor="middle">QueryEngine</text>
+    <rect class="head" x="710" y="70" width="180" height="55" rx="9"/><text class="label" x="800" y="103" text-anchor="middle">Provider client</text>
+    <rect class="head" x="935" y="70" width="180" height="55" rx="9"/><text class="label" x="1025" y="103" text-anchor="middle">Tool governance</text>
+    <rect class="head" x="1160" y="70" width="205" height="55" rx="9"/><text class="label" x="1262" y="103" text-anchor="middle">State / resources</text>
+    <path class="life" d="M125 125V810M350 125V810M575 125V810M800 125V810M1025 125V810M1262 125V810"/>
+  </g>
+  <rect class="phase" x="30" y="145" width="1340" height="153" rx="12"/>
+  <text class="label" x="48" y="170">ASSEMBLE</text>
+  <path class="call" d="M125 190H350"/><text class="small" x="237" y="184" text-anchor="middle">build_runtime(overrides, injection)</text>
+  <path class="call" d="M350 222H1262"/><text class="small" x="806" y="216" text-anchor="middle">settings → plugins → client → MCP → tools → hooks → prompt → restore → sandbox</text>
+  <path class="ret" d="M1262 252H350"/><text class="small" x="806" y="246" text-anchor="middle">owned resources</text>
+  <path class="ret" d="M350 280H125"/><text class="small" x="237" y="274" text-anchor="middle">RuntimeBundle</text>
+
+  <path class="call" d="M125 325H350"/><text class="small" x="237" y="319" text-anchor="middle">start_runtime()</text>
+  <path class="call" d="M350 355H1262"/><text class="small" x="806" y="349" text-anchor="middle">session_start hooks; host announces ready only after success</text>
+  <path class="call" d="M125 397H575"/><text class="small" x="350" y="391" text-anchor="middle">submit_message(normalized user input)</text>
+
+  <rect class="loop" x="465" y="420" width="910" height="275" rx="12"/>
+  <text class="label" x="485" y="446">REPEAT UNTIL NO TOOL CALLS OR TURN LIMIT</text>
+  <path class="call" d="M575 470H1262"/><text class="small" x="918" y="464" text-anchor="middle">auto-compact; preprocess unsupported images</text>
+  <path class="call" d="M575 505H800"/><text class="small" x="687" y="499" text-anchor="middle">messages + schemas + prompt</text>
+  <path class="ret" d="M800 540H575"/><text class="small" x="687" y="534" text-anchor="middle">text / retry / complete + usage</text>
+  <path class="call" d="M575 575H1025"/><text class="small" x="800" y="569" text-anchor="middle">requested sibling tool calls</text>
+  <path class="call" d="M1025 610H1262"/><text class="small" x="1143" y="604" text-anchor="middle">pre-hook → resolve → validate → permission → execute</text>
+  <path class="ret" d="M1262 645H1025"/><text class="small" x="1143" y="639" text-anchor="middle">normalized results</text>
+  <path class="ret" d="M1025 675H575"/><text class="small" x="800" y="669" text-anchor="middle">ordered tool-result message</text>
+  <text class="note" x="1110" y="687">Sibling execution may be concurrent;</text><text class="note" x="1110" y="704">replay order remains deterministic.</text>
+
+  <path class="ret" d="M575 730H125"/><text class="small" x="350" y="724" text-anchor="middle">stream events + final or MaxTurnsExceeded</text>
+  <path class="call" d="M125 765H1262"/><text class="small" x="693" y="759" text-anchor="middle">host-defined snapshot boundary</text>
+  <path class="call" d="M125 800H350"/><text class="small" x="237" y="794" text-anchor="middle">close_runtime()</text>
+  <text class="note" x="370" y="805">sandbox → personalization (best effort) → MCP → session_end hooks → API client</text>
+</svg>

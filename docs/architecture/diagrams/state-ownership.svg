@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850" role="img" aria-labelledby="title desc">
+  <title id="title">State ownership and synchronization</title>
+  <desc id="desc">Process-local active state is snapshotted into local durable files. Atomic replacement protects individual files, while locks protect selected read-modify-write operations.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+    <style>.bg{fill:#f8fafc}.zone{fill:#fff;stroke:#94a3b8;stroke-width:2}.mem{fill:#e0f2fe;stroke:#0284c7;stroke-width:2}.disk{fill:#fff7ed;stroke:#ea580c;stroke-width:2}.sync{fill:#ecfdf5;stroke:#059669;stroke-width:2}.warn{fill:#fef2f2;stroke:#dc2626;stroke-width:1.5}.line{stroke:#475569;stroke-width:2;fill:none;marker-end:url(#arrow)}.dash{stroke-dasharray:7 5}.title{font:700 25px system-ui,sans-serif;fill:#0f172a}.section{font:700 15px system-ui,sans-serif;fill:#475569}.label{font:600 16px system-ui,sans-serif;fill:#0f172a}.small{font:14px system-ui,sans-serif;fill:#334155}.tiny{font:13px system-ui,sans-serif;fill:#475569}</style>
+  </defs>
+  <rect class="bg" width="1400" height="850"/>
+  <text class="title" x="40" y="42">State ownership: process memory, synchronization, and durable files</text>
+  <rect class="zone" x="30" y="70" width="410" height="660" rx="16"/>
+  <text class="section" x="55" y="102">PROCESS-LOCAL ACTIVE STATE</text>
+  <rect class="mem" x="60" y="130" width="350" height="80" rx="10"/>
+  <text class="label" x="235" y="160" text-anchor="middle">QueryEngine conversation</text><text class="small" x="235" y="184" text-anchor="middle">one ordered mutable history per bundle</text>
+  <rect class="mem" x="60" y="235" width="350" height="80" rx="10"/>
+  <text class="label" x="235" y="265" text-anchor="middle">ohmo runtime pool</text><text class="small" x="235" y="289" text-anchor="middle">unbounded map: conversation key → bundle</text>
+  <rect class="mem" x="60" y="340" width="350" height="80" rx="10"/>
+  <text class="label" x="235" y="370" text-anchor="middle">Channel queues and connections</text><text class="small" x="235" y="394" text-anchor="middle">lost on process death</text>
+  <rect class="mem" x="60" y="445" width="350" height="80" rx="10"/>
+  <text class="label" x="235" y="475" text-anchor="middle">Tasks and subprocess handles</text><text class="small" x="235" y="499" text-anchor="middle">manager owns cancellation and output</text>
+  <rect class="warn" x="60" y="570" width="350" height="115" rx="10"/>
+  <text class="label" x="235" y="600" text-anchor="middle">Not implied</text>
+  <text class="small" x="235" y="626" text-anchor="middle">No general same-engine submission lock</text>
+  <text class="small" x="235" y="649" text-anchor="middle">No pool eviction / backpressure contract</text>
+  <text class="small" x="235" y="672" text-anchor="middle">No multi-host coordination</text>
+
+  <rect class="zone" x="495" y="70" width="405" height="660" rx="16"/>
+  <text class="section" x="520" y="102">SYNCHRONIZATION PRIMITIVES</text>
+  <rect class="sync" x="525" y="145" width="345" height="110" rx="10"/>
+  <text class="label" x="697" y="176" text-anchor="middle">Atomic replacement</text>
+  <text class="small" x="697" y="202" text-anchor="middle">temp file → flush → fsync → chmod</text>
+  <text class="small" x="697" y="226" text-anchor="middle">→ os.replace on one filesystem</text>
+  <rect class="sync" x="525" y="300" width="345" height="110" rx="10"/>
+  <text class="label" x="697" y="331" text-anchor="middle">Exclusive file lock</text>
+  <text class="small" x="697" y="357" text-anchor="middle">fcntl on POSIX / msvcrt on Windows</text>
+  <text class="small" x="697" y="381" text-anchor="middle">wrap entire read-modify-write section</text>
+  <rect class="warn" x="525" y="455" width="345" height="190" rx="10"/>
+  <text class="label" x="697" y="486" text-anchor="middle">Important distinctions</text>
+  <text class="small" x="550" y="518">• Atomic file ≠ multi-file transaction</text>
+  <text class="small" x="550" y="546">• Async lock ≠ inter-process lock</text>
+  <text class="small" x="550" y="574">• File lock ≠ distributed lease</text>
+  <text class="small" x="550" y="602">• Snapshot ≠ external-side-effect journal</text>
+  <text class="tiny" x="697" y="631" text-anchor="middle">Correct primitive depends on the failure mode.</text>
+
+  <rect class="zone" x="955" y="70" width="415" height="660" rx="16"/>
+  <text class="section" x="980" y="102">LOCAL DURABLE STATE</text>
+  <rect class="disk" x="985" y="130" width="355" height="80" rx="10"/>
+  <text class="label" x="1162" y="160" text-anchor="middle">Settings and credentials</text><text class="small" x="1162" y="184" text-anchor="middle">locked read-modify-write</text>
+  <rect class="disk" x="985" y="235" width="355" height="80" rx="10"/>
+  <text class="label" x="1162" y="265" text-anchor="middle">Session snapshots</text><text class="small" x="1162" y="289" text-anchor="middle">latest + named views; atomic individually</text>
+  <rect class="disk" x="985" y="340" width="355" height="80" rx="10"/>
+  <text class="label" x="1162" y="370" text-anchor="middle">Memory and cron registries</text><text class="small" x="1162" y="394" text-anchor="middle">locks plus atomic writes</text>
+  <rect class="disk" x="985" y="445" width="355" height="80" rx="10"/>
+  <text class="label" x="1162" y="475" text-anchor="middle">Swarm mailboxes and task output</text><text class="small" x="1162" y="499" text-anchor="middle">per-message files and local logs</text>
+  <rect class="warn" x="985" y="570" width="355" height="115" rx="10"/>
+  <text class="label" x="1162" y="600" text-anchor="middle">Recovery boundary</text>
+  <text class="small" x="1162" y="628" text-anchor="middle">Restore last complete saved state;</text>
+  <text class="small" x="1162" y="651" text-anchor="middle">unsaved progress may be lost or repeated.</text>
+
+  <path class="line" d="M410 170H525"/><text class="tiny" x="467" y="161" text-anchor="middle">snapshot</text>
+  <path class="line" d="M870 200H985"/><text class="tiny" x="927" y="191" text-anchor="middle">replace</text>
+  <path class="line dash" d="M985 275H870"/><text class="tiny" x="927" y="266" text-anchor="middle">restore</text>
+  <path class="line" d="M870 355H985"/>
+  <path class="line" d="M870 355C930 355 925 170 985 170"/>
+</svg>

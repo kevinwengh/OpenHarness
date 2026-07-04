@@ -136,8 +136,10 @@ See [EXTENDING.md](EXTENDING.md) for implementation checklists.
 - **Unknown.** Backward-compatibility guarantees for settings, plugin Python APIs, and persisted session metadata are not formally versioned.
 - **Inferred.** `src/openharness/channels/UPSTREAM` and the channel sync script indicate some channel code is synchronized from another project, but this repository does not define a complete upstream contribution policy.
 
-For a source-oriented walkthrough and change-impact map, see the
-[codebase guide](developer/CODEBASE_GUIDE.md). Prioritized structural and quality opportunities are
-tracked separately in the [improvement backlog](developer/IMPROVEMENTS.md) so this document remains
-a description of current behavior. Detailed entrypoint-to-cleanup traces for individual subsystems
-are indexed under [critical runtime flows](developer/flows/README.md).
+For architectural decisions, trade-offs, limitations, and future directions, start with the
+[architecture decision guide](architecture/README.md). For a source-oriented walkthrough and
+change-impact map, see the [codebase guide](developer/CODEBASE_GUIDE.md). Prioritized structural and
+quality opportunities are tracked separately in the
+[improvement backlog](developer/IMPROVEMENTS.md) so this document remains a description of current
+behavior. Detailed entrypoint-to-cleanup traces for individual subsystems are indexed under
+[critical runtime flows](developer/flows/README.md).

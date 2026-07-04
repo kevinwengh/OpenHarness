@@ -23,7 +23,8 @@ Read these in order:
 3. [Critical runtime flows](developer/flows/README.md) — detailed, focused traces for CLI launch,
    runtime construction, prompts/tools, memory, MCP, extensions, UI, `ohmo`, and background agents.
 4. [Architecture](ARCHITECTURE.md) — current system boundaries, flows, state ownership, contracts,
-   and known unknowns.
+   and known unknowns; continue into the [architecture decision guide](architecture/README.md) for
+   detailed trade-offs, limitations, and future directions.
 5. [Development guide](DEVELOPMENT.md) — maintainer workflow, conventions, risky seams, and release
    considerations.
 6. [Testing and validation](TESTING.md) — select checks that match the affected subsystem.
@@ -41,6 +42,7 @@ provider, extension, UI, and `ohmo` work.
 | Trace an entire interactive `uv run oh` session | [Interactive frontend/backend flow](developer/flows/INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md) | Python launcher, React terminal, backend host, protocol, interruption, and shutdown |
 | Trace prompt memory, tools, compaction, and persistence | [Prompt lifecycle end to end](developer/flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md) | Runtime prompt assembly, query engine, compactor, memory, and session storage |
 | Change the model/tool loop | [Architecture](ARCHITECTURE.md#main-runtime-flows) | `src/openharness/engine/query.py` and `tests/test_engine/` |
+| Evaluate architecture decisions and trade-offs | [Architecture decision guide](architecture/README.md) | Runtime, state/concurrency, extension trust, product boundaries, and static SVG diagrams |
 | Add a tool, skill, plugin, hook, or MCP server | [Extending OpenHarness](EXTENDING.md) | The matching source and `tests/test_*` directory |
 | Understand or change a provider client | [Provider integration index](developer/providers/README.md) | Anthropic, OpenAI-compatible, Codex subscription, and GitHub Copilot deep references |
 | Add a provider or profile | [Codebase guide](developer/CODEBASE_GUIDE.md#provider-and-authentication-path) | `src/openharness/api/`, `auth/`, `config/`, and provider tests |
@@ -60,6 +62,7 @@ provider, extension, UI, and `ohmo` work.
 | [`oh` user guide](guides/OH_USER_GUIDE.md) | A core user workflow, command, state location, safety boundary, extension path, automation behavior, or limitation changes |
 | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | An ohmo user workflow, command, supported channel, state location, security boundary, or limitation changes |
 | [Architecture](ARCHITECTURE.md) | A boundary, main flow, state owner, or invariant changes |
+| [Architecture decision guide](architecture/README.md) | A composition decision, trust boundary, concurrency model, deployment shape, limitation, or future direction changes |
 | [Development guide](DEVELOPMENT.md) | The maintainer workflow, supported toolchain, or release process changes |
 | [Extending OpenHarness](EXTENDING.md) | An extension contract, registration step, or trust rule changes |
 | [Testing and validation](TESTING.md) | CI, test selection, or an environment-specific check changes |

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">OpenHarness system context</title>
+  <desc id="desc">User interfaces and ohmo gateways compose the OpenHarness runtime, which connects providers, extension systems, tools, and local state.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .bg{fill:#f8fafc}.group{fill:#fff;stroke:#94a3b8;stroke-width:2}.core{fill:#e0f2fe;stroke:#0284c7;stroke-width:2}.app{fill:#f3e8ff;stroke:#9333ea;stroke-width:2}.edge{fill:#ecfdf5;stroke:#059669;stroke-width:2}.state{fill:#fff7ed;stroke:#ea580c;stroke-width:2}.line{stroke:#475569;stroke-width:2;fill:none;marker-end:url(#arrow)}.dash{stroke-dasharray:7 5}.label{font:600 17px system-ui,sans-serif;fill:#0f172a}.small{font:14px system-ui,sans-serif;fill:#334155}.caption{font:600 14px system-ui,sans-serif;fill:#475569}.title{font:700 25px system-ui,sans-serif;fill:#0f172a}
+    </style>
+  </defs>
+  <rect class="bg" width="1200" height="720"/>
+  <text class="title" x="40" y="44">OpenHarness system context</text>
+
+  <rect class="group" x="35" y="80" width="245" height="250" rx="14"/>
+  <text class="caption" x="55" y="109">ENTRYPOINTS AND HOSTS</text>
+  <rect class="edge" x="55" y="130" width="205" height="52" rx="10"/>
+  <text class="label" x="157" y="153" text-anchor="middle">oh CLI / print</text>
+  <text class="small" x="157" y="172" text-anchor="middle">Python process</text>
+  <rect class="edge" x="55" y="198" width="205" height="52" rx="10"/>
+  <text class="label" x="157" y="221" text-anchor="middle">React / Textual UI</text>
+  <text class="small" x="157" y="240" text-anchor="middle">stream renderer</text>
+  <rect class="app" x="55" y="266" width="205" height="52" rx="10"/>
+  <text class="label" x="157" y="289" text-anchor="middle">ohmo gateway</text>
+  <text class="small" x="157" y="308" text-anchor="middle">channels + runtime pool</text>
+
+  <rect class="core" x="360" y="80" width="480" height="390" rx="18"/>
+  <text class="caption" x="385" y="111">REUSABLE OPENHARNESS RUNTIME</text>
+  <rect class="group" x="390" y="135" width="200" height="68" rx="10"/>
+  <text class="label" x="490" y="163" text-anchor="middle">Runtime composition</text>
+  <text class="small" x="490" y="184" text-anchor="middle">build / start / close</text>
+  <rect class="group" x="610" y="135" width="200" height="68" rx="10"/>
+  <text class="label" x="710" y="163" text-anchor="middle">QueryEngine</text>
+  <text class="small" x="710" y="184" text-anchor="middle">messages + stream events</text>
+  <rect class="group" x="390" y="235" width="200" height="68" rx="10"/>
+  <text class="label" x="490" y="263" text-anchor="middle">Tool governance</text>
+  <text class="small" x="490" y="284" text-anchor="middle">registry + policy + hooks</text>
+  <rect class="group" x="610" y="235" width="200" height="68" rx="10"/>
+  <text class="label" x="710" y="263" text-anchor="middle">Context assembly</text>
+  <text class="small" x="710" y="284" text-anchor="middle">prompts + memory + skills</text>
+  <rect class="group" x="390" y="335" width="200" height="68" rx="10"/>
+  <text class="label" x="490" y="363" text-anchor="middle">Lifecycle services</text>
+  <text class="small" x="490" y="384" text-anchor="middle">tasks + cron + swarm</text>
+  <rect class="group" x="610" y="335" width="200" height="68" rx="10"/>
+  <text class="label" x="710" y="363" text-anchor="middle">Session boundary</text>
+  <text class="small" x="710" y="384" text-anchor="middle">sanitize + snapshot + restore</text>
+
+  <rect class="group" x="920" y="80" width="245" height="250" rx="14"/>
+  <text class="caption" x="940" y="109">EXTERNAL CAPABILITIES</text>
+  <rect class="edge" x="940" y="130" width="205" height="52" rx="10"/>
+  <text class="label" x="1042" y="153" text-anchor="middle">Model providers</text>
+  <text class="small" x="1042" y="172" text-anchor="middle">normalized streams</text>
+  <rect class="edge" x="940" y="198" width="205" height="52" rx="10"/>
+  <text class="label" x="1042" y="221" text-anchor="middle">MCP servers</text>
+  <text class="small" x="1042" y="240" text-anchor="middle">tools + resources</text>
+  <rect class="edge" x="940" y="266" width="205" height="52" rx="10"/>
+  <text class="label" x="1042" y="289" text-anchor="middle">Host / Docker</text>
+  <text class="small" x="1042" y="308" text-anchor="middle">execution environment</text>
+
+  <rect class="state" x="170" y="535" width="860" height="125" rx="16"/>
+  <text class="caption" x="195" y="566">LOCAL DURABLE STATE</text>
+  <text class="label" x="240" y="610">settings + auth</text>
+  <text class="label" x="425" y="610">sessions + memory</text>
+  <text class="label" x="630" y="610">tasks + mailboxes</text>
+  <text class="label" x="835" y="610">ohmo workspace</text>
+  <text class="small" x="600" y="640" text-anchor="middle">atomic files; locks for cooperating read-modify-write owners</text>
+
+  <path class="line" d="M280 169 H390"/>
+  <path class="line" d="M280 224 H360"/>
+  <path class="line" d="M280 292 H360"/>
+  <path class="line" d="M590 169 H610"/>
+  <path class="line" d="M710 203 V235"/>
+  <path class="line" d="M610 269 H590"/>
+  <path class="line" d="M840 169 H940"/>
+  <path class="line" d="M840 269 H940"/>
+  <path class="line" d="M840 369 C900 369 900 292 940 292"/>
+  <path class="line dash" d="M600 470 V535"/>
+  <text class="small" x="620" y="510">persist / restore</text>
+</svg>
