@@ -254,6 +254,8 @@ ohmo gateway start    # start the gateway — ohmo is now live in your chat app
 ```
 
 ohmo runs on your existing **Claude Code subscription** or **Codex subscription** — no extra API key needed.
+See the [complete ohmo user guide](docs/guides/OHMO_USER_GUIDE.md) for local workflows, personal
+memory, channels, groups, attachments, recurring jobs, operations, and troubleshooting.
 
 ### Non-Interactive Mode (Pipes & Scripts)
 

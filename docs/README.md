@@ -3,6 +3,12 @@
 This page is the entry point for repository documentation. It separates the shortest path for a
 new contributor from detailed reference material and generated artifacts.
 
+## User guides
+
+- [ohmo common scenarios and workflows](guides/OHMO_USER_GUIDE.md) — install, initialize, work
+  locally, personalize memory, connect channels, use groups and attachments, schedule recurring
+  tasks, operate the gateway, back up state, and troubleshoot.
+
 ## New contributor path
 
 Read these in order:
@@ -26,6 +32,7 @@ provider, extension, UI, and `ohmo` work.
 
 | Goal | Start here | Then inspect |
 | --- | --- | --- |
+| Use `ohmo` as a personal agent | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | Local work, personal memory, channels, groups, attachments, scheduling, and operations |
 | Understand how `oh` launches | [CLI entrypoints](developer/flows/CLI_ENTRYPOINTS.md) | `pyproject.toml`, `cli.py`, and `ui/app.py` |
 | Trace an entire interactive `uv run oh` session | [Interactive frontend/backend flow](developer/flows/INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md) | Python launcher, React terminal, backend host, protocol, interruption, and shutdown |
 | Trace prompt memory, tools, compaction, and persistence | [Prompt lifecycle end to end](developer/flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md) | Runtime prompt assembly, query engine, compactor, memory, and session storage |
@@ -46,6 +53,7 @@ provider, extension, UI, and `ohmo` work.
 
 | Document | Keep it synchronized when |
 | --- | --- |
+| [ohmo user guide](guides/OHMO_USER_GUIDE.md) | An ohmo user workflow, command, supported channel, state location, security boundary, or limitation changes |
 | [Architecture](ARCHITECTURE.md) | A boundary, main flow, state owner, or invariant changes |
 | [Development guide](DEVELOPMENT.md) | The maintainer workflow, supported toolchain, or release process changes |
 | [Extending OpenHarness](EXTENDING.md) | An extension contract, registration step, or trust rule changes |

@@ -7,6 +7,9 @@ gateway, conversation isolation, memory, persistence, media, and channel-specifi
 Every source link includes a current line number. Line numbers are navigation aids for this
 revision; symbol names and tests remain authoritative after code moves.
 
+For task-oriented installation and usage, start with the
+[ohmo user guide](../../guides/OHMO_USER_GUIDE.md).
+
 ## Reading paths
 
 | Question | Dedicated document |
