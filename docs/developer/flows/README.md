@@ -4,6 +4,27 @@ These documents answer the questions a new OpenHarness contributor usually asks 
 codebase tour. Each file follows one runtime path from entrypoint to cleanup and identifies the
 source, state, failure behavior, and tests that own it.
 
+## Flow-suite map
+
+```mermaid
+flowchart TD
+    CLI["CLI entrypoints"] --> Boot["Runtime bootstrap"]
+    CLI --> UI["Interactive frontend and backend"]
+    UI --> Protocol["Terminal protocol"]
+    Boot --> Prompt["Prompt and tool loop"]
+    Boot --> Ext["Extension discovery"]
+    Boot --> MCP["MCP integration"]
+    Prompt --> Governance["Tool governance"]
+    Prompt --> Memory["Memory and compaction"]
+    Prompt --> Agents["Background agents"]
+    Prompt --> E2E["Prompt lifecycle end to end"]
+    Ohmo["ohmo composition"] --> Boot
+    Ohmo --> Prompt
+```
+
+The arrows show the dependency direction used while debugging: start at the producer and follow the
+owned boundary toward the consumer. They are not Python import edges.
+
 ## Recommended reading order
 
 1. [How the `oh` command reaches Python](CLI_ENTRYPOINTS.md)
@@ -45,5 +66,13 @@ The diagrams are navigation aids, not substitutes for source. Before changing a 
 3. Re-check cross-flow links; most regressions occur at a boundary rather than inside one class.
 4. Use [Testing and validation](../../TESTING.md) to expand from focused tests to the affected suite.
 
-These flows describe commit `be5f4ca` plus the documentation changes in the current branch. When an
-entrypoint, lifecycle, or state owner changes, update the corresponding flow in the same change.
+Every substantive flow includes four kinds of evidence:
+
+- a GitHub-renderable Mermaid diagram showing process or call order;
+- a function-level call sequence, including async ownership and cleanup where relevant;
+- a source-symbol map naming the owning file and callable rather than only a directory;
+- focused tests whose assertions cover the described boundary.
+
+The documents describe the current repository implementation, not a pinned historical commit. When
+an entrypoint, lifecycle, state owner, or cross-language protocol changes, update the corresponding
+flow in the same change and validate every referenced symbol still exists.

@@ -5,22 +5,37 @@
 Why does typing `oh` call `src/openharness/cli.py`, and how does that turn into an interactive,
 print, worker, or subcommand execution?
 
+For task-oriented installation and usage, start with the [`oh` user guide](../../guides/OH_USER_GUIDE.md).
+This document focuses on the implementation path.
+
 ## End-to-end path
 
-```text
-pyproject.toml [project.scripts]
-        │ package installation (uv/pip)
-        ▼
-generated executable: .venv/bin/oh (or a Windows launcher)
-        │ import openharness.cli:app; call app()
-        ▼
-Typer root application
-        ├─ named subcommand → decorated command handler
-        └─ no subcommand → main() callback
-                         ├─ --dry-run     → build preview and exit
-                         ├─ -p/--print    → run_print_mode()
-                         ├─ --task-worker → run_task_worker()
-                         └─ default       → run_repl()
+```mermaid
+sequenceDiagram
+    participant Shell
+    participant Wrapper as Console script
+    participant Typer
+    participant Main as Root callback
+    participant Mode as Selected runtime mode
+
+    Shell->>Wrapper: run oh with argv
+    Wrapper->>Typer: import app and call app
+    alt named subcommand
+        Typer->>Typer: invoke decorated handler
+        Typer-->>Shell: exit without chat runtime
+    else no subcommand
+        Typer->>Main: main with validated options
+        alt dry run
+            Main->>Mode: build dry run preview
+        else print
+            Main->>Mode: run print mode
+        else task worker
+            Main->>Mode: run task worker
+        else interactive
+            Main->>Mode: run REPL
+        end
+        Mode-->>Shell: result or process exit code
+    end
 ```
 
 ## 1. Packaging declares the executable names
@@ -95,6 +110,37 @@ It then dispatches:
 Typer is synchronous at this boundary, so `main()` uses `asyncio.run()` for asynchronous runtime
 functions.
 
+### Function-level dispatch sequence
+
+1. The generated console wrapper imports `openharness.cli:app` from the mapping in
+   `pyproject.toml` and calls the `Typer` object.
+2. Typer parses argv and invokes `cli.main(ctx, ...)` because `app` was created with
+   `invoke_without_command=True`.
+3. `main()` returns immediately when `ctx.invoked_subcommand` is set. A nested application such as
+   `provider_app` therefore owns `oh provider ...` without falling through into chat startup.
+4. `_build_dry_run_preview()` is synchronous and never calls `build_runtime()`; it resolves and
+   reports configuration metadata only.
+5. `run_print_mode()`, `run_task_worker()`, and `run_repl()` are async boundaries entered through
+   one `asyncio.run()` call. Print and worker modes build and close their runtime directly;
+   interactive normal mode delegates runtime ownership to the backend host process.
+6. `run_repl(backend_only=False)` launches the frontend. The frontend-generated backend command
+   re-enters this same callback with `--backend-only`, and only that second invocation calls
+   `run_backend_host()`.
+
+The callback signature is wider than the currently forwarded runtime contract. In particular,
+`--name`, `--verbose`, `--settings`, `--bare`, `--allowed-tools`, `--disallowed-tools`, and
+`--mcp-config` are parsed but not consumed by the selected execution paths. Also,
+`--append-system-prompt` affects dry-run preview assembly but is not forwarded by print or React
+runtime construction. When adding or repairing a root option, trace it through the selected mode,
+the React backend command when applicable, `build_runtime()`, and tests; presence in help output is
+not evidence of effective behavior.
+
+There is a second-level forwarding gap in print mode: `main()` passes `permission_mode` into
+`run_print_mode()`, but `run_print_mode()` omits it from its `build_runtime()` call. Consequently
+`--permission-mode` and the `--dangerously-skip-permissions` alias do not change the one-shot
+runtime's effective mode; persisted settings still do. This differs from interactive backend
+forwarding and must be tested per mode.
+
 ## 4. Interactive mode is a two-process path
 
 `run_repl()` normally calls `launch_react_tui()`. The launcher:
@@ -109,6 +155,12 @@ functions.
 The React process then spawns the Python backend command. This means ordinary `oh` first enters
 Python, starts the TypeScript UI, and the TypeScript UI starts a second Python process that owns the
 actual runtime. See [Terminal UI protocol](TERMINAL_UI_PROTOCOL.md).
+
+Saved `--continue` or `--resume` messages are loaded by the first process, but `run_repl()` does not
+pass restore data into `launch_react_tui()` or `build_backend_command()`. The normal React path
+therefore starts a fresh backend history. The in-session `/resume` command works because it loads
+messages in the already-running backend. This is an argument-propagation gap at the process
+boundary, not a session-storage failure.
 
 ## 5. `python -m openharness` is the alternate entrypoint
 
@@ -133,6 +185,21 @@ Only the launch mechanism differs: installed console-script wrapper versus packa
 | Change interactive/print/worker selection | `src/openharness/cli.py`, `src/openharness/ui/app.py` | all three launch paths |
 | Change React backend arguments | `src/openharness/ui/react_launcher.py` | backend host and TypeScript protocol |
 | Change `python -m` behavior | `src/openharness/__main__.py` | direct module invocation |
+
+## Source and symbol reference
+
+| Stage | File | Symbol | Contract to preserve |
+| --- | --- | --- | --- |
+| Installed aliases | `pyproject.toml` | `[project.scripts]` | All three core aliases resolve to `openharness.cli:app` |
+| Typer application | `src/openharness/cli.py` | `app` | `invoke_without_command=True` keeps no-subcommand startup valid |
+| Root dispatch | `src/openharness/cli.py` | `main()` | Subcommand short-circuit, option validation, one event-loop owner |
+| Static preview | `src/openharness/cli.py` | `_build_dry_run_preview()` | No model, tool, MCP connection, or subagent execution |
+| Interactive selection | `src/openharness/ui/app.py` | `run_repl()` | Frontend versus backend recursion guard and exit propagation |
+| Print worker | `src/openharness/ui/app.py` | `run_print_mode()` | Machine-safe stdout and runtime cleanup |
+| Background worker | `src/openharness/ui/app.py` | `run_task_worker()` | One stdin request, no React process, deterministic shutdown |
+| React launch | `src/openharness/ui/react_launcher.py` | `launch_react_tui()` | Packaged/dev asset lookup and child exit status |
+| Backend argv | `src/openharness/ui/react_launcher.py` | `build_backend_command()` | Explicit option forwarding without logging secrets |
+| Module entry | `src/openharness/__main__.py` | module body | `python -m openharness` calls the same Typer object |
 
 ## Verification map
 

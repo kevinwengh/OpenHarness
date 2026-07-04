@@ -89,9 +89,10 @@ The launcher constructs a backend command beginning with:
 <current-python> -m openharness --backend-only
 ```
 
-It appends the applicable working-directory, model, effort, provider, prompt, and permission
-options. It then serializes that command and frontend options into `OPENHARNESS_FRONTEND_CONFIG`
-and starts `tsx src/index.tsx` with the user's terminal attached.
+It appends the applicable working-directory, model, maximum-turn, effort, base-URL, system-prompt,
+API-key, API-format, and permission-mode options. The initial prompt is carried in frontend config,
+not the backend argv. The launcher serializes both the command and frontend options into
+`OPENHARNESS_FRONTEND_CONFIG` and starts `tsx src/index.tsx` with the user's terminal attached.
 
 The launcher waits for the React process. A nonzero frontend exit becomes the launcher's exit code.
 
@@ -201,7 +202,7 @@ sequenceDiagram
     participant React
     participant User
 
-    Runtime->>Backend: permission callback(tool, input)
+    Runtime->>Backend: permission callback(tool, reason)
     Backend-->>React: modal with request_id
     React-->>User: approve once / always / reject
     User->>React: decision
@@ -225,8 +226,9 @@ an interrupted transcript/status plus `line_complete`, and remains ready for ano
 
 While idle, Ctrl-C sends `shutdown` and exits the frontend. Frontend cleanup terminates the backend
 process or process group if it is still alive. Backend EOF also initiates shutdown. In every backend
-exit path, the runtime is closed so clients, MCP connections, tasks, and persistence hooks can
-finish cleanup.
+exit path, `close_runtime()` closes the Docker session, MCP connections, lifecycle hooks, and API
+client. The singleton background-task manager is owned separately; process-group termination or
+backend process exit, rather than `close_runtime()`, is the final safety net for its children.
 
 ## 11. Session persistence remains backend-owned
 
@@ -234,6 +236,11 @@ The frontend transcript is presentation state, not the durable conversation reco
 the runtime snapshots the sanitized conversation and approved metadata. Resuming reconstructs fresh
 clients, tools, and hooks around that saved state. See
 [prompt, memory, tools, and compaction end to end](PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md).
+
+Top-level `--continue` and `--resume` currently load restore data in the launcher process but do not
+forward it through `launch_react_tui()` into the backend argv. In-session `/resume` works because
+the backend directly invokes its `SessionBackend`. This distinction is useful when persistence files
+are valid but a fresh React session appears empty.
 
 ## Ownership and debugging map
 
@@ -249,18 +256,21 @@ clients, tools, and hooks around that saved state. See
 
 ## Source and test map
 
-Primary source:
-
-- `pyproject.toml`
-- `src/openharness/cli.py`
-- `src/openharness/ui/app.py`
-- `src/openharness/ui/react_launcher.py`
-- `src/openharness/ui/backend_host.py`
-- `src/openharness/ui/protocol.py`
-- `src/openharness/ui/runtime.py`
-- `frontend/terminal/src/index.tsx`
-- `frontend/terminal/src/App.tsx`
-- `frontend/terminal/src/hooks/useBackendSession.ts`
+| Stage | Source symbol |
+| --- | --- |
+| Console dispatch | `src/openharness/cli.py::app`, `main()` |
+| Frontend/backend branch | `src/openharness/ui/app.py::run_repl()` |
+| Frontend discovery and spawn | `src/openharness/ui/react_launcher.py::get_frontend_dir()`, `launch_react_tui()` |
+| Backend argv propagation | `src/openharness/ui/react_launcher.py::build_backend_command()` |
+| Terminal initialization | `frontend/terminal/src/index.tsx::restoreTerminal()` and module bootstrap |
+| React interaction owner | `frontend/terminal/src/App.tsx::App`, `AppInner` |
+| Child process and event reducer | `frontend/terminal/src/hooks/useBackendSession.ts::useBackendSession()` |
+| Wire contract | `src/openharness/ui/protocol.py::FrontendRequest`, `BackendEvent`; `frontend/terminal/src/types.ts` |
+| Backend lifecycle | `src/openharness/ui/backend_host.py::run_backend_host()`, `ReactBackendHost.run()` |
+| Request reader/cancellation | `ReactBackendHost._read_requests()`, `_run_active_request()`, `_interrupt_active_request()` |
+| Prompt/event conversion | `ReactBackendHost._process_line()` and its nested `_render_event()` |
+| Modal futures | `ReactBackendHost._ask_permission()`, `_ask_edit_approval()`, `_ask_question()` |
+| Shared runtime | `src/openharness/ui/runtime.py::build_runtime()`, `handle_line()`, `close_runtime()` |
 
 Focused verification:
 

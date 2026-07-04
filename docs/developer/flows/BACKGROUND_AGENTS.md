@@ -17,18 +17,26 @@ has a normal `BackgroundTaskManager` task ID that `task_get`, `task_output`, `ta
 
 ## Shell task path
 
-```text
-model → task_create(type=local_bash, command=...)
-        │ normal tool permissions/hooks
-        ▼
-BackgroundTaskManager.create_shell_task()
-        ├─ create TaskRecord and <task-id>.log
-        ├─ command string → sandbox-aware shell process
-        └─ argv list → direct create_subprocess_exec
-        │
-        ├─ copy merged stdout/stderr to log
-        ├─ watch exit and set completed/failed
-        └─ notify completion listeners
+```mermaid
+sequenceDiagram
+    participant Model
+    participant Query
+    participant TaskTool
+    participant Manager
+    participant Process
+
+    Model->>Query: request task create
+    Query->>Query: hooks, validation, and permission
+    Query->>TaskTool: execute typed task input
+    TaskTool->>Manager: create shell task
+    Manager->>Manager: create TaskRecord and log path
+    Manager->>Process: start shell command or direct argv
+    par output copier
+        Process-->>Manager: merged stdout and stderr
+    and exit watcher
+        Process-->>Manager: return code
+    end
+    Manager->>Manager: set terminal status and notify listeners
 ```
 
 Shell tasks are mutating model tools and therefore pass through the normal permission lifecycle
@@ -37,26 +45,53 @@ never both. Task-specific environment values are merged over the parent environm
 
 ## Agent tool path
 
-```text
-model → agent(description, prompt, subtype/model/team/mode)
-        │
-        ├─ optional AgentDefinition lookup
-        ├─ build TeammateSpawnConfig
-        ▼
-BackendRegistry.get_executor("subprocess")
-        │
-        ▼
-SubprocessBackend.spawn()
-        ├─ agent_id = <name>@<team>
-        ├─ build inherited CLI flags/env
-        ├─ argv = python -m openharness --task-worker ...
-        └─ BackgroundTaskManager.create_agent_task()
-                 ├─ start process
-                 └─ write initial prompt to stdin
-        │
-        ▼
-ToolResult(agent_id, task_id, backend_type)
+```mermaid
+sequenceDiagram
+    participant Model
+    participant AgentTool
+    participant Registry as Backend registry
+    participant Backend as Subprocess backend
+    participant Manager as Task manager
+    participant Worker
+
+    Model->>AgentTool: agent request
+    AgentTool->>AgentTool: resolve definition and spawn config
+    AgentTool->>Registry: select subprocess executor
+    Registry-->>AgentTool: backend
+    AgentTool->>Backend: spawn teammate
+    Backend->>Backend: build inherited flags and environment
+    Backend->>Manager: create agent task with direct argv
+    Manager->>Worker: start Python task worker
+    Manager->>Worker: write framed initial prompt
+    Worker->>Worker: build runtime and handle one line
+    Worker-->>Manager: streamed stdout and exit
+    Manager-->>Backend: task ID and status
+    Backend-->>AgentTool: agent ID and task ID
 ```
+
+### Function-level spawn and observation sequence
+
+1. `_execute_tool_call()` governs `TaskCreateTool.execute()` or `AgentTool.execute()` exactly like
+   any other mutating model tool.
+2. `TaskCreateTool.execute()` calls `BackgroundTaskManager.create_shell_task()`, which creates a
+   `TaskRecord`, calls `_start_process()`, and owns `_copy_output()` plus `_watch_process()` tasks.
+3. `AgentTool.execute()` resolves optional plugin `AgentDefinition` metadata, constructs
+   `TeammateSpawnConfig`, and gets `SubprocessBackend` from the backend registry.
+4. On the default path, `SubprocessBackend.spawn()` calls `build_inherited_cli_flags()` and
+   `build_inherited_env_vars()`, then asks `BackgroundTaskManager.create_agent_task()` to launch a
+   direct argv. `get_teammate_command()` may resolve a Python interpreter, in which case the argv
+   includes `-m openharness --task-worker`, or an installed executable that receives
+   `--task-worker` directly. A caller-supplied custom command keeps shell semantics and does not
+   receive inherited environment injection.
+5. `run_task_worker()` builds a normal runtime, reads one plain or JSON-framed line, calls
+   `handle_line()`, writes selected stream events to stdout, and closes the runtime in `finally`.
+6. `_watch_process()` waits for exit while `_copy_output()` drains merged output. It updates the
+   record before `_notify_completion_listeners()` fires `subagent_stop` observers.
+7. `TaskGetTool`, `TaskOutputTool`, and `TaskStopTool` read or mutate that same manager record.
+   `SendMessageTool.execute()` uses `write_to_task()` for task IDs or
+   `SubprocessBackend.send_message()` for `name@team` IDs.
+8. `_ensure_writable_process()` calls `_restart_agent_task()` for a terminal agent task, but never
+   for a plain shell task.
 
 Agent definitions can contribute model, system prompt, permission hints, and other metadata. The
 subprocess backend prefers a direct argv launch, avoiding shell quoting and Windows path translation
@@ -141,6 +176,22 @@ pollable task representation.
 | Backend selection | `src/openharness/swarm/registry.py` | pollability and UI expectations |
 | Messaging | `src/openharness/tools/send_message_tool.py`, selected backend, and mailbox | restart semantics |
 | Team/worktree lifecycle | `src/openharness/swarm/team_lifecycle.py`, `src/openharness/swarm/registry.py`, `src/openharness/swarm/worktree.py` | cleanup and permissions |
+
+## Source and symbol reference
+
+| Boundary | File | Symbol |
+| --- | --- | --- |
+| Shell task model tool | `src/openharness/tools/task_create_tool.py` | `TaskCreateTool.execute()` |
+| Agent model tool | `src/openharness/tools/agent_tool.py` | `AgentTool.execute()` |
+| Records/process ownership | `src/openharness/tasks/manager.py` | `BackgroundTaskManager` |
+| Process start/watch/output | `src/openharness/tasks/manager.py` | `_start_process()`, `_watch_process()`, `_copy_output()` |
+| Agent restart/input | `src/openharness/tasks/manager.py` | `write_to_task()`, `_ensure_writable_process()`, `_restart_agent_task()` |
+| Backend spawn/messaging | `src/openharness/swarm/subprocess_backend.py` | `SubprocessBackend.spawn()`, `send_message()`, `shutdown()` |
+| Inherited child settings | `src/openharness/swarm/spawn_utils.py` | `build_inherited_cli_flags()`, `build_inherited_env_vars()` |
+| Headless child runtime | `src/openharness/ui/app.py` | `run_task_worker()` |
+| Follow-up routing | `src/openharness/tools/send_message_tool.py` | `SendMessageTool.execute()` |
+| Parent carryover | `src/openharness/engine/query.py` | `_record_tool_carryover()` |
+| Global cleanup | `src/openharness/tasks/manager.py` | `shutdown_task_manager()`, `BackgroundTaskManager.aclose()` |
 
 ## Verification map
 

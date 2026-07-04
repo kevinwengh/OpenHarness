@@ -225,7 +225,7 @@ pretending the task completed.
 After the loop, session memory is updated under a project-hashed path resembling:
 
 ```text
-OPENHARNESS_DATA_DIR/session-memory/<project-hash>/<session-id>.md
+OPENHARNESS_DATA_DIR/session-memory/<project-name>-<path-hash>/<session-id>.md
 ```
 
 It is bounded to 12,000 characters and records task continuity such as current goal, next step,
@@ -235,7 +235,7 @@ not to replace exact conversation history.
 Durable project memory lives separately under:
 
 ```text
-OPENHARNESS_DATA_DIR/memory/<project-hash>/
+OPENHARNESS_DATA_DIR/memory/<project-name>-<path-hash>/
 ```
 
 The runtime also saves `latest.json` and a session-ID snapshot under project-scoped session
@@ -280,15 +280,22 @@ The core protocol invariants are:
 
 ## Source and test map
 
-Primary source:
-
-- `src/openharness/ui/runtime.py`
-- `src/openharness/prompts/context.py`
-- `src/openharness/engine/query_engine.py`
-- `src/openharness/engine/query.py`
-- `src/openharness/services/compact/`
-- `src/openharness/memory/`
-- `src/openharness/services/session_storage.py`
+| Lifecycle step | Source symbol |
+| --- | --- |
+| Command/prompt split and snapshot | `src/openharness/ui/runtime.py::handle_line()` |
+| Prompt and memory assembly | `src/openharness/prompts/context.py::build_runtime_system_prompt()` |
+| Bounded memory prompt | `src/openharness/memory/memdir.py::load_memory_prompt()` |
+| Relevance selection | `src/openharness/memory/relevance.py::select_relevant_memories()` |
+| Session-owned turn state | `src/openharness/engine/query_engine.py::QueryEngine.submit_message()` |
+| Session-memory checkpoint | `QueryEngine._prepare_session_memory()`, `_update_session_memory()` |
+| Model/tool loop | `src/openharness/engine/query.py::run_query()` |
+| Governed tool execution | `src/openharness/engine/query.py::_execute_tool_call()` |
+| Large-result offload | `src/openharness/engine/query.py::_offload_tool_output_if_needed()` |
+| Automatic compaction | `src/openharness/services/compact/__init__.py::auto_compact_if_needed()` |
+| Microcompaction/collapse | `microcompact_messages()`, `compact_messages()` in the compact service |
+| Session-memory file | `src/openharness/services/session_memory/__init__.py::update_session_memory_file()` |
+| Snapshot implementation | `src/openharness/services/session_storage.py::save_session_snapshot()` |
+| Snapshot metadata filter | `src/openharness/services/session_storage.py::_persistable_tool_metadata()` |
 
 Focused verification:
 

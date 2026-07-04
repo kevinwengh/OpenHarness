@@ -7,22 +7,45 @@ become prompt text, slash commands, tools, hooks, agents, or MCP servers?
 
 ## Extension assembly overview
 
-```text
-settings + cwd + application extra roots
-        │
-        ├─ load_plugins() ──────────────┐
-        │   user / trusted project / extra roots
-        │   manifest → skills, commands, agents,
-        │              hooks, MCP, Python tools
-        │                              │
-        ├─ load_skill_registry()       │
-        │   bundled → user → extra → project → plugin
-        │                              │
-        ├─ load_hook_registry(settings, plugins)
-        ├─ merge MCP settings + plugin MCP
-        ├─ register built-in + MCP + plugin tools
-        └─ create command registry with plugin commands
+```mermaid
+flowchart TD
+    Input["Settings, cwd, and application roots"] --> Plugins["load_plugins"]
+    Input --> Skills["load_skill_registry"]
+    Plugins --> SkillContrib["Plugin skills"]
+    SkillContrib --> Skills
+    Plugins --> Hooks["load_hook_registry"]
+    Plugins --> MCP["MCP config merge"]
+    Plugins --> PythonTools["Plugin Python tools"]
+    Plugins --> Commands["Plugin commands and agents"]
+    Skills --> Prompt["Prompt skill catalog"]
+    Skills --> Slash["Skill slash commands"]
+    Hooks --> Runtime["HookExecutor"]
+    MCP --> Tools["ToolRegistry"]
+    PythonTools --> Tools
+    Commands --> CommandRegistry["Command and agent registries"]
 ```
+
+### Function-level discovery sequence
+
+1. `build_runtime()` normalizes application-provided roots and calls
+   `load_plugins(settings, cwd, extra_roots=...)` exactly once for initial assembly.
+2. `discover_plugin_paths_for_settings()` combines user roots, opt-in project roots, and explicit
+   application roots; `load_plugin()` parses a manifest and each contribution directory.
+3. `_load_plugin_tools()` imports Python modules only for enabled plugins and instantiates public
+   `BaseTool` subclasses. This is executable code and therefore part of the project-plugin trust
+   boundary.
+4. `load_skill_registry()` registers bundled, user, extra, project, then enabled-plugin skills.
+   Each `SkillRegistry.register()` updates every lookup key, making the last definition win.
+5. `load_hook_registry(settings, plugins)` normalizes settings hooks first and plugin hooks after
+   them; `HookRegistry.register()` preserves insertion, while `HookRegistry.get()` returns hooks by
+   descending priority with stable order for ties.
+6. `load_mcp_server_configs()` copies settings servers and adds enabled plugin servers under a
+   `<plugin>:<server>` key with `setdefault()`.
+7. `create_default_tool_registry()` installs built-ins and MCP adapters; `build_runtime()` then
+   registers enabled plugin tools, so plugin tool names can replace prior names.
+8. `create_default_command_registry(plugin_commands=...)` installs built-ins, user-invocable skill
+   commands, and enabled plugin commands. `AgentTool.execute()` separately resolves agent
+   definitions from the current plugin set.
 
 ## Skills: discovery and precedence
 
@@ -38,7 +61,8 @@ settings + cwd + application extra roots
 
 `SkillRegistry.register()` assigns all available keys (name, command name, display name, aliases) to
 the latest definition. Later sources and directories therefore override earlier definitions.
-Project discovery walks upward only to the Git root and rejects absolute or `..` configured paths.
+Project discovery walks upward to the Git root, or to the user's home when no Git root is found,
+and rejects absolute or `..` configured paths.
 
 The system prompt lists skills whose `disable-model-invocation` is false. The model loads full skill
 content by calling the `skill` tool. A `user-invocable` skill is also resolved as `/<folder-name>`;
@@ -98,6 +122,13 @@ Model tools are serialized in every provider request. Adding a plugin command do
 model-callable tool, and adding a skill does not execute code by itself. Keep these surfaces distinct
 when diagnosing “extension loaded but not invoked.”
 
+Agent definitions have a narrower current path than the other plugin contributions.
+`AgentTool.execute()` calls `coordinator.agent_definitions.get_agent_definition()`, whose lazy plugin
+load uses persisted settings plus `os.getcwd()` but does not receive the runtime's
+`extra_plugin_roots`. User plugins and trusted project plugins can therefore contribute agents,
+while an application-only extra root (for example an ohmo workspace plugin root) is not guaranteed
+to participate in agent lookup. This is a current integration gap, not intended precedence.
+
 ## Application extra roots
 
 `build_runtime()` accepts `extra_skill_dirs` and `extra_plugin_roots`. Plain OpenHarness normally
@@ -117,6 +148,23 @@ owns their trust decision.
 - Plugin MCP servers are namespaced; settings servers are not overwritten by plugin merge.
 - A malformed hook/command/agent file may be skipped or fail its focused loader path; test optional
   formats before relying on them.
+
+## Source and symbol reference
+
+| Extension surface | File | Symbol |
+| --- | --- | --- |
+| Plugin root policy | `src/openharness/plugins/loader.py` | `discover_plugin_paths_for_settings()` |
+| Manifest and contributions | `src/openharness/plugins/loader.py` | `load_plugins()`, `load_plugin()` |
+| Plugin Python imports | `src/openharness/plugins/loader.py` | `_load_plugin_tools()` |
+| Skill precedence | `src/openharness/skills/loader.py` | `load_skill_registry()`, `discover_project_skill_dirs()` |
+| Skill key collision | `src/openharness/skills/registry.py` | `SkillRegistry.register()` |
+| Hook normalization/order | `src/openharness/hooks/loader.py` | `load_hook_registry()`, `HookRegistry.register()`, `HookRegistry.get()` |
+| MCP namespacing | `src/openharness/mcp/config.py` | `load_mcp_server_configs()` |
+| Built-in/MCP tools | `src/openharness/tools/__init__.py` | `create_default_tool_registry()` |
+| Slash commands | `src/openharness/commands/registry.py` | `create_default_command_registry()`, `lookup_skill_slash_command()` |
+| Model-selected skills | `src/openharness/tools/skill_tool.py` | `SkillTool.execute()` |
+| Agent definitions | `src/openharness/coordinator/agent_definitions.py`, `tools/agent_tool.py` | `get_all_agent_definitions()`, `get_agent_definition()`, `AgentTool.execute()` |
+| Runtime assembly and refresh | `src/openharness/ui/runtime.py` | `build_runtime()`, `handle_line()` |
 
 ## Verification map
 

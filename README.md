@@ -239,6 +239,10 @@ oh
 # On Windows PowerShell, use: openh
 ```
 
+See the [complete `oh` user guide](docs/guides/OH_USER_GUIDE.md) for project setup, interactive and
+scripted workflows, permissions and sandboxing, sessions and memory, skills/plugins/MCP,
+background and scheduled work, autopilot, local state, and current limitations.
+
 <p align="center">
   <img src="assets/landing.png" alt="OpenHarness Landing Screen" width="700">
 </p>

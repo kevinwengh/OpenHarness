@@ -25,16 +25,21 @@ few channel/cron integration points are documented boundary debt, not a pattern 
 
 ## Local CLI/TUI composition
 
-```text
-`ohmo` console script → ohmo.cli:app
-        │
-        ├─ initialize/locate workspace
-        ├─ build ohmo persona prompt
-        ├─ choose OhmoSessionBackend
-        ├─ add workspace skill/plugin roots
-        ├─ add personal MemoryCommandBackend
-        ├─ disable plain project-memory injection
-        └─ call shared run_backend_host() or build_runtime()
+```mermaid
+sequenceDiagram
+    participant Shell
+    participant CLI as ohmo CLI
+    participant Workspace
+    participant OhmoRuntime as ohmo runtime
+    participant Core as OpenHarness runtime
+
+    Shell->>CLI: run ohmo
+    CLI->>Workspace: resolve and initialize workspace
+    CLI->>OhmoRuntime: launch local, print, or backend mode
+    OhmoRuntime->>Workspace: build persona prompt and roots
+    OhmoRuntime->>Core: build runtime with ohmo overrides
+    Core-->>OhmoRuntime: RuntimeBundle
+    OhmoRuntime-->>Shell: shared UI or print stream
 ```
 
 `ohmo` is declared as its own console script and also supports `python -m ohmo`. Its Typer callback
@@ -70,19 +75,49 @@ memory.
 
 ## Gateway process topology
 
-```text
-ohmo gateway start/run
-        │
-        ▼
-OhmoGatewayService
-  MessageBus + ChannelManager + OhmoSessionRuntimePool + OhmoGatewayBridge
-        │
-        ├─ ChannelManager starts configured Slack/Telegram/Discord/Feishu adapters
-        ├─ adapters publish InboundMessage to bus
-        ├─ bridge authorizes/routes and starts one task per session key
-        ├─ runtime pool streams OpenHarness events as GatewayStreamUpdate
-        └─ bridge publishes OutboundMessage; channel adapter sends it
+```mermaid
+sequenceDiagram
+    participant Channel
+    participant Bus as Message bus
+    participant Bridge
+    participant Pool as Runtime pool
+    participant Engine
+
+    Channel->>Bus: publish inbound message
+    Bus->>Bridge: receive normalized message
+    Bridge->>Bridge: authorize and derive session key
+    Bridge->>Pool: stream message for session key
+    Pool->>Pool: reuse or build RuntimeBundle
+    Pool->>Engine: submit command or conversation message
+    Engine-->>Pool: stream events
+    Pool-->>Bridge: progress, media, and final updates
+    Bridge->>Bus: publish outbound message
+    Bus->>Channel: send reply
 ```
+
+### Function-level gateway call sequence
+
+1. `OhmoGatewayService.run_foreground()` creates the `MessageBus`, `ChannelManager`,
+   `OhmoSessionRuntimePool`, and `OhmoGatewayBridge`, starts the bridge before channels, and owns
+   heartbeat/restart tasks plus shutdown ordering.
+2. A channel adapter publishes `InboundMessage`; `OhmoGatewayBridge.run()` receives it and calls
+   `_should_process_message()` before any model work.
+3. `session_key_for_message()` derives the isolation key. The bridge stores one processing task per
+   key, cancels/replaces same-key work when required, and runs `_process_message()`.
+4. `_process_message()` delegates to `OhmoSessionRuntimePool.stream_message()`. The pool calls
+   `_cwd_for_message()` and `get_bundle()` to reuse or create the session runtime.
+5. `get_bundle()` loads `OhmoSessionBackend.load_latest_for_session_key()`, calls shared
+   `build_runtime()` with persona/memory/extension overrides, restores safe state, calls
+   `start_runtime()`, and caches by session key.
+6. `stream_message()` handles remote command policy, constructs the multimodal user message, and
+   delegates ordinary work to `_stream_engine_message()`.
+7. `_stream_engine_message()` iterates `QueryEngine.submit_message()` and
+   `_convert_stream_event()` maps engine events into `GatewayStreamUpdate` objects.
+8. `_save_snapshot()` persists the post-turn state under both session ID and session-key index. The
+   bridge publishes progress immediately and one final `OutboundMessage` with reply/media context.
+9. `_refresh_bundle()` snapshots and closes the old bundle before rebuilding after a provider/model
+   change; ordinary process shutdown currently relies on process exit rather than a pool-wide
+   close-all method.
 
 The foreground service starts bridge, channel manager, restart-notice, and state-heartbeat tasks. On
 shutdown it stops/cancels those tasks, stops channels, updates state, removes the PID file, and may
@@ -193,6 +228,23 @@ project defaults.
 | Session routing/cancellation | `ohmo/gateway/router.py`, `ohmo/gateway/bridge.py` | inbound/outbound event models |
 | Per-chat runtime | `ohmo/gateway/runtime.py` | `RuntimeBundle`, engine events, commands |
 | Persistence | `ohmo/session_storage.py`, `ohmo/memory.py` | session/memory protocols |
+
+## Source and symbol reference
+
+| Responsibility | File | Symbol |
+| --- | --- | --- |
+| CLI mode dispatch | `ohmo/cli.py` | `main()` |
+| Workspace layout | `ohmo/workspace.py` | `get_workspace_root()`, `ensure_workspace()`, `initialize_workspace()` |
+| Persona prompt | `ohmo/prompts.py` | `build_ohmo_system_prompt()` |
+| Local backend/print composition | `ohmo/runtime.py` | `run_ohmo_backend()`, `run_ohmo_print_mode()` |
+| Gateway process ownership | `ohmo/gateway/service.py` | `OhmoGatewayService.run_foreground()` |
+| Session-key policy | `ohmo/gateway/router.py` | `session_key_for_message()` |
+| Authorization and per-key tasks | `ohmo/gateway/bridge.py` | `OhmoGatewayBridge.run()`, `_should_process_message()`, `_process_message()` |
+| Runtime pooling | `ohmo/gateway/runtime.py` | `OhmoSessionRuntimePool.get_bundle()`, `stream_message()` |
+| Event conversion | `ohmo/gateway/runtime.py` | `_stream_engine_message()`, `_convert_stream_event()` |
+| Bundle rebuild | `ohmo/gateway/runtime.py` | `_refresh_bundle()` |
+| Workspace persistence | `ohmo/session_storage.py` | `OhmoSessionBackend`, `save_session_snapshot()` |
+| Shared core composition | `src/openharness/ui/runtime.py` | `build_runtime()`, `start_runtime()`, `close_runtime()` |
 
 ## Verification map
 

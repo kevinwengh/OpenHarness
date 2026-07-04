@@ -25,23 +25,46 @@ see [Prompt, memory, tools, and compaction end to end](PROMPT_MEMORY_TOOLS_COMPA
 
 ## Prompt-time read path
 
-```text
-handle_line(latest user text)
-        │
-        ▼
-build_runtime_system_prompt()
-        ├─ base/system + environment
-        ├─ permission/reasoning guidance
-        ├─ skill catalog
-        ├─ CLAUDE.md/project instructions
-        ├─ local rules and issue/PR context
-        └─ if project memory enabled:
-             ├─ load MEMORY.md entrypoint (bounded)
-             └─ select relevant topic memories for latest prompt
-        │
-        ▼
-engine.set_system_prompt() → provider request
+```mermaid
+sequenceDiagram
+    participant Runtime
+    participant Prompt
+    participant Memory
+    participant Engine
+    participant Compact
+    participant Session
+
+    Runtime->>Prompt: build prompt for latest user text
+    Prompt->>Memory: load bounded entrypoint
+    Prompt->>Memory: select relevant topic files
+    Memory-->>Prompt: memory prompt section
+    Prompt-->>Runtime: complete system prompt
+    Runtime->>Engine: set system prompt and submit message
+    Engine->>Engine: prepare session-memory metadata
+    loop each model turn
+        Engine->>Compact: compact if threshold exceeded
+        Compact-->>Engine: valid compacted history
+    end
+    Engine->>Engine: update session-memory checkpoint
+    Runtime->>Session: save messages, usage, and safe metadata
 ```
+
+### Function-level state sequence
+
+1. `handle_line()` calls `build_runtime_system_prompt(settings, latest_user_prompt=...)` for every
+   ordinary line and command-generated prompt.
+2. `build_runtime_system_prompt()` calls `load_memory_prompt()` when project memory is enabled.
+   That function bounds `MEMORY.md`, calls `select_relevant_memories()` for topic files, and updates
+   selected-entry usage metadata best-effort.
+3. `QueryEngine.submit_message()` calls `_prepare_session_memory()`, which delegates to
+   `prepare_session_memory_metadata()` and attaches a checkpoint path/status to tool carryover.
+4. `run_query()` calls `auto_compact_if_needed()` before every provider request. The compactor may
+   call `microcompact_messages()` and then model-backed compaction before returning a replacement
+   list that preserves tool-use/result pairing.
+5. `submit_message()`'s `finally` calls `_update_session_memory()`, which delegates to
+   `update_session_memory_file()` even when the streamed turn is cancelled or errors.
+6. `handle_line()` calls the active `SessionBackend.save_snapshot()` after normal completion and in
+   its max-turn path. The default backend delegates to `save_session_snapshot()`.
 
 Project memory is therefore not appended as a chat message. It is rebuilt into the system prompt
 for the latest user request. `MEMORY.md` is always bounded by configured line/byte limits, while
@@ -119,12 +142,18 @@ persisted. Only keys required for safe continuation are selected and recursively
 ## Resume path
 
 `oh --continue` loads `latest.json`; `oh --resume <id>` loads a named snapshot. The CLI passes saved
-messages and tool metadata into runtime construction. `build_runtime()` validates/sanitizes messages,
-overlays restored metadata onto current defaults, and builds fresh live resources (client, MCP,
-hooks, tools). Persisted runtime objects are never trusted as live dependencies.
+messages and tool metadata into `run_repl()`. When that invocation is already in backend-only mode,
+`build_runtime()` validates/sanitizes messages, overlays restored metadata onto current defaults,
+and builds fresh live resources (client, MCP, hooks, tools). Persisted runtime objects are never
+trusted as live dependencies.
 
 `QueryEngine.has_pending_continuation()` detects history ending in user-role tool results after an
 assistant tool request. `/continue` re-enters `run_query()` without adding a new user message.
+
+There is a current process-boundary exception: top-level `oh --continue` and `oh --resume` load
+snapshot data in `cli.main()`, but the normal React `run_repl()` branch does not pass restore data to
+the backend command. The in-session `/resume` handler loads through `SessionBackend` inside the live
+backend and works. Do not diagnose this known React handoff gap as corrupted snapshot storage.
 
 ## `ohmo` differences
 
@@ -144,6 +173,23 @@ See [`ohmo` integration](OHMO_INTEGRATION.md) for the application composition pa
 - Compaction must preserve valid assistant tool-use/user tool-result ordering.
 - Extraction/consolidation is best-effort and cannot invalidate a completed user turn.
 - Plain OpenHarness and `ohmo` memory/session roots remain isolated by default.
+
+## Source and symbol reference
+
+| State transition | File | Symbol |
+| --- | --- | --- |
+| Per-line prompt refresh | `src/openharness/ui/runtime.py` | `handle_line()` |
+| System prompt composition | `src/openharness/prompts/context.py` | `build_runtime_system_prompt()` |
+| Bounded memory prompt | `src/openharness/memory/memdir.py` | `load_memory_prompt()` |
+| Topic selection | `src/openharness/memory/relevance.py` | `select_relevant_memories()` |
+| Durable memory writes | `src/openharness/memory/manager.py` | `add_memory_entry()`, `remove_memory_entry()` |
+| Turn-scoped state owner | `src/openharness/engine/query_engine.py` | `QueryEngine.submit_message()`, `_prepare_session_memory()`, `_update_session_memory()` |
+| Session-memory file API | `src/openharness/services/session_memory/__init__.py` | `prepare_session_memory_metadata()`, `update_session_memory_file()` |
+| Proactive/reactive compaction | `src/openharness/services/compact/__init__.py` | `auto_compact_if_needed()` |
+| Microcompaction | `src/openharness/services/compact/__init__.py` | `microcompact_messages()` |
+| Snapshot interface | `src/openharness/services/session_backend.py` | `SessionBackend`, `OpenHarnessSessionBackend` |
+| Default file persistence | `src/openharness/services/session_storage.py` | `save_session_snapshot()`, `load_session_snapshot()`, `load_session_by_id()` |
+| In-session restore | `src/openharness/commands/registry.py` | `_resume_handler()` inside `create_default_command_registry()` |
 
 ## Verification map
 

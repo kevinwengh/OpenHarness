@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- Deep function-level developer references and GitHub-renderable call-sequence diagrams across the
+  complete critical-flow suite, including CLI dispatch, runtime composition, prompts/tools,
+  governance, memory, MCP, extensions, terminal IPC, ohmo, and background agents.
+- A comprehensive `oh` user guide covering setup, project scope, the terminal UI, permissions and
+  sandboxing, dry-run and print workflows, sessions, memory, extensions, background and scheduled
+  work, autopilot, state management, troubleshooting, and current CLI limitations.
 - Dedicated end-to-end developer guides for the interactive `uv run oh` Python/React process flow and for prompt ingestion, memory selection, tool-result replay, context compaction, and session persistence.
 - A layered local LM Studio manual-test runbook covering provider setup, dry-run inspection, headless `oh`, the React terminal frontend/backend, `ohmo` workspace and memory behavior, and optional channel-gateway validation.
 - A focused LM Studio guide covering Anthropic-compatible provider profiles, local and token-based authentication, verification, tool-use expectations, and troubleshooting.

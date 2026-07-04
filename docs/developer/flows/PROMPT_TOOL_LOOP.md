@@ -10,33 +10,62 @@ persistence, see [Prompt, memory, tools, and compaction end to end](PROMPT_MEMOR
 
 ## End-to-end sequence
 
-```text
-UI/headless/ohmo submits text or ConversationMessage
-        │
-        ▼
-handle_line()
-  command lookup? ── yes → command handler / optional submitted prompt
-        │ no
-        ├─ reload settings/hooks as needed
-        ├─ rebuild system prompt for latest text
-        ▼
-QueryEngine.submit_message()
-  prepare session memory → sanitize/append user → user_prompt_submit hook
-        │
-        ▼
-run_query(context, messages)
-  compact if needed → preprocess images → provider.stream_message(request)
-        │
-        ├─ text deltas → AssistantTextDelta
-        ├─ retry/status → StatusEvent
-        └─ completed assistant message → append + AssistantTurnComplete
-                 │
-                 ├─ no tool uses → stop hook → return
-                 └─ tool uses → execute → append user ToolResultBlocks → loop
-        │
-        ▼
-post-turn memory work → save session snapshot → refresh UI state
+```mermaid
+sequenceDiagram
+    participant Host
+    participant Runtime
+    participant Engine
+    participant Loop as Query loop
+    participant Provider
+    participant Tool
+    participant Store
+
+    Host->>Runtime: handle submitted line
+    alt local slash command
+        Runtime->>Runtime: run command handler
+    else prompt
+        Runtime->>Runtime: rebuild system prompt
+        Runtime->>Engine: submit message
+        Engine->>Engine: prepare memory and append user
+        Engine->>Loop: run query with message copy
+        loop model turns
+            Loop->>Provider: stream normalized request
+            Provider-->>Loop: deltas and completed assistant
+            alt assistant requests tools
+                Loop->>Tool: govern and execute calls
+                Tool-->>Loop: matching tool results
+                Loop->>Loop: append user tool-result message
+            else no tool requests
+                Loop-->>Engine: final turn
+            end
+        end
+        Engine->>Engine: update memory and usage
+        Runtime->>Store: save sanitized snapshot
+    end
 ```
+
+### Function-level call sequence
+
+1. `handle_line()` refreshes hooks, builds `CommandContext`, and resolves a built-in/plugin command
+   with `CommandRegistry.lookup()` or a skill command with `lookup_skill_slash_command()`.
+2. A normal prompt calls `build_runtime_system_prompt()`, sets the result on the engine, and iterates
+   `QueryEngine.submit_message()`.
+3. `submit_message()` normalizes the user value, records goal metadata, calls
+   `_prepare_session_memory()`, sanitizes history, appends the user message, and fires
+   `HookEvent.USER_PROMPT_SUBMIT`.
+4. It creates `QueryContext`, copies message history, optionally appends coordinator context, and
+   iterates `run_query()` while adding each usage sample to `CostTracker`.
+5. `run_query()` calls `auto_compact_if_needed()` and `_preprocess_images_in_messages()` before each
+   `SupportsStreamingMessages.stream_message()` request.
+6. On completion it appends the normalized assistant message. With tool uses, it calls
+   `_execute_tool_call()` sequentially for one request or through
+   `asyncio.gather(return_exceptions=True)` for siblings.
+7. Every call yields one `ToolResultBlock` with the original ID. The loop appends all results in one
+   user-role message and starts another provider turn.
+8. In `submit_message()`'s `finally`, `_update_session_memory()`, `_extract_durable_memories()`, and
+   `_schedule_auto_dream()` run even after cancellation or failure.
+9. Back in `handle_line()`, `SessionBackend.save_snapshot()` persists sanitized messages and the
+   approved metadata subset, then `sync_app_state()` updates UI-visible state.
 
 ## 1. `handle_line()` separates commands from prompts
 
@@ -137,6 +166,22 @@ extraction happen after the query run. See [Memory, sessions, and compaction](ME
 | `CompactProgressEvent` | Compaction phase/status | terminal and gateway progress |
 | `StatusEvent` | Retry, token clamp, or operational status | all renderers |
 | `ErrorEvent` | Request-level failure | user-facing error paths |
+
+## Source and symbol reference
+
+| Boundary | File | Symbol |
+| --- | --- | --- |
+| Commands versus prompts | `src/openharness/ui/runtime.py` | `handle_line()` |
+| Prompt refresh | `src/openharness/prompts/context.py` | `build_runtime_system_prompt()` |
+| Session-owned messages and usage | `src/openharness/engine/query_engine.py` | `QueryEngine.submit_message()`, `continue_pending()` |
+| Immutable turn dependencies | `src/openharness/engine/query.py` | `QueryContext` |
+| Provider/tool turn loop | `src/openharness/engine/query.py` | `run_query()` |
+| One governed tool invocation | `src/openharness/engine/query.py` | `_execute_tool_call()` |
+| Large-output pressure valve | `src/openharness/engine/query.py` | `_offload_tool_output_if_needed()` |
+| Compaction | `src/openharness/services/compact/__init__.py` | `auto_compact_if_needed()` |
+| Message shape and replay | `src/openharness/engine/messages.py` | `ConversationMessage`, `ToolUseBlock`, `ToolResultBlock` |
+| Provider protocol | `src/openharness/api/client.py` | `SupportsStreamingMessages`, `ApiMessageRequest` |
+| Snapshot protocol | `src/openharness/services/session_backend.py` | `SessionBackend.save_snapshot()` |
 
 ## Where to change behavior
 

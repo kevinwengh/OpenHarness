@@ -7,31 +7,50 @@ resource during prompt handling?
 
 ## End-to-end lifecycle
 
-```text
-settings.mcp_servers + enabled plugin MCP definitions
-        │ merge (plugin names become <plugin>:<server>)
-        ▼
-McpClientManager(server_configs)
-        │ connect_all during build_runtime()
-        ├─ stdio → spawn/connect → ClientSession.initialize()
-        ├─ http  → streamable HTTP → ClientSession.initialize()
-        └─ unsupported transport → failed status
-        │
-        ├─ session.list_tools() → McpToolInfo
-        └─ session.list_resources() → McpResourceInfo (optional method)
-        │
-        ▼
-create_default_tool_registry(manager)
-        ├─ McpToolAdapter per discovered tool
-        ├─ list_mcp_resources
-        └─ read_mcp_resource
-        │
-        ▼
-normal query tool lifecycle → manager.call_tool()/read_resource()
-        │
-        ▼
-close_runtime() → manager.close() → AsyncExitStack cleanup
+```mermaid
+sequenceDiagram
+    participant Runtime
+    participant Config
+    participant Manager as MCP manager
+    participant Server as MCP server
+    participant Registry
+    participant Query
+
+    Runtime->>Config: merge settings and plugin servers
+    Config-->>Runtime: namespaced server configs
+    Runtime->>Manager: construct and connect all
+    Manager->>Server: open stdio or HTTP transport
+    Manager->>Server: initialize session
+    Manager->>Server: list tools and resources
+    Server-->>Manager: capabilities
+    Runtime->>Registry: create MCP adapters and resource tools
+    Query->>Registry: execute MCP tool through governance
+    Registry->>Manager: call tool or read resource
+    Manager->>Server: protocol request
+    Server-->>Manager: content blocks
+    Manager-->>Registry: normalized text
+    Runtime->>Manager: close during shutdown
+    Manager->>Server: close exit stack and transport
 ```
+
+### Function-level connection and invocation sequence
+
+1. `build_runtime()` calls `load_mcp_server_configs(settings, plugins)` and constructs
+   `McpClientManager` with the merged mapping.
+2. `McpClientManager.connect_all()` iterates each config independently and dispatches to
+   `_connect_stdio()` or `_connect_http()`; unsupported union members become failed statuses.
+3. Each transport helper owns an `AsyncExitStack`, creates an MCP SDK `ClientSession`, calls
+   `initialize()`, and delegates capability normalization to `_register_connected_session()`.
+4. `_register_connected_session()` requires `session.list_tools()`. It tolerates the protocol's
+   method-not-found response for `list_resources()` so tool-only servers remain connected.
+5. `create_default_tool_registry(mcp_manager)` reads `list_tools()` and creates one
+   `McpToolAdapter` per capability, plus `ListMcpResourcesTool` and `ReadMcpResourceTool`.
+6. Normal `_execute_tool_call()` governance validates the dynamically generated input model before
+   `McpToolAdapter.execute()` calls `McpClientManager.call_tool()`.
+7. Resource reads call `McpClientManager.read_resource()` explicitly; resources are never silently
+   inserted into the prompt.
+8. `close_runtime()` awaits `McpClientManager.close()`, which closes every retained exit stack and
+   clears session/stack maps.
 
 ## 1. Configuration sources and precedence
 
@@ -103,6 +122,11 @@ the model through the same query loop.
 The `/mcp` command reads this status. `mcp_auth` or `/mcp auth` updates persisted HTTP headers or
 stdio environment values and can update/reconnect the active manager.
 
+The top-level `oh mcp list` management command currently assumes each loaded config is a dictionary
+and calls `.get()`, while `load_settings()` materializes typed Pydantic config models. It can raise
+`AttributeError` even when runtime MCP configuration is valid. Use `oh config show` and in-session
+`/mcp` while diagnosing this known CLI presentation defect; do not treat it as connection evidence.
+
 Credentials must be redacted from configuration displays and diagnostics. `auth_configured` is a
 boolean signal; it must not contain actual header/env values.
 
@@ -129,6 +153,21 @@ result stringification handles text blocks, non-text JSON, structured content, a
 | Model tool schema/name | `src/openharness/tools/mcp_tool.py` | provider schema conversion and permissions |
 | Resource operations | `src/openharness/tools/list_mcp_resources_tool.py`, `src/openharness/tools/read_mcp_resource_tool.py` | manager status and error mapping |
 | Runtime registration | `src/openharness/tools/__init__.py`, `src/openharness/ui/runtime.py` | failed/connected server combinations |
+
+## Source and symbol reference
+
+| Boundary | File | Symbol |
+| --- | --- | --- |
+| Typed transport configs | `src/openharness/mcp/types.py` | `McpStdioServerConfig`, `McpHttpServerConfig`, `McpWebSocketServerConfig` |
+| Settings/plugin merge | `src/openharness/mcp/config.py` | `load_mcp_server_configs()` |
+| Connection owner | `src/openharness/mcp/client.py` | `McpClientManager.connect_all()`, `_connect_stdio()`, `_connect_http()` |
+| Capability registration | `src/openharness/mcp/client.py` | `_register_connected_session()`, `list_tools()`, `list_resources()` |
+| Runtime invocation | `src/openharness/mcp/client.py` | `call_tool()`, `read_resource()`, `reconnect_all()`, `close()` |
+| Dynamic tool adapter | `src/openharness/tools/mcp_tool.py` | `McpToolAdapter`, `_input_model_from_schema()` |
+| Resource inventory | `src/openharness/tools/list_mcp_resources_tool.py` | `ListMcpResourcesTool.execute()` |
+| Resource read | `src/openharness/tools/read_mcp_resource_tool.py` | `ReadMcpResourceTool.execute()` |
+| Auth mutation/reconnect | `src/openharness/tools/mcp_auth_tool.py` | `McpAuthTool.execute()` |
+| Composition | `src/openharness/ui/runtime.py` | `build_runtime()`, `close_runtime()` |
 
 ## Verification map
 

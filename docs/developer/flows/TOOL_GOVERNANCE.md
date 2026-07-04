@@ -7,37 +7,64 @@ and how is the result returned safely?
 
 ## Execution order
 
-```text
-assistant ToolUseBlock(name, id, input)
-        │
-        ▼
-pre_tool_use hooks ── blocked → error ToolResultBlock
-        │
-        ▼
-registry lookup ── missing → unknown-tool result
-        │
-        ▼
-Pydantic input validation ── invalid → error result
-        │
-        ▼
-normalize path/command for policy
-        │
-        ▼
-PermissionChecker.evaluate()
-  sensitive path → tool deny/allow → path/command rules → mode/read-only
-        │
-        ├─ confirmation required → UI callback → allow/deny
-        └─ denied → error result
-        │
-        ▼
-tool.execute(parsed_input, ToolExecutionContext)
-        │ tool/process implementation may route through srt or Docker
-        ▼
-bound/offload output → carry-over metadata → post_tool_use hooks
-        │
-        ▼
-ToolResultBlock matched to original tool-use ID
+```mermaid
+sequenceDiagram
+    participant Loop as Query loop
+    participant Hooks
+    participant Registry
+    participant Policy
+    participant UI
+    participant Tool
+    participant Sandbox
+
+    Loop->>Hooks: pre tool event with raw input
+    alt hook blocks
+        Hooks-->>Loop: error result with same call ID
+    else hook allows
+        Loop->>Registry: resolve exact tool name
+        Registry-->>Loop: tool contract
+        Loop->>Loop: validate Pydantic input
+        Loop->>Policy: evaluate path, command, and mode
+        opt confirmation required
+            Policy->>UI: request approval
+            UI-->>Policy: approve or reject
+        end
+        alt denied
+            Policy-->>Loop: error result with same call ID
+        else allowed
+            Loop->>Tool: execute parsed input
+            opt effect uses process abstraction
+                Tool->>Sandbox: route to host, SRT, or Docker
+                Sandbox-->>Tool: process result
+            end
+            Tool-->>Loop: ToolResult
+            Loop->>Loop: bound output and record carryover
+            Loop->>Hooks: post tool event
+        end
+    end
 ```
+
+### Function-level governance sequence
+
+1. `run_query()` obtains `ToolUseBlock` values from the completed assistant message and calls
+   `_execute_tool_call(context, name, id, input)` for each.
+2. `_execute_tool_call()` first awaits `HookExecutor.execute(PRE_TOOL_USE, ...)`. A blocked
+   `AggregatedHookResult` returns immediately, before registry lookup or Pydantic parsing.
+3. `ToolRegistry.get()` performs exact-name resolution. The selected tool's
+   `input_model.model_validate()` converts untrusted provider JSON into the typed argument model.
+4. `_resolve_permission_file_path()` resolves common path fields against `QueryContext.cwd`, while
+   `_extract_permission_command()` obtains the command string used by deny patterns.
+5. `PermissionChecker.evaluate()` applies hard-sensitive paths, explicit tool rules, path/command
+   rules, mode, and `is_read_only()` in its documented precedence.
+6. A confirmation decision fires `HookEvent.NOTIFICATION` and awaits the host-owned
+   `permission_prompt`. The engine never fabricates an interactive approval.
+7. The engine awaits `BaseTool.execute(parsed_input, ToolExecutionContext(...))`. Tools that spawn
+   processes use `create_shell_subprocess()`; that helper chooses Docker routing or calls
+   `wrap_command_for_sandbox()` for SRT/host behavior.
+8. `_offload_tool_output_if_needed()` bounds large output, `_record_tool_carryover()` updates
+   session metadata, and `POST_TOOL_USE` observes the normalized result.
+9. The returned `ToolResultBlock.tool_use_id` always equals the provider's original tool-use ID, so
+   the next provider request is structurally valid even for denial and error paths.
 
 ## 1. The tool contract
 
@@ -137,6 +164,22 @@ next query-loop turn, allowing the model to recover from denials and operational
 | Permission precedence | `src/openharness/permissions/checker.py` |
 | Hook matching/execution | `src/openharness/hooks/loader.py`, `src/openharness/hooks/executor.py` |
 | Process isolation | `src/openharness/sandbox/`, `src/openharness/utils/shell.py`, effect-owning tool |
+
+## Source and symbol reference
+
+| Responsibility | File | Symbol |
+| --- | --- | --- |
+| Turn dispatch and parallel sibling handling | `src/openharness/engine/query.py` | `run_query()` |
+| Per-call governance | `src/openharness/engine/query.py` | `_execute_tool_call()` |
+| Policy metadata extraction | `src/openharness/engine/query.py` | `_resolve_permission_file_path()`, `_extract_permission_command()` |
+| Tool contract | `src/openharness/tools/base.py` | `BaseTool`, `ToolExecutionContext`, `ToolResult` |
+| Registry schema/export | `src/openharness/tools/base.py` | `ToolRegistry.get()`, `to_api_schema()` |
+| Permission precedence | `src/openharness/permissions/checker.py` | `PermissionChecker.evaluate()` |
+| Hook aggregation | `src/openharness/hooks/executor.py` | `HookExecutor.execute()` |
+| Process routing | `src/openharness/utils/shell.py` | `create_shell_subprocess()` |
+| SRT routing and fallback | `src/openharness/sandbox/adapter.py` | `get_sandbox_availability()`, `wrap_command_for_sandbox()` |
+| Docker execution session | `src/openharness/sandbox/docker_backend.py` | `DockerSandboxSession` |
+| Output offload | `src/openharness/engine/query.py` | `_offload_tool_output_if_needed()` |
 
 ## Verification map
 

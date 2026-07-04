@@ -5,6 +5,9 @@ new contributor from detailed reference material and generated artifacts.
 
 ## User guides
 
+- [`oh` common scenarios and workflows](guides/OH_USER_GUIDE.md) — install, configure a provider,
+  work interactively, control permissions and sandboxing, use sessions and memory, extend the
+  runtime, run background or scheduled work, operate autopilot, back up state, and troubleshoot.
 - [ohmo common scenarios and workflows](guides/OHMO_USER_GUIDE.md) — install, initialize, work
   locally, personalize memory, connect channels, use groups and attachments, schedule recurring
   tasks, operate the gateway, back up state, and troubleshoot.
@@ -32,6 +35,7 @@ provider, extension, UI, and `ohmo` work.
 
 | Goal | Start here | Then inspect |
 | --- | --- | --- |
+| Use `oh` as a coding agent | [`oh` user guide](guides/OH_USER_GUIDE.md) | Project scope, permissions, sessions, memory, extensions, automation, and current limitations |
 | Use `ohmo` as a personal agent | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | Local work, personal memory, channels, groups, attachments, scheduling, and operations |
 | Understand how `oh` launches | [CLI entrypoints](developer/flows/CLI_ENTRYPOINTS.md) | `pyproject.toml`, `cli.py`, and `ui/app.py` |
 | Trace an entire interactive `uv run oh` session | [Interactive frontend/backend flow](developer/flows/INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md) | Python launcher, React terminal, backend host, protocol, interruption, and shutdown |
@@ -53,6 +57,7 @@ provider, extension, UI, and `ohmo` work.
 
 | Document | Keep it synchronized when |
 | --- | --- |
+| [`oh` user guide](guides/OH_USER_GUIDE.md) | A core user workflow, command, state location, safety boundary, extension path, automation behavior, or limitation changes |
 | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | An ohmo user workflow, command, supported channel, state location, security boundary, or limitation changes |
 | [Architecture](ARCHITECTURE.md) | A boundary, main flow, state owner, or invariant changes |
 | [Development guide](DEVELOPMENT.md) | The maintainer workflow, supported toolchain, or release process changes |

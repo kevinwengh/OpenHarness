@@ -10,24 +10,55 @@ For the complete shell-to-launch-to-prompt-to-shutdown trace, see
 
 ## Process topology
 
-```text
-shell runs generated `oh` launcher
-        │
-        ▼
-Python cli.main() → run_repl() → launch_react_tui()
-        │
-        ├─ OPENHARNESS_FRONTEND_CONFIG contains backend argv + initial state
-        ▼
-tsx frontend/terminal/src/index.tsx
-        │ spawns backend argv
-        ▼
-python -m openharness --backend-only ...
-        │
-        ▼
-run_backend_host() / ReactBackendHost
-        ├─ stdin: JSON FrontendRequest lines
-        └─ stdout: JSON BackendEvent lines
+```mermaid
+sequenceDiagram
+    participant Shell
+    participant Launcher as Python launcher
+    participant Frontend as React frontend
+    participant Backend as Python backend
+    participant Runtime
+
+    Shell->>Launcher: run oh
+    Launcher->>Frontend: start tsx with frontend config
+    Frontend->>Backend: spawn backend argv
+    Backend->>Runtime: build and start runtime
+    Backend-->>Frontend: ready event line
+    loop interactive requests
+        Frontend->>Backend: FrontendRequest JSON line
+        Backend->>Runtime: command, prompt, or control action
+        Runtime-->>Backend: stream events and state
+        Backend-->>Frontend: BackendEvent JSON lines
+    end
+    Frontend->>Backend: shutdown request or EOF
+    Backend-->>Frontend: shutdown event
+    Backend->>Runtime: close runtime
+    Frontend-->>Shell: restore terminal and exit
 ```
+
+The environment variable is a bootstrap channel only. After process creation, stdin and stdout are
+the protocol transport; stderr remains diagnostic output and must not be parsed as protocol data.
+
+### Function-level protocol sequence
+
+1. `launch_react_tui()` serializes `FrontendConfig` with `build_backend_command()` into
+   `OPENHARNESS_FRONTEND_CONFIG` and starts `tsx src/index.tsx` with inherited terminal stdio.
+2. `index.tsx` parses the bootstrap JSON, installs terminal restoration/signal handlers, and renders
+   `App`.
+3. `useBackendSession()` spawns the backend argv and writes requests as one JSON object per line.
+   Its stdout parser accepts the `OHJSON:` protocol prefix and batches high-frequency transcript and
+   assistant-delta updates before React state changes.
+4. `run_backend_host()` constructs `BackendHostConfig` and `ReactBackendHost`; `run()` builds and
+   starts the shared runtime, emits ready/status/task snapshots, then starts `_read_requests()`.
+5. `_read_requests()` validates each line with `FrontendRequest`. Prompt work runs through
+   `_run_active_request()` so `_interrupt_active_request()` can cancel it without stopping the
+   request reader.
+6. `_process_line()` calls `_build_user_message_with_images()`, then shared `handle_line()`. Its
+   nested `_render_event()` maps each `StreamEvent` to one or more `BackendEvent` values.
+7. `_ask_permission()`, `_ask_edit_approval()`, and `_ask_question()` create request-ID keyed futures
+   and emit modal events. Response request types resolve those futures directly in the reader,
+   avoiding deadlock behind the blocked prompt coroutine.
+8. `_emit()` serializes one backend event per line under a write lock. The frontend treats
+   `line_complete`, not `assistant_complete`, as the authoritative end of a full tool loop.
 
 ## 1. Frontend location and launch
 
@@ -117,6 +148,20 @@ event meaning changes, even though it does not use the React JSON process bounda
 | Stream conversion and dialogs | `src/openharness/ui/backend_host.py` | `frontend/terminal/src/App.tsx` |
 | Process launch/packaging | `src/openharness/ui/react_launcher.py`, `pyproject.toml` | `frontend/terminal/src/index.tsx`, package config |
 | Transcript rendering | emitted protocol events | Ink components in `App.tsx` |
+
+## Source and symbol reference
+
+| Boundary | Python symbol | TypeScript owner |
+| --- | --- | --- |
+| Bootstrap and backend argv | `react_launcher.py::launch_react_tui()`, `build_backend_command()` | `index.tsx` bootstrap parsing |
+| Wire schemas | `protocol.py::FrontendRequest`, `BackendEvent` | `types.ts::FrontendConfig`, `BackendEvent` |
+| Backend lifecycle | `backend_host.py::run_backend_host()`, `ReactBackendHost.run()` | `useBackendSession()` child ownership |
+| Request parsing/cancellation | `ReactBackendHost._read_requests()`, `_run_active_request()`, `_interrupt_active_request()` | `App.tsx` key/control handlers |
+| Prompt conversion | `ReactBackendHost._process_line()`, `_build_user_message_with_images()` | `App.tsx` `submit_line` payload |
+| Stream conversion | nested `_render_event()` in `_process_line()` | `useBackendSession()` event reducer |
+| Modal correlation | `_ask_permission()`, `_ask_edit_approval()`, `_ask_question()` | `App.tsx` modal response handlers |
+| Serialized output | `ReactBackendHost._emit()` | `useBackendSession()` line parser |
+| Terminal restoration | launcher exit propagation | `index.tsx::restoreTerminal()` |
 
 ## Verification map
 
