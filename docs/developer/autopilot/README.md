@@ -13,7 +13,8 @@ repairs, and merges a PR under policy.
 3. [Policy and safety](POLICY_AND_SAFETY.md)
 4. [Worktree, PR, and CI lifecycle](WORKTREE_PR_AND_CI.md)
 5. [Recovery, idempotency, and dashboard](RECOVERY_AND_DASHBOARD.md)
-6. [Operator runbook](../../operations/AUTOPILOT.md)
+6. [Dashboard data, rendering, and publication](DASHBOARD.md)
+7. [Operator runbook](../../operations/AUTOPILOT.md)
 
 ## Source map
 

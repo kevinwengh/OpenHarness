@@ -59,6 +59,7 @@ provider, extension, UI, and `ohmo` work.
 | Evaluate architecture decisions and trade-offs | [Architecture decision guide](architecture/README.md) | Runtime, state/concurrency, extension trust, product boundaries, and static SVG diagrams |
 | Assess security or private-data exposure | [Threat model](security/THREAT_MODEL.md) | [Data handling](security/DATA_HANDLING.md), `SECURITY.md`, permissions, sandbox, channels, and extensions |
 | Operate a gateway, scheduler, or autopilot | [Operations index](operations/README.md) | Service-specific health, restart, recovery, and backup runbooks |
+| Understand the autopilot dashboard | [Dashboard reference](developer/autopilot/DASHBOARD.md) | Snapshot schema, React rendering, workflows, Pages, privacy, and current build gaps |
 | Find exact settings, paths, commands, or capabilities | [Reference index](reference/README.md) | Owning source symbols and compatibility status |
 | Add a tool, skill, plugin, hook, or MCP server | [Extending OpenHarness](EXTENDING.md) | The matching source and `tests/test_*` directory |
 | Understand or change a provider client | [Provider integration index](developer/providers/README.md) | Anthropic, OpenAI-compatible, Codex subscription, and GitHub Copilot deep references |

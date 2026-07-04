@@ -49,6 +49,10 @@ or a crash at an external side-effect boundary can still duplicate comments, pus
 Publishing the dashboard can disclose issue/PR text, labels, source references, notes, CI/failure
 summaries, and timing. Inspect generated content and repository visibility before Pages publication.
 
+For the complete snapshot schema, React behavior, build/publish flow, checked-in freshness state,
+privacy boundary, and current wiring gaps, see
+[Autopilot dashboard: data contract, rendering, and publication](DASHBOARD.md).
+
 ## Change checklist
 
 - preserve registry version and old fixtures;
