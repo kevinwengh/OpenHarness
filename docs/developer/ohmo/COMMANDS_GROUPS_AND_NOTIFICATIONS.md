@@ -53,7 +53,7 @@ optional repo/cwd, inspect local context if necessary, and call one dedicated to
 
 ```mermaid
 flowchart TD
-    Command[private Feishu /group request] --> Bridge[validate channel and chat type]
+    Command["private Feishu /group request"] --> Bridge[validate channel and chat type]
     Bridge --> Prompt[build synthetic agent task]
     Prompt --> Context[install turn-scoped request metadata and tool]
     Context --> Model[model chooses name, cwd, and repo]

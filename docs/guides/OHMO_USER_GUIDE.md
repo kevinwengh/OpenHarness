@@ -447,7 +447,7 @@ and start it again.
 ```mermaid
 flowchart LR
     User[Allowed channel user] --> Adapter[Channel adapter]
-    Adapter --> Route[Private chat or isolated group sender/thread]
+    Adapter --> Route["Private chat or isolated group sender/thread"]
     Route --> Agent[ohmo runtime for that conversation]
     Agent --> Tools[Tools in gateway working directory]
     Tools --> Reply[Progress, media, and final reply]

@@ -68,7 +68,7 @@ background extraction lifecycle.
 
 ```mermaid
 flowchart TD
-    Command[/memory or CLI] --> Lock[Exclusive memory lock]
+    Command["/memory or CLI"] --> Lock[Exclusive memory lock]
     Lock --> Files[Schema memory files]
     Files --> Scan[Core memory scanner]
     Scan --> Prompt[ohmo prompt section]
