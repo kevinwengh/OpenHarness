@@ -1,0 +1,90 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "setup: Python development dependencies",
+      "type": "process",
+      "command": "uv",
+      "args": ["sync", "--extra", "dev"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "setup: terminal frontend dependencies",
+      "type": "process",
+      "command": "npm",
+      "args": ["ci"],
+      "options": {"cwd": "${workspaceFolder}/frontend/terminal"},
+      "problemMatcher": []
+    },
+    {
+      "label": "check: Ruff",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "ruff", "check", "src", "tests", "scripts"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "check: documentation",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "python", "scripts/check_docs.py"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "test: Python suite (isolated state)",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "pytest", "-q"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "OPENHARNESS_CONFIG_DIR": "${workspaceFolder}/.local-dev/test-state/openharness"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "check: terminal TypeScript",
+      "type": "process",
+      "command": "npx",
+      "args": ["tsc", "--noEmit"],
+      "options": {"cwd": "${workspaceFolder}/frontend/terminal"},
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "ohmo: initialize isolated workspace",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run", "ohmo", "init", "--no-interactive", "--workspace",
+        "${workspaceFolder}/.local-dev/ohmo"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "OPENHARNESS_CONFIG_DIR": "${workspaceFolder}/.local-dev/openharness"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "release: build and validate local source",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "python", "scripts/build_local_release.py"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "release: install local source",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "python", "scripts/install_local_release.py", "install"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    }
+  ]
+}

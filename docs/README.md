@@ -18,16 +18,19 @@ Read these in order:
 
 1. [Developer onboarding](developer/ONBOARDING.md) — set up an isolated environment, run the
    repository, and choose a first change.
-2. [Codebase guide](developer/CODEBASE_GUIDE.md) — follow a request through composition, the agent
+2. [VS Code development and local source releases](developer/VSCODE_LOCAL_DEVELOPMENT_AND_RELEASE.md)
+   — install non-overwriting debugger/task templates, trace Python and TypeScript processes, and
+   build, install, switch, or roll back a source release without GitHub.
+3. [Codebase guide](developer/CODEBASE_GUIDE.md) — follow a request through composition, the agent
    loop, tools, persistence, and user interfaces.
-3. [Critical runtime flows](developer/flows/README.md) — detailed, focused traces for CLI launch,
+4. [Critical runtime flows](developer/flows/README.md) — detailed, focused traces for CLI launch,
    runtime construction, prompts/tools, memory, MCP, extensions, UI, `ohmo`, and background agents.
-4. [Architecture](ARCHITECTURE.md) — current system boundaries, flows, state ownership, contracts,
+5. [Architecture](ARCHITECTURE.md) — current system boundaries, flows, state ownership, contracts,
    and known unknowns; continue into the [architecture decision guide](architecture/README.md) for
    detailed trade-offs, limitations, and future directions.
-5. [Development guide](DEVELOPMENT.md) — maintainer workflow, conventions, risky seams, and release
+6. [Development guide](DEVELOPMENT.md) — maintainer workflow, conventions, risky seams, and release
    considerations.
-6. [Testing and validation](TESTING.md) — select checks that match the affected subsystem.
+7. [Testing and validation](TESTING.md) — select checks that match the affected subsystem.
 
 The [developer guide index](developer/README.md) offers shorter reading tracks for backend,
 provider, extension, UI, and `ohmo` work.
@@ -53,6 +56,7 @@ provider, extension, UI, and `ohmo` work.
 | Use `oh` as a coding agent | [`oh` user guide](guides/OH_USER_GUIDE.md) | Project scope, permissions, sessions, memory, extensions, automation, and current limitations |
 | Use `ohmo` as a personal agent | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | Local work, personal memory, channels, groups, attachments, scheduling, and operations |
 | Understand how `oh` launches | [CLI entrypoints](developer/flows/CLI_ENTRYPOINTS.md) | `pyproject.toml`, `cli.py`, and `ui/app.py` |
+| Develop/debug in VS Code or install a local source build | [VS Code and local release guide](developer/VSCODE_LOCAL_DEVELOPMENT_AND_RELEASE.md) | Non-overwriting templates, process-specific breakpoints, checksummed builds, isolated launchers, and rollback |
 | Trace an entire interactive `uv run oh` session | [Interactive frontend/backend flow](developer/flows/INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md) | Python launcher, React terminal, backend host, protocol, interruption, and shutdown |
 | Trace prompt memory, tools, compaction, and persistence | [Prompt lifecycle end to end](developer/flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md) | Runtime prompt assembly, query engine, compactor, memory, and session storage |
 | Change the model/tool loop | [Architecture](ARCHITECTURE.md#main-runtime-flows) | `src/openharness/engine/query.py` and `tests/test_engine/` |
@@ -86,6 +90,7 @@ provider, extension, UI, and `ohmo` work.
 | [Reference index](reference/README.md) | A setting, environment variable, registry entry, persisted format, channel, or UI contract changes |
 | [Compatibility and releases](COMPATIBILITY.md) | A public/persisted contract, migration policy, support window, packaging step, or release gate changes |
 | [Development guide](DEVELOPMENT.md) | The maintainer workflow, supported toolchain, or release process changes |
+| [VS Code and local release guide](developer/VSCODE_LOCAL_DEVELOPMENT_AND_RELEASE.md) | Editor templates, local build validation, packaging inspection, install-root ownership, activation, or rollback behavior changes |
 | [Extending OpenHarness](EXTENDING.md) | An extension contract, registration step, or trust rule changes |
 | [Testing and validation](TESTING.md) | CI, test selection, or an environment-specific check changes |
 | [Codebase guide](developer/CODEBASE_GUIDE.md) | Entrypoints or subsystem ownership move |

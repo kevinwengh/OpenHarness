@@ -69,6 +69,7 @@ exclude = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "frontend/terminal/package.json" = "openharness/_frontend/package.json"
+"frontend/terminal/package-lock.json" = "openharness/_frontend/package-lock.json"
 "frontend/terminal/tsconfig.json" = "openharness/_frontend/tsconfig.json"
 "frontend/terminal/src" = "openharness/_frontend/src"
 

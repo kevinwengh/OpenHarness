@@ -8,6 +8,9 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- A detailed VS Code development/debugging and local source-release workflow, including
+  non-overwriting editor templates, isolated validation state, inspected/checksummed artifacts,
+  versioned installations, dedicated launchers, activation, and executable rollback.
 - Security, operations, compatibility, release, configuration/state/capability references,
   repository-autopilot and bridge deep dives, accepted ADRs, and GitHub-renderable SVG diagrams,
   with an automated documentation-integrity check.

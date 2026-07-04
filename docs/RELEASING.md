@@ -3,6 +3,11 @@
 There is no checked-in automated package-publication workflow today. This playbook defines a safe
 manual/dry-run process; it does not authorize publication or replace maintainer approval.
 
+For a checksummed, versioned install on the current host without publication or GitHub, use the
+[VS Code and local source release guide](developer/VSCODE_LOCAL_DEVELOPMENT_AND_RELEASE.md). That
+workflow keeps its launchers separate from an existing installation and does not edit application
+configuration.
+
 ## Release inputs
 
 Confirm the intended version and supported Python/Node matrix. Version-sensitive locations include:

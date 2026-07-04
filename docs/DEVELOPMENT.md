@@ -3,7 +3,9 @@
 This guide is for maintainers changing OpenHarness itself. For user installation and configuration,
 start with the root README. New contributors should follow the time-boxed
 [developer onboarding guide](developer/ONBOARDING.md), then use the
-[codebase guide](developer/CODEBASE_GUIDE.md) to locate the owning subsystem.
+[codebase guide](developer/CODEBASE_GUIDE.md) to locate the owning subsystem. For editor launch
+configurations and a source-built local installation, use the
+[VS Code and local release guide](developer/VSCODE_LOCAL_DEVELOPMENT_AND_RELEASE.md).
 
 ## Prerequisites
 

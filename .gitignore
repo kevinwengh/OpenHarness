@@ -11,6 +11,8 @@ build/
 .ruff_cache/
 .venv/
 .openharness-venv/
+.local-dev/
+.local-release/
 venv/
 env/
 .env

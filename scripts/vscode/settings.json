@@ -1,0 +1,15 @@
+{
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+  "python.analysis.extraPaths": ["./src", "."],
+  "python.terminal.activateEnvironment": true,
+  "files.exclude": {
+    "**/.local-dev": true,
+    "**/.local-release": true
+  },
+  "search.exclude": {
+    "**/frontend/terminal/node_modules": true,
+    "**/.local-release": true
+  }
+}

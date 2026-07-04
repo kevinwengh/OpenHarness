@@ -1,0 +1,71 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "oh: dry-run (isolated state)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "openharness",
+      "args": ["--dry-run", "--output-format", "json", "--cwd", "${workspaceFolder}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "subProcess": true,
+      "env": {
+        "OPENHARNESS_CONFIG_DIR": "${workspaceFolder}/.local-dev/openharness",
+        "OHMO_WORKSPACE": "${workspaceFolder}/.local-dev/ohmo"
+      }
+    },
+    {
+      "name": "oh: prompt (normal user state)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "openharness",
+      "args": ["${input:prompt}", "--cwd", "${workspaceFolder}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "subProcess": true
+    },
+    {
+      "name": "oh: TUI (normal user state)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "openharness",
+      "args": ["--cwd", "${workspaceFolder}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "subProcess": true
+    },
+    {
+      "name": "ohmo: TUI (isolated workspace)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "ohmo",
+      "args": ["--workspace", "${workspaceFolder}/.local-dev/ohmo"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "subProcess": true,
+      "env": {
+        "OPENHARNESS_CONFIG_DIR": "${workspaceFolder}/.local-dev/openharness"
+      }
+    },
+    {
+      "name": "terminal frontend: Node + Python backend",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run start",
+      "cwd": "${workspaceFolder}/frontend/terminal",
+      "env": {
+        "OPENHARNESS_CONFIG_DIR": "${workspaceFolder}/.local-dev/openharness",
+        "OHMO_WORKSPACE": "${workspaceFolder}/.local-dev/ohmo",
+        "OPENHARNESS_FRONTEND_CONFIG": "{\"backend_command\":[\"uv\",\"run\",\"python\",\"-m\",\"openharness\",\"--backend-only\",\"--cwd\",\"${workspaceFolder}\"],\"initial_prompt\":null}"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "promptString",
+      "description": "Prompt to send through the local source checkout"
+    }
+  ]
+}

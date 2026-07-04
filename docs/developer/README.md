@@ -11,9 +11,11 @@ standalone answer to a common “how does this actually work?” question and li
 ### First contribution
 
 1. [Developer onboarding](ONBOARDING.md)
-2. [Codebase guide](CODEBASE_GUIDE.md)
-3. [Testing and validation](../TESTING.md)
-4. The owning source module and its nearest tests
+2. [VS Code development and local source releases](VSCODE_LOCAL_DEVELOPMENT_AND_RELEASE.md) when
+   you want checked-in debugger/task templates or an isolated local installation
+3. [Codebase guide](CODEBASE_GUIDE.md)
+4. [Testing and validation](../TESTING.md)
+5. The owning source module and its nearest tests
 
 ### Agent runtime or tool-loop work
 
