@@ -5,6 +5,9 @@
 What belongs to `ohmo`, what is reused from OpenHarness, and how does a chat-platform message become
 an isolated OpenHarness session and outbound reply?
 
+For deeper source-level treatment of each subsystem and workflow, use the
+[`ohmo` developer reference](../ohmo/README.md).
+
 ## Product boundary
 
 OpenHarness owns the reusable engine, provider clients, tools, permissions, hooks, skills/plugins,

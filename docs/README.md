@@ -37,7 +37,7 @@ provider, extension, UI, and `ohmo` work.
 | Manually validate LM Studio across `oh`, the terminal, and `ohmo` | [LM Studio local manual test flow](testing/LM_STUDIO_LOCAL_MANUAL_TEST.md) | Layered pass criteria, failure localization, and state ownership |
 | Change permissions or sandboxing | [Codebase guide](developer/CODEBASE_GUIDE.md#tool-execution-and-safety-path) | `src/openharness/permissions/`, `sandbox/`, and their tests |
 | Change the terminal UI | [Development guide](DEVELOPMENT.md#pythontypescript-ui-protocol) | `src/openharness/ui/`, `frontend/terminal/`, and `tests/test_ui/` |
-| Change `ohmo` | [Codebase guide](developer/CODEBASE_GUIDE.md#openharness-and-ohmo-boundary) | `ohmo/` and `tests/test_ohmo/` |
+| Understand or change `ohmo` | [`ohmo` developer reference](developer/ohmo/README.md) | Dedicated lifecycle guides, `ohmo/`, and `tests/test_ohmo/` |
 | Trace memory, MCP, UI, or background agents | [Critical runtime flows](developer/flows/README.md) | The source/test map in the selected flow |
 | Decide what to improve next | [Improvement backlog](developer/IMPROVEMENTS.md) | Evidence and completion criteria under each item |
 | Prepare a contribution | [Contributing guide](../CONTRIBUTING.md) | [Testing and validation](TESTING.md) |
@@ -52,6 +52,7 @@ provider, extension, UI, and `ohmo` work.
 | [Testing and validation](TESTING.md) | CI, test selection, or an environment-specific check changes |
 | [Codebase guide](developer/CODEBASE_GUIDE.md) | Entrypoints or subsystem ownership move |
 | [Critical runtime flows](developer/flows/README.md) | A documented lifecycle, call order, state owner, or failure path changes |
+| [`ohmo` developer reference](developer/ohmo/README.md) | An ohmo workspace, local runtime, memory, persistence, gateway, routing, media, command, or managed-group workflow changes |
 | [Provider integration guides](developer/providers/README.md) | Provider profiles, auth, client selection, wire conversion, streaming, retries, or tool-replay behavior changes |
 | [LM Studio Anthropic-compatible guide](providers/LM_STUDIO_ANTHROPIC.md) | LM Studio's endpoint, authentication, or OpenHarness profile workflow changes |
 | [LM Studio local manual test flow](testing/LM_STUDIO_LOCAL_MANUAL_TEST.md) | Local provider, terminal, or `ohmo` validation steps and pass criteria change |
