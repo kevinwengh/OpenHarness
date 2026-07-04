@@ -143,3 +143,10 @@ quality opportunities are tracked separately in the
 [improvement backlog](developer/IMPROVEMENTS.md) so this document remains a description of current
 behavior. Detailed entrypoint-to-cleanup traces for individual subsystems are indexed under
 [critical runtime flows](developer/flows/README.md).
+
+Accepted current-state decisions are indexed under
+[architecture decision records](architecture/decisions/README.md). Security and disclosure
+boundaries are detailed in the [threat model](security/THREAT_MODEL.md) and
+[data-handling guide](security/DATA_HANDLING.md); exact state formats and compatibility expectations
+are cataloged in [state and persisted formats](reference/STATE_AND_PERSISTED_FORMATS.md) and the
+[compatibility policy](COMPATIBILITY.md).

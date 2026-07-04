@@ -22,6 +22,15 @@ All claims use one of these confidence labels:
 | Where can extensions execute, and which trust checks apply? | [Extensions and trust boundaries](EXTENSIONS_AND_TRUST.md) | plugins, skills, hooks, MCP, permissions, sandbox |
 | Why are `openharness` and `ohmo` separate? | [Product boundaries and deployment shapes](PRODUCT_BOUNDARIES.md) | package entrypoints, runtime injection, gateway pool |
 | How does the React terminal talk to Python? | [Frontend/backend IPC](frontend_backend_ipc.md) | launcher, backend host, protocol, Ink session hook |
+| Which implemented decisions should changes preserve or supersede? | [Architecture decision records](decisions/README.md) | seven accepted current-state decisions and revisit triggers |
+| Where are security and privacy boundaries enforced? | [Threat model](../security/THREAT_MODEL.md) | engine, permissions, plugins, channels, sandbox, persistence |
+
+Additional static diagrams show the [security trust zones](diagrams/security-trust-zones.svg),
+[data-handling flow](diagrams/data-handling-flow.svg),
+[bridge lifecycle](diagrams/bridge-session-lifecycle.svg),
+[gateway operations](diagrams/gateway-operations.svg), and repository-autopilot
+[architecture](diagrams/autopilot-architecture.svg) and
+[state machine](diagrams/autopilot-state-machine.svg).
 
 For a quick component inventory and state-location table, use
 [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md). For implementation call order, use the
@@ -80,5 +89,5 @@ Changes are unsafe unless these invariants remain true:
 5. Use [Testing and validation](../TESTING.md) to verify all affected seams.
 
 Documentation-only changes should still be checked for local links, SVG/XML validity, stale source
-paths, and disagreement with current tests. The repository does not yet automate all of those
-checks; that limitation is tracked in the improvement backlog.
+paths, and disagreement with current registries. `scripts/check_docs.py` automates those structural
+checks; prose semantics and Mermaid syntax still require review.

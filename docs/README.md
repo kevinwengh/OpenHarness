@@ -32,6 +32,20 @@ Read these in order:
 The [developer guide index](developer/README.md) offers shorter reading tracks for backend,
 provider, extension, UI, and `ohmo` work.
 
+## Operate, secure, and integrate
+
+- [Security policy](../SECURITY.md), [threat model](security/THREAT_MODEL.md), and
+  [data handling](security/DATA_HANDLING.md) define reporting, trust boundaries, disclosure paths,
+  local persistence, and retention responsibilities.
+- [Operations runbooks](operations/README.md) cover the ohmo gateway, cron scheduler, autopilot,
+  backup/restore, upgrades, and observability.
+- [Reference index](reference/README.md) catalogs configuration, environment variables, providers,
+  persisted formats, commands/tools, channels, UI customization, and terminology.
+- [Compatibility policy](COMPATIBILITY.md), [release process](RELEASING.md), and
+  [architecture decisions](architecture/decisions/README.md) define maintainer-facing change
+  boundaries.
+- [Localization policy](LOCALIZATION.md) identifies canonical documents and translation scope.
+
 ## Reference by task
 
 | Goal | Start here | Then inspect |
@@ -43,6 +57,9 @@ provider, extension, UI, and `ohmo` work.
 | Trace prompt memory, tools, compaction, and persistence | [Prompt lifecycle end to end](developer/flows/PROMPT_MEMORY_TOOLS_COMPACTION_E2E.md) | Runtime prompt assembly, query engine, compactor, memory, and session storage |
 | Change the model/tool loop | [Architecture](ARCHITECTURE.md#main-runtime-flows) | `src/openharness/engine/query.py` and `tests/test_engine/` |
 | Evaluate architecture decisions and trade-offs | [Architecture decision guide](architecture/README.md) | Runtime, state/concurrency, extension trust, product boundaries, and static SVG diagrams |
+| Assess security or private-data exposure | [Threat model](security/THREAT_MODEL.md) | [Data handling](security/DATA_HANDLING.md), `SECURITY.md`, permissions, sandbox, channels, and extensions |
+| Operate a gateway, scheduler, or autopilot | [Operations index](operations/README.md) | Service-specific health, restart, recovery, and backup runbooks |
+| Find exact settings, paths, commands, or capabilities | [Reference index](reference/README.md) | Owning source symbols and compatibility status |
 | Add a tool, skill, plugin, hook, or MCP server | [Extending OpenHarness](EXTENDING.md) | The matching source and `tests/test_*` directory |
 | Understand or change a provider client | [Provider integration index](developer/providers/README.md) | Anthropic, OpenAI-compatible, Codex subscription, and GitHub Copilot deep references |
 | Add a provider or profile | [Codebase guide](developer/CODEBASE_GUIDE.md#provider-and-authentication-path) | `src/openharness/api/`, `auth/`, `config/`, and provider tests |
@@ -63,6 +80,10 @@ provider, extension, UI, and `ohmo` work.
 | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | An ohmo user workflow, command, supported channel, state location, security boundary, or limitation changes |
 | [Architecture](ARCHITECTURE.md) | A boundary, main flow, state owner, or invariant changes |
 | [Architecture decision guide](architecture/README.md) | A composition decision, trust boundary, concurrency model, deployment shape, limitation, or future direction changes |
+| [Security and data handling](security/THREAT_MODEL.md) | A trust boundary, credential path, external disclosure, retention behavior, ingress policy, or control changes |
+| [Operations runbooks](operations/README.md) | A daemon command, state/health signal, restart behavior, failure mode, backup scope, or recovery procedure changes |
+| [Reference index](reference/README.md) | A setting, environment variable, registry entry, persisted format, channel, or UI contract changes |
+| [Compatibility and releases](COMPATIBILITY.md) | A public/persisted contract, migration policy, support window, packaging step, or release gate changes |
 | [Development guide](DEVELOPMENT.md) | The maintainer workflow, supported toolchain, or release process changes |
 | [Extending OpenHarness](EXTENDING.md) | An extension contract, registration step, or trust rule changes |
 | [Testing and validation](TESTING.md) | CI, test selection, or an environment-specific check changes |

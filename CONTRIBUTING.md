@@ -42,6 +42,7 @@ Run the same core checks that CI runs before opening a PR:
 
 ```bash
 uv run ruff check src tests scripts
+uv run python scripts/check_docs.py
 uv run pytest -q
 ```
 
@@ -61,6 +62,9 @@ The full test-selection matrix, dashboard checks, and opt-in live evaluation gui
 - Add or update tests when behavior changes.
 - Update docs when CLI flags, workflows, or compatibility claims change.
 - Add a short entry under `Unreleased` in [`CHANGELOG.md`](CHANGELOG.md) for user-visible changes.
+- Follow [`SECURITY.md`](SECURITY.md) for vulnerabilities; never put unpatched reports or live
+  credentials in public issues, tests, logs, or fixtures.
+- For documentation changes, run the docs integrity check and update the owning index/reference.
 - If you are improving type coverage, feel free to run `uv run mypy src/openharness`, but it is not yet a required green check for the whole repo.
 
 ## Documentation and community contributions

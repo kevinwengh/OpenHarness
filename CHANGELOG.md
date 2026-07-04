@@ -8,6 +8,9 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- Security, operations, compatibility, release, configuration/state/capability references,
+  repository-autopilot and bridge deep dives, accepted ADRs, and GitHub-renderable SVG diagrams,
+  with an automated documentation-integrity check.
 - Deep function-level developer references and GitHub-renderable call-sequence diagrams across the
   complete critical-flow suite, including CLI dispatch, runtime composition, prompts/tools,
   governance, memory, MCP, extensions, terminal IPC, ohmo, and background agents.

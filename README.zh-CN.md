@@ -317,7 +317,7 @@ ohmo gateway restart
 
 ### Tools / Skills / Plugins
 
-- 43+ tools
+- 39 个内置工具，并可动态加载 MCP/插件工具
 - Markdown skills 按需加载
 - 插件生态
 - 兼容 `anthropics/skills`

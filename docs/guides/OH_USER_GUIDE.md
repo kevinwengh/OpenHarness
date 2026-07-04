@@ -678,9 +678,11 @@ oh autopilot run-next --cwd /path/to/repo
 
 Review `.openharness/autopilot/autopilot_policy.yaml`, `verification_policy.yaml`, and
 `release_policy.yaml` before the first run. Current default execution uses `full_auto`, a separate
-Git worktree, `main` as the base branch, 12 turns, and up to three attempts. The default decision
-policy has a human gate, and automatic merging is label-gated by `autopilot:merge`, but those gates
-do not make the execution phase read-only.
+Git worktree, `main` as the base branch, 12 turns, and up to three attempts. Automatic merging is
+label-gated by `autopilot:merge` by default. The human-gate fields declared in decision/release
+policy are not enforced by the current merge decision, so set
+`autopilot.github.auto_merge.mode: pr_only` when service-driven merge must be disabled. None of
+these settings make the execution phase read-only.
 
 Install recurring scan and tick jobs only after reviewing those policies:
 

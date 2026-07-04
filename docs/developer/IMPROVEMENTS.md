@@ -1,8 +1,8 @@
 # Codebase improvement backlog
 
 This is an evidence-backed technical assessment, not a release commitment. It was prepared against
-commit `9b2efd7` on 2026-07-02. Revalidate the evidence before implementing an item because active
-development may have changed the tradeoffs.
+commit `95fd039` plus the documentation working tree on 2026-07-04. Revalidate the evidence before
+implementing an item because active development may have changed the tradeoffs.
 
 ## How priorities are assigned
 
@@ -21,11 +21,11 @@ small compatibility-preserving steps.
 
 | Signal | Observed on this snapshot |
 | --- | --- |
-| Python implementation | 229 files under `src/openharness`, 19 under `ohmo`; about 50,670 lines in total |
+| Python implementation | 229 files under `src/openharness`, 19 under `ohmo`; about 76,451 lines in total |
 | Python tests | 103 `test_*.py` files; 1,159 tests collected by pytest |
 | CI test matrix | Full pytest suite on Python 3.10 and 3.11 |
-| Other CI gates | Ruff for Python and a TypeScript typecheck for `frontend/terminal` |
-| Largest implementation files | 2,783-line command registry, 2,551-line CLI, 2,239-line autopilot service |
+| Other CI gates | Ruff, documentation integrity, and a TypeScript typecheck for `frontend/terminal` |
+| Largest implementation files | 3,981-line command registry, 3,253-line autopilot service, 3,229-line CLI |
 | Configured but non-gating tooling | Strict mypy and pytest-cov are installed; neither currently runs in CI |
 
 Line counts are navigation signals, not quality scores. They matter here because the largest files
@@ -35,15 +35,38 @@ also combine registration/composition with multiple domain responsibilities.
 
 | Priority | Improvement | Why it matters |
 | --- | --- | --- |
+| P1 | Enforce or remove declared autopilot policy gates | Prevents operators relying on non-enforced merge/retry controls |
 | P1 | Remove reverse `openharness` → `ohmo` dependencies | Restores the declared reusable-runtime/application boundary |
 | P1 | Decompose responsibility hotspots | Reduces regression radius and makes ownership discoverable |
 | P1 | Establish an incremental static-typing gate | Turns an existing strict configuration into usable feedback |
 | P2 | Add automated frontend behavior tests | Typechecks do not verify terminal interactions or rendering |
 | P2 | Publish coverage and define risk-based targets | 1,159 collected tests provide no visible coverage map or floor |
 | P2 | Version persisted and extension contracts | Makes compatibility and migrations explicit instead of implicit |
-| P2 | Automate documentation integrity | Prevents navigation and command examples from silently drifting |
+| P2 | Expand documentation integrity | Existing structural checks do not validate anchors, Mermaid syntax, or command semantics |
 | P3 | Measure concurrency and long-running runtime limits | Defines safe operating envelopes before scale-driven rewrites |
 | P3 | Add a checked-in release workflow | Reduces manual version/package/publication drift |
+
+## P1: enforce or remove declared autopilot policy gates
+
+**Evidence.** `release_policy.yaml` declares `merge_requires_human`, `release_requires_human`, and
+`auto_revert_on_failed_verification`, while `_automerge_eligible()` reads only the GitHub auto-merge
+mode/label and PR draft state. Likewise, `decision.default_human_gate`, `repair.retry_on`, and
+`repair.stop_on` are loaded and exposed to prompts, but do not drive service transitions. Malformed
+policy YAML silently falls back to defaults. The persisted status vocabulary also contains
+`accepted`, `pr_open`, `rejected`, and `superseded`, which current service paths do not emit.
+
+**Risk.** Operators can reasonably interpret declared fields as enforced controls and enable
+scheduled/full-auto work under a false safety assumption. Documentation can reduce that risk but
+cannot substitute for fail-closed policy enforcement.
+
+**Recommended direction.** Define one validated policy model and make each field either enforced or
+explicitly advisory. Fail closed on invalid safety policy, apply release human gates in the merge
+decision, use retry/stop classifications consistently, and either implement reserved status
+transitions or deprecate them with migration handling.
+
+**Done when.** Tests prove each gate at the final side-effect boundary, invalid policy prevents
+operation with an actionable diagnostic, the generated/default files contain no inert safety
+fields, and the state diagram matches transitions emitted by service tests.
 
 ## P1: remove reverse dependencies from core into ohmo
 
@@ -157,19 +180,21 @@ continuation, then plugins/settings. Add fixtures from released formats.
 and tested against old fixtures, and extension authors can tell which contracts follow semantic
 versioning.
 
-## P2: automate documentation integrity
+## P2: expand documentation integrity
 
 **Evidence.** Maintained Markdown now spans setup, architecture, development, extension, testing,
-onboarding, and improvement references. CI has no Markdown lint, local-link check, or executable
-snippet validation.
+onboarding, and improvement references. `scripts/check_docs.py` now checks local targets,
+unambiguous repository paths, fenced-block balance, SVG XML/titles, and source-derived registry
+counts in CI. It does not parse heading anchors, lint Markdown style, compile Mermaid diagrams, or
+execute safe command examples.
 
 **Risk.** File moves, renamed headings, CLI option changes, and stale commands can break the shortest
 onboarding path without affecting code tests.
 
-**Recommended direction.** Add a fast local-link/anchor checker and Markdown lint with repository
-conventions. Validate safe commands such as `oh --help` and collect shell snippets that need manual
-or external prerequisites into an explicit allowlist. Do not execute credentialed/live examples in
-normal CI.
+**Recommended direction.** Extend the dependency-free foundation with heading-anchor checks and a
+Markdown linter. Compile Mermaid through a pinned tool, validate safe commands such as `oh --help`,
+and collect shell snippets needing manual/external prerequisites into an explicit allowlist. Do not
+execute credentialed/live examples in normal CI.
 
 **Done when.** CI rejects broken local links and malformed docs, setup/validation commands have an
 owner, and generated `docs/autopilot/` output is excluded from hand-maintained checks where needed.

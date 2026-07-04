@@ -20,16 +20,16 @@
 <p align="center">
   <a href="#-quick-start"><img src="https://img.shields.io/badge/Quick_Start-5_min-blue?style=for-the-badge" alt="Quick Start"></a>
   <a href="#-harness-architecture"><img src="https://img.shields.io/badge/Harness-Architecture-ff69b4?style=for-the-badge" alt="Architecture"></a>
-  <a href="#-features"><img src="https://img.shields.io/badge/Tools-43+-green?style=for-the-badge" alt="Tools"></a>
-  <a href="#-test-results"><img src="https://img.shields.io/badge/Tests-114_Passing-brightgreen?style=for-the-badge" alt="Tests"></a>
+  <a href="#-features"><img src="https://img.shields.io/badge/Tools-39_built--in-green?style=for-the-badge" alt="Tools"></a>
+  <a href="#-validation"><img src="https://img.shields.io/badge/Tests-CI-brightgreen?style=for-the-badge" alt="Tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License"></a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-≥3.10-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/React+Ink-TUI-61DAFB?logo=react&logoColor=white" alt="React">
-  <img src="https://img.shields.io/badge/pytest-114_pass-brightgreen" alt="Pytest">
-  <img src="https://img.shields.io/badge/E2E-6_suites-orange" alt="E2E">
+  <img src="https://img.shields.io/badge/pytest-offline_suite-brightgreen" alt="Pytest">
+  <img src="https://img.shields.io/badge/E2E-opt--in-orange" alt="E2E">
   <img src="https://img.shields.io/badge/output-text_|_json_|_stream--json-blueviolet" alt="Output">
   <a href="https://github.com/HKUDS/OpenHarness/actions/workflows/ci.yml"><img src="https://github.com/HKUDS/OpenHarness/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/HKUDS/.github/blob/main/profile/README.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=feishu&logoColor=white" alt="Feishu"></a>
@@ -70,12 +70,12 @@ Supports CLI agent integration including OpenClaw, nanobot, Cursor, and more.
 <h3>🔧 Harness Toolkit</h3>
 
 <div align="center">
-  <img src="https://img.shields.io/badge/43+_Tools-10B981?style=for-the-badge&logo=toolbox&logoColor=white" alt="Toolkit" />
+  <img src="https://img.shields.io/badge/39_Built--in_Tools-10B981?style=for-the-badge&logo=toolbox&logoColor=white" alt="Toolkit" />
 </div>
 
 <img src="assets/scene-toolkit.png" width="140">
 
-<p align="center"><strong>• 43 Tools (File, Shell, Search, Web, MCP)</strong></p>
+<p align="center"><strong>• 39 Built-in Tools + Dynamic MCP/Plugin Tools</strong></p>
 <p align="center"><strong>• On-Demand Skill Loading (.md)</strong></p>
 <p align="center"><strong>• Plugin Ecosystem (Skills + Hooks + Agents)</strong></p>
 <p align="center"><strong>• Compatible with anthropics/skills & plugins</strong></p>
@@ -462,12 +462,12 @@ OpenHarness implements the core Agent Harness pattern with 10 subsystems:
 ```
 openharness/
   engine/          # 🧠 Agent Loop — query → stream → tool-call → loop
-  tools/           # 🔧 43 Tools — file I/O, shell, search, web, MCP
+  tools/           # 🔧 39 built-in tools plus dynamic MCP/plugin tools
   skills/          # 📚 Knowledge — on-demand skill loading (.md files)
   plugins/         # 🔌 Extensions — commands, hooks, agents, MCP servers
   permissions/     # 🛡️ Safety — multi-level modes, path rules, command deny
   hooks/           # ⚡ Lifecycle — PreToolUse/PostToolUse event hooks
-  commands/        # 💬 54 Commands — /help, /commit, /plan, /resume, ...
+  commands/        # 💬 69 built-in slash commands plus extensions
   mcp/             # 🌐 MCP — Model Context Protocol client
   memory/          # 🧠 Memory — persistent cross-session knowledge
   tasks/           # 📋 Tasks — background task management
@@ -516,7 +516,7 @@ flowchart LR
 
 ## ✨ Features
 
-### 🔧 Tools (43+)
+### 🔧 Tools (39 built-in, plus dynamic extensions)
 
 | Category | Tools | Description |
 |----------|-------|-------------|
@@ -669,7 +669,7 @@ Permissions: --permission-mode, --dangerously-skip-permissions
 Context:     -s/--system-prompt, --append-system-prompt, --settings
 Advanced:    -d/--debug, --mcp-config, --bare
 
-Subcommands: oh setup | oh provider | oh auth | oh mcp | oh plugin
+Subcommands: oh setup | oh provider | oh auth | oh mcp | oh plugin | oh config | oh cron | oh autopilot
 ```
 
 ### 🧑‍💼 ohmo Personal Agent
@@ -730,22 +730,19 @@ Currently `ohmo init` / `ohmo config` can guide channel setup for:
 
 ---
 
-## 📊 Test Results
+## 📊 Validation
 
-| Suite | Tests | Status |
-|-------|-------|--------|
-| Unit + Integration | 114 | ✅ All passing |
-| CLI Flags E2E | 6 | ✅ Real model calls |
-| Harness Features E2E | 9 | ✅ Retry, skills, parallel, permissions |
-| React TUI E2E | 3 | ✅ Welcome, conversation, status |
-| TUI Interactions E2E | 4 | ✅ Commands, permissions, shortcuts |
-| Real Skills + Plugins | 12 | ✅ anthropics/skills + claude-code/plugins |
+Pull requests run the offline Python suite on Python 3.10 and 3.11, Ruff on the Python source,
+tests, and scripts, and a Node 20 TypeScript check for the React terminal. The live model, Docker,
+and interactive terminal drivers are opt-in because they need credentials, external services, or a
+real TTY. See the [testing and validation guide](docs/TESTING.md) for the current CI contract and
+change-specific test matrix.
 
 ```bash
 # Run all tests
-uv run pytest -q                           # 114 unit/integration
-python scripts/test_harness_features.py     # Harness E2E
-python scripts/test_real_skills_plugins.py  # Real plugins E2E
+uv run pytest -q                            # offline unit/integration suite
+python scripts/test_harness_features.py     # opt-in harness E2E
+python scripts/test_real_skills_plugins.py  # opt-in real plugins E2E
 ```
 
 ---

@@ -69,6 +69,19 @@ standalone answer to a common “how does this actually work?” question and li
 2. The owning `memory/`, `services/`, `tasks/`, or `swarm/` source and tests
 3. The [prompt/tool loop](flows/PROMPT_TOOL_LOOP.md) where state enters or leaves a model turn
 
+### Repository autopilot
+
+1. [Autopilot developer reference](autopilot/README.md) for architecture, card states, policy,
+   worktree/PR/CI behavior, recovery, and dashboard projection
+2. [Autopilot operations](../operations/AUTOPILOT.md) for preflight, health evidence, and recovery
+3. `src/openharness/autopilot/`, `tests/test_autopilot/`, and dashboard source when affected
+
+### Bridge sessions
+
+1. [Bridge session lifecycle](BRIDGE_SESSIONS.md) for work-secret parsing, process ownership,
+   shell execution, logs, cleanup, and current enforcement gaps
+2. `src/openharness/bridge/`, `/bridge` command tests, and [threat model](../security/THREAT_MODEL.md)
+
 ## Planning work
 
 The [improvement backlog](IMPROVEMENTS.md) records evidence-backed technical opportunities. It is

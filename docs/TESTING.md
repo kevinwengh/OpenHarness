@@ -10,6 +10,7 @@ The checked-in CI runs:
 uv sync --extra dev
 uv run pytest -q
 uv run ruff check src tests scripts
+uv run python scripts/check_docs.py
 cd frontend/terminal && npm ci && npx tsc --noEmit
 ```
 
@@ -34,6 +35,28 @@ Python tests run on 3.10 and 3.11. Ruff and the frontend typecheck run on Python
 | Autopilot service | `tests/test_autopilot`, `tests/test_services/test_autopilot.py` | Dashboard build and snapshot review |
 | Autopilot dashboard | `npm run build` in `autopilot-dashboard` | Inspect generated `docs/autopilot` output |
 | Installer/platform | `tests/test_install`, `tests/test_platforms.py` | Test on each affected OS/shell |
+| Documentation/reference | `uv run python scripts/check_docs.py` | Render changed SVGs; review Mermaid and prose semantics |
+
+## Test-layer intent
+
+Use the narrowest deterministic layer that proves the contract, then add a cross-boundary test only
+where ownership crosses modules:
+
+1. **Pure/unit tests** cover parsing, conversion, validation, policy decisions, and state-machine
+   transitions without filesystem, process, or network dependencies.
+2. **Subsystem tests** use temporary roots and fakes to exercise persistence, lifecycle, retries,
+   cancellation, and restart behavior through the owning public boundary.
+3. **Contract tests** preserve provider request/replay shapes, terminal protocol events, channel
+   normalized messages, plugin manifests, and persisted schemas.
+4. **Integration tests** prove composition through `build_runtime()`, `QueryEngine`, gateway pools,
+   scheduler/autopilot services, or packaged frontends without real external accounts.
+5. **Live/manual evaluation** is evidence for endpoint/SDK/environment compatibility, never a
+   replacement for deterministic regression coverage.
+
+For security-sensitive paths, include the denied case and an attempted bypass. For lifecycle code,
+include partial startup, cancellation, cleanup, and restart. For durable state, include malformed or
+older input and interrupted-read/write assumptions. For tool loops, preserve stable tool-use/result
+pairing even when one sibling fails.
 
 ## Writing tests
 
@@ -45,6 +68,18 @@ Python tests run on 3.10 and 3.11. Ruff and the frontend typecheck run on Python
 - For tools, cover schema, successful execution, normalized failure, `is_read_only`, permissions, and sandbox routing as applicable.
 - For providers, cover request translation, streamed text/thinking/tool calls, usage, error translation, and multi-turn tool-call replay.
 - Avoid timing-only assertions for async/background behavior; wait on an observable condition with a bounded timeout.
+
+## Flaky-test policy
+
+A nondeterministic failure is a defect, not an acceptable rerun strategy. Capture the seed,
+platform, Python/Node version, complete failure, and whether process/network/clock state was
+involved. Replace sleeps with bounded observable conditions, isolate global environment and module
+singletons, and close every task/process/client created by the test. If temporary quarantine is
+unavoidable, link a tracked issue, keep the scope narrow, and define an owner and removal condition.
+
+Coverage percentages are diagnostic rather than a merge target today. Prefer missing-contract
+coverage at provider replay, permissions, persistence migration, channel authority, and process
+cleanup boundaries over line-count growth in trivial code.
 
 ## Live and manual evaluation
 

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="680" viewBox="0 0 1450 680" role="img" aria-labelledby="title desc">
+  <title id="title">Autopilot state machine</title><desc id="desc">Current emitted autopilot transitions proceed from queued through preparation, running, verification, CI, repair, and terminal outcomes; four schema statuses are reserved but not emitted by current service paths.</desc>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker><style>.b{fill:#f8fafc}.q{fill:#f1f5f9;stroke:#64748b;stroke-width:2}.r{fill:#e0f2fe;stroke:#0284c7;stroke-width:2}.v{fill:#fff7ed;stroke:#ea580c;stroke-width:2}.ok{fill:#ecfdf5;stroke:#059669;stroke-width:2}.bad{fill:#fef2f2;stroke:#dc2626;stroke-width:2}.note{fill:#fff;stroke:#94a3b8;stroke-width:2}.l{stroke:#475569;stroke-width:2;fill:none;marker-end:url(#a)}.d{stroke-dasharray:7 5}.h{font:700 25px system-ui;fill:#0f172a}.x{font:600 15px system-ui;fill:#0f172a}.n{font:13px system-ui;fill:#334155}</style></defs>
+  <rect class="b" width="1450" height="680"/><text class="h" x="40" y="44">Autopilot card states: current emitted transitions</text>
+  <rect class="q" x="40" y="125" width="140" height="64" rx="9"/><text class="x" x="110" y="163" text-anchor="middle">queued</text>
+  <rect class="r" x="250" y="125" width="140" height="64" rx="9"/><text class="x" x="320" y="163" text-anchor="middle">preparing</text>
+  <rect class="r" x="460" y="125" width="140" height="64" rx="9"/><text class="x" x="530" y="163" text-anchor="middle">running</text>
+  <rect class="v" x="670" y="125" width="140" height="64" rx="9"/><text class="x" x="740" y="163" text-anchor="middle">verifying</text>
+  <rect class="v" x="940" y="125" width="140" height="64" rx="9"/><text class="x" x="1010" y="163" text-anchor="middle">waiting_ci</text>
+  <rect class="ok" x="1190" y="85" width="140" height="64" rx="9"/><text class="x" x="1260" y="123" text-anchor="middle">merged</text>
+  <rect class="ok" x="1190" y="210" width="140" height="64" rx="9"/><text class="x" x="1260" y="248" text-anchor="middle">completed</text>
+  <rect class="v" x="670" y="330" width="140" height="64" rx="9"/><text class="x" x="740" y="368" text-anchor="middle">repairing</text>
+  <rect class="bad" x="940" y="330" width="140" height="64" rx="9"/><text class="x" x="1010" y="368" text-anchor="middle">failed</text>
+  <path class="l" d="M180 157H250M390 157H460M600 157H670M810 157H940M1080 145L1190 120M1080 175L1190 235"/>
+  <path class="l" d="M740 330V189"/><path class="l d" d="M1010 189C1010 275 850 300 810 350"/>
+  <path class="l d" d="M810 175C880 230 990 270 1010 330"/><path class="l d" d="M1080 170C1140 230 1100 310 1080 350"/>
+  <path class="l d" d="M180 145C410 65 810 65 940 140"/><text class="n" x="550" y="86" text-anchor="middle">existing GitHub PR card</text>
+  <rect class="note" x="160" y="455" width="720" height="120" rx="12"/><text class="x" x="520" y="490" text-anchor="middle">Persisted vocabulary reserved by the schema/dashboard</text><text class="n" x="520" y="520" text-anchor="middle">accepted · pr_open · rejected · superseded</text><text class="n" x="520" y="548" text-anchor="middle">Current run_card() and _process_existing_pr_card() do not write these statuses.</text>
+  <text class="n" x="1080" y="475" text-anchor="middle">Dashed paths are conditional.</text><text class="n" x="1080" y="501" text-anchor="middle">Failure is possible during preparation, execution,</text><text class="n" x="1080" y="525" text-anchor="middle">verification, Git/PR creation, CI, or exhausted repair.</text>
+  <text class="n" x="725" y="630" text-anchor="middle">completed may mean local success or a green PR awaiting a human gate; only merged proves the remote merge.</text>
+</svg>
