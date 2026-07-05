@@ -97,7 +97,7 @@ _NAVIGATION = (
         description="Converse with and supervise the active agent",
         path="/workbench",
         depth="operate",
-        availability="coming_soon",
+        availability="available",
     ),
     WebNavigationItem(
         id="sessions",
@@ -105,7 +105,7 @@ _NAVIGATION = (
         description="Resume and organize project conversations",
         path="/sessions",
         depth="operate",
-        availability="coming_soon",
+        availability="available",
     ),
     WebNavigationItem(
         id="runtime",
@@ -113,7 +113,7 @@ _NAVIGATION = (
         description="Provider, model, permission, and sandbox controls",
         path="/runtime",
         depth="configure",
-        availability="coming_soon",
+        availability="available",
     ),
     WebNavigationItem(
         id="capabilities",

@@ -4,17 +4,38 @@
 
 ## Overview
 
-The React terminal UI (`frontend/terminal`) communicates with the OpenHarness engine through a **single parent/child process pair** using stdin/stdout pipes with a custom newline-delimited JSON protocol prefixed with `OHJSON:`. There is **no WebSocket layer**. The Python backend runs as a child process spawned by the TypeScript frontend, and all data exchange happens over that pipe.
+The React terminal UI (`frontend/terminal`) communicates with the OpenHarness engine through a
+**single parent/child process pair** using stdin/stdout pipes with a custom newline-delimited JSON
+protocol prefixed with `OHJSON:`. There is no WebSocket in the terminal path. The local browser UI
+(`frontend/web`) uses a controlling WebSocket, but injects its typed request source and event sink
+into the same Python backend host rather than implementing a second runtime loop.
 
 ![Frontend/backend process and protocol boundary](diagrams/frontend-backend-ipc.svg)
 
 **Key evidence:** `src/openharness/ui/react_launcher.py`, `frontend/terminal/src/hooks/useBackendSession.ts`, `src/openharness/ui/backend_host.py`, `src/openharness/ui/protocol.py`.
 
-## Why no WebSocket?
+## Why the terminal does not use WebSocket
 
 - The frontend is an **Ink application** (React for terminals), not a browser app, so there's no native HTTP server.
 - tsx runs the TypeScript source directly — no build step required.
 - stdin/stdout with a newline-delimited JSON protocol is simpler and lower-latency than a socket-based approach for a single parent/child relationship.
+
+## Browser transport
+
+`oh web` starts `WebUiServer` on a validated loopback address. Static assets are public locally,
+while REST requests require a bearer launch token and `/api/session` requires the same token in the
+first WebSocket message plus an exact `Origin`. `WebRuntimeSession` supplies async
+`request_source`/`event_sink` callbacks to `ReactBackendHost`; the host still owns the request queue,
+modal futures, active turn, `RuntimeBundle`, and cleanup.
+
+Only one socket controls a runtime. A disconnected tab has a five-second bounded reclaim window,
+with at most 256 presentation events buffered. Reconnection reuses the controller. Expiry supplies
+transport EOF, which denies permission/edit prompts, cancels questions, interrupts the active turn,
+and closes the runtime. Browser copies of events remove endpoint fields, redact credential-shaped
+values, and cap large presentation strings without changing terminal events.
+
+**Key browser evidence:** `src/openharness/ui/web_server.py`, `frontend/web/src/useWebSession.ts`,
+`tests/test_ui/test_web_server.py`.
 
 ## The launch chain
 
@@ -252,7 +273,7 @@ async def run(self) -> int:
 ### The __init__ tracks pending permission/future objects (lines 76-90)
 
 ```python
-self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
+self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue(maxsize=128)
 self._permission_requests: dict[str, asyncio.Future[bool]] = {}
 self._edit_approval_requests: dict[str, asyncio.Future[str]] = {}
 self._question_requests: dict[str, asyncio.Future[str]] = {}

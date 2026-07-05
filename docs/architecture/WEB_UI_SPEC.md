@@ -321,6 +321,25 @@ a completed visual audit.
 - **Review gate:** event ordering matches the terminal; modal futures cannot deadlock; disconnect and
   cancellation are conservative; restored sessions and provider tool replay remain valid.
 
+Stage 2 implementation review found and corrected these issues before publication:
+
+- the terminal host now accepts injected typed request/event adapters while retaining stdin/stdout
+  defaults, so the browser does not clone the tool loop, modal futures, selectors, or cleanup;
+- one controlling socket can be reclaimed during a bounded grace window; concurrent tabs are
+  rejected only after authenticating, while expiry denies approvals, cancels questions, interrupts
+  the active turn, and closes the shared runtime;
+- browser event copies remove raw base URLs, recursively redact secret-key fields and common inline
+  credential formats, truncate presentation strings at 64 KB, and retain only 256 disconnected
+  events; WebSocket startup waits for bootstrap to consume and remove the fragment token first;
+- image count, per-file, aggregate raw-byte, and WebSocket limits now agree; runtime shutdown stays
+  closed unless the user explicitly requested a new session; and all decision dialogs resolve on
+  Escape, contain focus, and restore focus on close.
+
+The resulting Stage 2 surface operates streamed chat, tool details, images, interruption,
+permission/edit/question decisions, session resume/new-session flows, and provider/model/policy/
+effort/turn/output selectors through existing runtime commands. Markdown remains rendered as safe
+plain text until the release-hardening sanitizer gate is implemented.
+
 ### Stage 3 — operational capability areas
 
 - Capabilities, Work, Knowledge, and Autopilot resource APIs and screens; safe supported mutations

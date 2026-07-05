@@ -21,6 +21,10 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - The first local `oh web` increment: a loopback-only aiohttp host with launch-token and origin
   enforcement, credential-redacted bootstrap status, CSP/security headers, deterministic cleanup,
   packaged React/Vite assets, and a responsive accessible shell covering every planned main area.
+- An interactive local-web workbench using the shared terminal runtime controller, including
+  streamed transcript and tools, bounded images, interrupt, fail-closed permission/edit/question
+  dialogs, one-tab reconnect semantics, session resume/new-session flows, and live provider, model,
+  permission, effort, turn, fast-mode, pass, and output-style selectors.
 - Declarative Ohmo automation workflows with safe YAML rules, deterministic channel-event
   matching, durable/idempotent runs, restricted named-skill agent steps, conditional multi-step
   actions, cross-channel delivery, namespaced personal-knowledge upserts, crash recovery, and

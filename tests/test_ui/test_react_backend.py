@@ -592,6 +592,58 @@ async def test_backend_host_emits_utf8_protocol_bytes(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_backend_host_uses_injected_typed_transport():
+    requests = iter([FrontendRequest(type="list_sessions"), None])
+    events: list[BackendEvent] = []
+
+    async def _read():
+        return next(requests)
+
+    async def _write(event: BackendEvent):
+        events.append(event)
+
+    host = ReactBackendHost(
+        BackendHostConfig(api_client=StaticApiClient("unused")),
+        request_source=_read,
+        event_sink=_write,
+    )
+    await host._read_requests()
+
+    queued = await host._request_queue.get()
+    assert queued.type == "list_sessions"
+    shutdown = await host._request_queue.get()
+    assert shutdown.type == "shutdown"
+    await host._emit(BackendEvent(type="assistant_delta", message="web"))
+    assert events[-1].message == "web"
+
+
+@pytest.mark.asyncio
+async def test_transport_close_denies_pending_prompts_and_interrupts_turn():
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    permission = asyncio.get_running_loop().create_future()
+    edit = asyncio.get_running_loop().create_future()
+    question = asyncio.get_running_loop().create_future()
+    host._permission_requests["permission"] = permission
+    host._edit_approval_requests["edit"] = edit
+    host._question_requests["question"] = question
+
+    async def _long_running():
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(_long_running())
+    host._active_request_task = task
+
+    await host._handle_transport_closed()
+
+    assert permission.result() is False
+    assert edit.result() == "reject"
+    assert question.result() == ""
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert (await host._request_queue.get()).type == "shutdown"
+
+
+@pytest.mark.asyncio
 async def test_backend_host_emits_model_select_request(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))

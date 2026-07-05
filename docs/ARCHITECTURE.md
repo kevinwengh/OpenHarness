@@ -26,6 +26,7 @@ flowchart LR
     User[CLI / Ink TUI / Textual TUI] --> Runtime[Runtime composition]
     Browser[Local browser UI] --> WebHost[Loopback web host]
     WebHost --> Status[Redacted bootstrap snapshot]
+    WebHost --> Runtime
     Chat[ohmo chat channels] --> Admission[Channel admission]
     Admission --> Ohmo[ohmo runtime pool]
     Admission --> Automation[Automation service]
@@ -69,7 +70,7 @@ flowchart LR
 | ohmo | Adds workspace identity, memory, session storage, gateway configuration, per-conversation runtimes, and channel commands | `~/.ohmo` by default and OpenHarness runtime | **Observed:** `ohmo/` and `tests/test_ohmo/` |
 | Autopilot | Maintains a per-repository task registry, policies, journals, run artifacts, verification, and dashboard export | `.openharness/autopilot` and `docs/autopilot` | **Observed:** `src/openharness/autopilot/`, workflows, tests |
 | Terminal UI | React/Ink frontend connected to a Python backend protocol; Textual fallback also exists | Node.js process and Python backend | **Observed:** `frontend/terminal/`, `src/openharness/ui/` |
-| Local web UI | Loopback-only aiohttp host, launch-token-protected status API, and responsive React shell | One Python lifecycle owner plus packaged Vite assets; no runtime session in Stage 1 | **Observed:** `src/openharness/ui/web_server.py`, `web_models.py`, `frontend/web/` |
+| Local web UI | Loopback-only aiohttp host, token-protected status API and controlling WebSocket, responsive React workbench, sessions, and runtime controls | One shared structured backend controller, one controlling socket, bounded reconnect state, and packaged Vite assets | **Observed:** `src/openharness/ui/web_server.py`, `backend_host.py`, `frontend/web/` |
 
 ## Main runtime flows
 
@@ -155,9 +156,12 @@ See [EXTENDING.md](EXTENDING.md) for implementation checklists.
 - **Observed.** Model APIs differ in streamed thinking, tool call, and message replay semantics; provider changes must test conversion as well as initial requests.
 - **Observed.** The React terminal source is packaged into the Python wheel, so launcher/protocol/packaging changes cross Python and Node boundaries.
 - **Observed.** The browser production bundle is packaged at `openharness/_web`; `oh web` serves it
-  only on a validated loopback address and protects every `/api/` response with a high-entropy
-  launch token. The current Stage 1 shell reads a credential-redacted settings snapshot but does
-  not yet construct an interactive runtime or expose mutations.
+  only on a validated loopback address and protects REST data and the controlling WebSocket with a
+  high-entropy launch token. The WebSocket injects typed request/event callbacks into the same
+  `ReactBackendHost` used by the terminal, so runtime composition, event ordering, selectors,
+  permissions, modal futures, interruption, and cleanup retain one owner. One tab controls the
+  runtime; bounded events are retained during a five-second reclaim window, after which prompts are
+  denied, the active turn is interrupted, and the runtime closes.
 - **Observed.** Unit/CI tests are designed to run without real model credentials; live evaluations are separate.
 - **Observed.** The intended product dependency direction is `ohmo` to `openharness`, but core currently has optional reverse imports for ohmo attachment paths, managed Feishu group lookup, and cron notification/config integration. Treat these as boundary debt rather than extension precedent; see [the developer improvement backlog](developer/IMPROVEMENTS.md#p1-remove-reverse-dependencies-from-core-into-ohmo).
 

@@ -19,9 +19,9 @@ oh web --no-open --port 8765
 Use `--cwd /path/to/project` to select a different workspace. Non-loopback `--host` values are
 rejected in the initial release.
 
-## Current Stage 1 behavior
+## Current Stage 2 behavior
 
-The first implementation increment provides:
+The current implementation provides:
 
 - a runtime overview showing the active profile, provider, model, authentication state, permission
   mode, sandbox state, effort, and turn limit;
@@ -29,13 +29,23 @@ The first implementation increment provides:
   Capabilities, Work, Knowledge, and Autopilot;
 - light and dark themes, a keyboard-accessible navigation drawer, explicit loading/error/retry
   states, visible focus, reduced-motion handling, and mobile safe-area behavior;
-- direct deep links to each area, with honest staged placeholders where an operational screen has
-  not been connected yet.
+- a streaming Workbench with text and image input, interrupt, tool timelines, runtime progress,
+  permission and edit decisions, agent questions, and reconnect feedback;
+- Sessions actions for browsing/resuming durable project history and explicitly starting a fresh
+  runtime;
+- Runtime controls for provider profile, model, permission mode, effort, turn limit, fast mode,
+  reasoning passes, and output style through the same command owners used by the terminal;
+- direct deep links to each area, with honest staged placeholders for Capabilities, Work,
+  Knowledge, and Autopilot while their resource APIs are built.
 
-The Overview is operational now. The other routes establish the stable information architecture but
-do not yet start conversations or mutate configuration. Those capabilities are delivered through
-the workbench and operational-area stages described in the
-[web UI specification](../architecture/WEB_UI_SPEC.md).
+Overview, Workbench, Sessions, and Runtime are operational now. Capabilities, Work, Knowledge, and
+Autopilot still establish the stable information architecture without pretending their resource
+screens are complete. See the [web UI specification](../architecture/WEB_UI_SPEC.md) for staged
+coverage and review gates.
+
+Images are limited to four per turn, 2 MB each, and 6 MB total before base64 encoding. The browser
+renders model output as selectable plain text during this stage; rich Markdown is deferred until the
+link/HTML sanitizer gate is complete.
 
 ## Local security boundary
 
@@ -56,6 +66,12 @@ The host also:
 Static bundle files are public on the loopback port, but every `/api/` request requires the launch
 token. Treat the launch URL as a short-lived local secret and stop the process with Ctrl+C when the
 workspace is no longer needed.
+
+One browser tab controls the runtime. A refresh or brief connection loss can reclaim the controller
+for five seconds. During that window, at most 256 presentation events are retained. If the tab does
+not return, pending approvals are denied, pending questions are cancelled, the active turn is
+interrupted, and runtime resources are closed. A concurrent tab receives an explicit
+already-controlled error.
 
 ## Build and validate from source
 

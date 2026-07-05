@@ -23,6 +23,10 @@ export function consumeLaunchToken(): string | null {
   return window.sessionStorage.getItem(TOKEN_KEY);
 }
 
+export function getLaunchToken(): string | null {
+  return window.sessionStorage.getItem(TOKEN_KEY);
+}
+
 export async function fetchBootstrap(signal?: AbortSignal): Promise<WebBootstrap> {
   const token = consumeLaunchToken();
   if (!token) {

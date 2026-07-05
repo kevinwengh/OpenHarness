@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
 import aiohttp
 import pytest
+from aiohttp import WSServerHandshakeError
 from typer.testing import CliRunner
 
+from openharness.api.client import ApiMessageCompleteEvent
+from openharness.api.usage import UsageSnapshot
 from openharness.cli import app
 from openharness.config.settings import ProviderProfile, Settings
+from openharness.engine.messages import ConversationMessage, TextBlock
+from openharness.ui.backend_host import BackendHostConfig
+from openharness.ui.protocol import BackendEvent, FrontendRequest
 from openharness.ui.web_models import build_web_bootstrap
 from openharness.ui.web_server import (
     WebServerConfig,
     WebServerConfigurationError,
+    WebRuntimeSession,
     WebUiServer,
 )
 
@@ -31,6 +39,63 @@ class _AuthManager:
                 "base_url": "http://secret-endpoint.invalid",
             }
         }
+
+
+class _StaticApiClient:
+    async def stream_message(self, request):
+        del request
+        yield ApiMessageCompleteEvent(
+            message=ConversationMessage(
+                role="assistant",
+                content=[TextBlock(text="hello from the browser runtime")],
+            ),
+            usage=UsageSnapshot(input_tokens=2, output_tokens=4),
+            stop_reason=None,
+        )
+
+
+class _FakeController:
+    def __init__(self, request_source, event_sink, state) -> None:
+        self._request_source = request_source
+        self._event_sink = event_sink
+        self._state = state
+
+    async def run(self) -> int:
+        self._state["starts"] += 1
+        await self._event_sink(BackendEvent(type="assistant_delta", message="controller-ready"))
+        while True:
+            request = await self._request_source()
+            if request is None:
+                break
+            self._state["requests"].append(request)
+            if request.type == "submit_line":
+                await self._event_sink(BackendEvent(type="assistant_delta", message=request.line))
+                await self._event_sink(BackendEvent(type="line_complete"))
+            if request.type == "shutdown":
+                break
+        self._state["stops"] += 1
+        self._state["stopped"].set()
+        return 0
+
+
+class _FakeSocket:
+    def __init__(self) -> None:
+        self.closed = False
+        self.messages: list[str] = []
+
+    async def send_str(self, value: str) -> None:
+        self.messages.append(value)
+
+    async def close(self, **_kwargs) -> None:
+        self.closed = True
+
+
+def _controller_factory(state):
+    def _factory(config, request_source, event_sink):
+        del config
+        return _FakeController(request_source, event_sink, state)
+
+    return _factory
 
 
 @pytest.fixture
@@ -199,6 +264,166 @@ async def test_server_has_single_idempotent_lifecycle_owner(assets_dir: Path, tm
     await server.close()
     with pytest.raises(RuntimeError, match="has not started"):
         _ = server.port
+
+
+@pytest.mark.asyncio
+async def test_websocket_requires_origin_and_first_message_token(assets_dir: Path, tmp_path: Path):
+    state = {"starts": 0, "stops": 0, "requests": [], "stopped": asyncio.Event()}
+    server = WebUiServer(
+        WebServerConfig(
+            cwd=tmp_path,
+            assets_dir=assets_dir,
+            token="socket-token",
+            open_browser=False,
+            reconnect_grace_seconds=0,
+        ),
+        backend_config=BackendHostConfig(cwd=str(tmp_path)),
+        controller_factory=_controller_factory(state),
+    )
+
+    async with server, aiohttp.ClientSession() as client:
+        with pytest.raises(WSServerHandshakeError) as denied:
+            await client.ws_connect(f"{server.origin}/api/session")
+        assert denied.value.status == 403
+
+        unauthorized = await client.ws_connect(
+            f"{server.origin}/api/session",
+            origin=server.origin,
+        )
+        await unauthorized.send_json({"type": "authenticate", "token": "wrong"})
+        closed = await unauthorized.receive()
+        assert closed.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED}
+
+        malformed = await client.ws_connect(
+            f"{server.origin}/api/session",
+            origin=server.origin,
+        )
+        await malformed.send_json(["authenticate", "socket-token"])
+        malformed_closed = await malformed.receive()
+        assert malformed_closed.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED}
+
+        socket = await client.ws_connect(f"{server.origin}/api/session", origin=server.origin)
+        await socket.send_json({"type": "authenticate", "token": "socket-token"})
+        authenticated = await socket.receive_json()
+        assert authenticated == {
+            "type": "authenticated",
+            "schema_version": 1,
+            "reconnected": False,
+        }
+        assert (await socket.receive_json())["message"] == "controller-ready"
+        await socket.send_str(FrontendRequest(type="submit_line", line="hello").model_dump_json())
+        assert (await socket.receive_json())["message"] == "hello"
+        assert (await socket.receive_json())["type"] == "line_complete"
+
+        competing = await client.ws_connect(f"{server.origin}/api/session", origin=server.origin)
+        await competing.send_json({"type": "authenticate", "token": "socket-token"})
+        assert (await competing.receive_json())["message"] == "Another browser tab controls this runtime."
+        assert state["starts"] == 1
+        await socket.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_session_reconnects_and_replays_bounded_events(tmp_path: Path):
+    state = {"starts": 0, "stops": 0, "requests": [], "stopped": asyncio.Event()}
+    session = WebRuntimeSession(
+        BackendHostConfig(cwd=str(tmp_path)),
+        _controller_factory(state),
+        reconnect_grace_seconds=0.02,
+    )
+    first = _FakeSocket()
+    second = _FakeSocket()
+
+    assert await session.attach(first) is False
+    await asyncio.sleep(0)
+    assert state["starts"] == 1
+    await session.detach(first)
+    await session.emit_event(BackendEvent(type="assistant_delta", message="while-away"))
+    assert await session.attach(second) is True
+    assert any("while-away" in message for message in second.messages)
+    assert state["starts"] == 1
+
+    await session.detach(second)
+    await asyncio.wait_for(state["stopped"].wait(), timeout=1)
+    assert state["stops"] == 1
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_session_redacts_browser_event_secrets(tmp_path: Path):
+    state = {"starts": 0, "stops": 0, "requests": [], "stopped": asyncio.Event()}
+    session = WebRuntimeSession(
+        BackendHostConfig(cwd=str(tmp_path)),
+        _controller_factory(state),
+        reconnect_grace_seconds=0,
+    )
+    socket = _FakeSocket()
+    await session.attach(socket)
+    await session.emit_event(
+        BackendEvent(
+            type="state_snapshot",
+            state={"model": "safe-model", "base_url": "https://user:secret@example.test"},
+            tool_input={"api_key": "secret-value", "nested": {"token": "secret-token"}},
+            message="api_key=plain-value Bearer should-not-appear",
+        )
+    )
+
+    payload = next(message for message in socket.messages if "safe-model" in message)
+    assert "base_url" not in payload
+    assert "secret-value" not in payload
+    assert "secret-token" not in payload
+    assert "should-not-appear" not in payload
+    assert "plain-value" not in payload
+    assert payload.count("[REDACTED]") >= 3
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_runs_shared_runtime_end_to_end(
+    assets_dir: Path,
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OPENHARNESS_LOGS_DIR", str(tmp_path / "logs"))
+    server = WebUiServer(
+        WebServerConfig(
+            cwd=tmp_path,
+            assets_dir=assets_dir,
+            token="runtime-token",
+            open_browser=False,
+            reconnect_grace_seconds=0,
+        ),
+        backend_config=BackendHostConfig(
+            cwd=str(tmp_path),
+            api_client=_StaticApiClient(),
+        ),
+    )
+
+    async with server, aiohttp.ClientSession() as client:
+        socket = await client.ws_connect(f"{server.origin}/api/session", origin=server.origin)
+        await socket.send_json({"type": "authenticate", "token": "runtime-token"})
+        assert (await socket.receive_json())["type"] == "authenticated"
+
+        startup_events = []
+        while not any(event["type"] == "ready" for event in startup_events):
+            startup_events.append(await asyncio.wait_for(socket.receive_json(), timeout=5))
+        await socket.send_str(FrontendRequest(type="submit_line", line="hello").model_dump_json())
+
+        turn_events = []
+        while not any(event["type"] == "line_complete" for event in turn_events):
+            turn_events.append(await asyncio.wait_for(socket.receive_json(), timeout=5))
+        assert any(
+            event["type"] == "transcript_item"
+            and event.get("item", {}).get("role") == "user"
+            for event in turn_events
+        )
+        assert any(
+            event["type"] == "assistant_complete"
+            and event["message"] == "hello from the browser runtime"
+            for event in turn_events
+        )
+        await socket.close()
 
 
 def test_cli_rejects_remote_web_binding_before_launch():

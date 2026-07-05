@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Coroutine
@@ -55,6 +56,9 @@ log = logging.getLogger(__name__)
 
 _PROTOCOL_PREFIX = "OHJSON:"
 
+RequestSource = Callable[[], Awaitable[FrontendRequest | None]]
+EventSink = Callable[[BackendEvent], Awaitable[None]]
+
 
 @dataclass(frozen=True)
 class BackendHostConfig:
@@ -87,14 +91,22 @@ class BackendHostConfig:
 
 
 class ReactBackendHost:
-    """Drive one OpenHarness runtime over the React stdin/stdout protocol.
+    """Drive one OpenHarness runtime over a structured frontend transport.
 
     The host owns request serialization, modal futures, active-turn cancellation,
-    and runtime cleanup. One instance belongs to one asyncio event loop and one
-    frontend process; preserve that ownership when changing queues or callbacks.
+    and runtime cleanup. Stdin/stdout remains the default terminal adapter; web
+    callers may inject typed request and event callbacks without duplicating the
+    runtime lifecycle. One instance belongs to one asyncio event loop and one
+    controlling frontend; preserve that ownership when changing callbacks.
     """
 
-    def __init__(self, config: BackendHostConfig) -> None:
+    def __init__(
+        self,
+        config: BackendHostConfig,
+        *,
+        request_source: RequestSource | None = None,
+        event_sink: EventSink | None = None,
+    ) -> None:
         """Initialize loop-bound coordination state without starting resources.
 
         Locks, queues, futures, and active tasks are used only after ``run`` starts
@@ -111,9 +123,11 @@ class ReactBackendHost:
         by callers.
         """
         self._config = config
+        self._request_source = request_source
+        self._event_sink = event_sink
         self._bundle = None
         self._write_lock = asyncio.Lock()
-        self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
+        self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue(maxsize=128)
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}
         self._edit_approval_requests: dict[str, asyncio.Future[str]] = {}
         self._question_requests: dict[str, asyncio.Future[str]] = {}
@@ -231,12 +245,13 @@ class ReactBackendHost:
         return 0
 
     async def _read_requests(self) -> None:
-        """Read and validate stdin lines without blocking the asyncio event loop.
+        """Read typed transport requests while resolving modal replies immediately.
 
-        Modal responses resolve their futures immediately rather than waiting
-        behind the prompt that requested them; other requests enter the main
-        queue. EOF becomes shutdown. Preserve this split to avoid permission and
-        question deadlocks, and keep malformed input recoverable.
+        The default adapter validates stdin JSON without blocking the event loop;
+        an injected source supplies already-validated requests for transports such
+        as WebSocket. Modal responses bypass the main queue so they cannot deadlock
+        behind the turn that requested them. Transport closure fails all open
+        prompts closed, interrupts the active turn, and queues shutdown.
 
         Integration: Called by ``ReactBackendHost.run`` and collaborates with ``strip``,
         ``asyncio.to_thread``, ``FrontendRequest.model_validate_json``.
@@ -247,37 +262,67 @@ class ReactBackendHost:
         Change safety: Preserve exception and fallback behavior expected by callers.
         """
         while True:
-            raw = await asyncio.to_thread(sys.stdin.buffer.readline)
-            if not raw:
-                await self._request_queue.put(FrontendRequest(type="shutdown"))
-                return
-            payload = raw.decode("utf-8").strip()
-            if not payload:
-                continue
-            try:
-                request = FrontendRequest.model_validate_json(payload)
-            except Exception as exc:  # pragma: no cover - defensive protocol handling
-                await self._emit(BackendEvent(type="error", message=f"Invalid request: {exc}"))
-                continue
-            if request.type == "permission_response" and request.request_id in self._edit_approval_requests:
-                future = self._edit_approval_requests[request.request_id]
-                if not future.done():
-                    future.set_result(_edit_approval_reply_from_request(request))
-                continue
-            if request.type == "permission_response" and request.request_id in self._permission_requests:
-                future = self._permission_requests[request.request_id]
-                if not future.done():
-                    future.set_result(bool(request.allowed))
-                continue
-            if request.type == "question_response" and request.request_id in self._question_requests:
-                future = self._question_requests[request.request_id]
-                if not future.done():
-                    future.set_result(request.answer or "")
-                continue
-            if request.type == "interrupt":
-                await self._interrupt_active_request()
-                continue
-            await self._request_queue.put(request)
+            if self._request_source is not None:
+                try:
+                    request = await self._request_source()
+                except Exception as exc:
+                    await self._emit(BackendEvent(type="error", message=f"Invalid request: {exc}"))
+                    continue
+                if request is None:
+                    await self._handle_transport_closed()
+                    return
+            else:
+                raw = await asyncio.to_thread(sys.stdin.buffer.readline)
+                if not raw:
+                    await self._handle_transport_closed()
+                    return
+                payload = raw.decode("utf-8").strip()
+                if not payload:
+                    continue
+                try:
+                    request = FrontendRequest.model_validate_json(payload)
+                except Exception as exc:  # pragma: no cover - defensive protocol handling
+                    await self._emit(BackendEvent(type="error", message=f"Invalid request: {exc}"))
+                    continue
+            await self._dispatch_request(request)
+
+    async def _dispatch_request(self, request: FrontendRequest) -> None:
+        """Resolve a correlated modal reply or serialize a normal request."""
+
+        if request.type == "permission_response" and request.request_id in self._edit_approval_requests:
+            future = self._edit_approval_requests[request.request_id]
+            if not future.done():
+                future.set_result(_edit_approval_reply_from_request(request))
+            return
+        if request.type == "permission_response" and request.request_id in self._permission_requests:
+            future = self._permission_requests[request.request_id]
+            if not future.done():
+                future.set_result(bool(request.allowed))
+            return
+        if request.type == "question_response" and request.request_id in self._question_requests:
+            future = self._question_requests[request.request_id]
+            if not future.done():
+                future.set_result(request.answer or "")
+            return
+        if request.type == "interrupt":
+            await self._interrupt_active_request()
+            return
+        await self._request_queue.put(request)
+
+    async def _handle_transport_closed(self) -> None:
+        """Fail closed on frontend loss and unblock every runtime waiter."""
+
+        for future in self._permission_requests.values():
+            if not future.done():
+                future.set_result(False)
+        for future in self._edit_approval_requests.values():
+            if not future.done():
+                future.set_result("reject")
+        for future in self._question_requests.values():
+            if not future.done():
+                future.set_result("")
+        await self._interrupt_active_request()
+        await self._request_queue.put(FrontendRequest(type="shutdown"))
 
     async def _run_active_request(self, awaitable: Coroutine[Any, Any, bool]) -> bool:
         """Track one cancellable line/select task and normalize user interruption.
@@ -1111,7 +1156,7 @@ class ReactBackendHost:
             self._question_requests.pop(request_id, None)
 
     async def _emit(self, event: BackendEvent) -> None:
-        """Write one atomic prefixed JSON event to backend stdout.
+        """Write one ordered event through the injected or stdout transport.
 
         All producer tasks share ``_write_lock`` so event lines cannot interleave.
         Stdout is the machine protocol while stderr carries diagnostics; preserve
@@ -1129,6 +1174,9 @@ class ReactBackendHost:
         """
         log.debug("emit event: type=%s tool=%s", event.type, getattr(event, "tool_name", None))
         async with self._write_lock:
+            if self._event_sink is not None:
+                await self._event_sink(event)
+                return
             payload = _PROTOCOL_PREFIX + event.model_dump_json() + "\n"
             buffer = getattr(sys.stdout, "buffer", None)
             if buffer is not None:

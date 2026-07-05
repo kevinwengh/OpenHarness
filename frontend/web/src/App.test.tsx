@@ -39,7 +39,7 @@ beforeEach(() => {
 });
 
 test("renders the redacted runtime overview after bootstrap", async () => {
-  render(<App loadBootstrap={async () => bootstrap} />);
+  render(<App loadBootstrap={async () => bootstrap} connectSession={false} />);
 
   expect(screen.getByRole("status")).toHaveTextContent("Preparing your workspace");
   expect(await screen.findByRole("heading", { name: /Your agent workspace/i })).toBeVisible();
@@ -50,14 +50,14 @@ test("renders the redacted runtime overview after bootstrap", async () => {
 
 test("supports keyboard navigation to every staged product area", async () => {
   const user = userEvent.setup();
-  render(<App loadBootstrap={async () => bootstrap} />);
+  render(<App loadBootstrap={async () => bootstrap} connectSession={false} />);
 
   const runtimeButtons = await screen.findAllByRole("button", { name: /Runtime/ });
   await user.click(runtimeButtons[0]);
 
   expect(await screen.findByRole("heading", { name: "Runtime" })).toBeVisible();
   expect(window.location.pathname).toBe("/runtime");
-  expect(screen.getByText(/route is wired into the application shell/i)).toBeVisible();
+  expect(screen.getByText(/Tune this session/i)).toBeVisible();
 });
 
 test("shows an actionable error and retries bootstrap", async () => {
@@ -68,7 +68,7 @@ test("shows an actionable error and retries bootstrap", async () => {
     if (calls === 1) throw new Error("Local host unavailable");
     return bootstrap;
   };
-  render(<App loadBootstrap={loader} />);
+  render(<App loadBootstrap={loader} connectSession={false} />);
 
   expect(await screen.findByRole("alert")).toHaveTextContent("Local host unavailable");
   await user.click(screen.getByRole("button", { name: /Try again/ }));
@@ -78,7 +78,7 @@ test("shows an actionable error and retries bootstrap", async () => {
 
 test("opens and closes the complete mobile navigation drawer", async () => {
   const user = userEvent.setup();
-  render(<App loadBootstrap={async () => bootstrap} />);
+  render(<App loadBootstrap={async () => bootstrap} connectSession={false} />);
   await screen.findByRole("heading", { name: /Your agent workspace/i });
 
   await user.click(screen.getByRole("button", { name: "Open navigation" }));

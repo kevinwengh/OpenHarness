@@ -28,12 +28,17 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchBootstrap, type WebApiError } from "./api";
+import { RuntimePage, SessionsPage } from "./components/RuntimePages";
+import { SessionDialogs } from "./components/SessionDialogs";
+import { Workbench } from "./components/Workbench";
 import type { NavigationId, NavigationItem, WebBootstrap } from "./types";
+import { useWebSession } from "./useWebSession";
 
 type BootstrapLoader = (signal?: AbortSignal) => Promise<WebBootstrap>;
 
 interface AppProps {
   loadBootstrap?: BootstrapLoader;
+  connectSession?: boolean;
 }
 
 const iconById: Record<NavigationId, LucideIcon> = {
@@ -347,7 +352,7 @@ function NavigationDrawer({
   );
 }
 
-export function App({ loadBootstrap = fetchBootstrap }: AppProps) {
+export function App({ loadBootstrap = fetchBootstrap, connectSession = true }: AppProps) {
   const [bootstrap, setBootstrap] = useState<WebBootstrap | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -356,6 +361,7 @@ export function App({ loadBootstrap = fetchBootstrap }: AppProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(initialTheme);
   const drawerReturnFocus = useRef<HTMLElement | null>(null);
+  const webSession = useWebSession({ enabled: connectSession && bootstrap !== null });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -409,6 +415,27 @@ export function App({ loadBootstrap = fetchBootstrap }: AppProps) {
   if (error) return <ErrorScreen error={error} onRetry={() => setAttempt((value) => value + 1)} />;
   if (!bootstrap) return <LoadingScreen />;
 
+  const content = activeId === "overview" ? (
+    <Overview bootstrap={bootstrap} onSelect={select} />
+  ) : activeId === "workbench" ? (
+    <Workbench
+      session={webSession.state}
+      onSubmit={webSession.submit}
+      onInterrupt={webSession.interrupt}
+      onRequestSelect={webSession.requestSelect}
+    />
+  ) : activeId === "sessions" ? (
+    <SessionsPage
+      session={webSession.state}
+      onBrowse={() => webSession.requestSelect("resume")}
+      onNew={() => { if (window.confirm("Start a new runtime session? The current active turn must be idle.")) webSession.newSession(); }}
+    />
+  ) : activeId === "runtime" ? (
+    <RuntimePage session={webSession.state} onSelect={webSession.requestSelect} />
+  ) : activeItem ? (
+    <AreaPreview item={activeItem} />
+  ) : null;
+
   return (
     <div className={`app-shell${collapsed ? " app-shell--collapsed" : ""}`}>
       <a className="skip-link" href="#main-content">Skip to content</a>
@@ -416,12 +443,20 @@ export function App({ loadBootstrap = fetchBootstrap }: AppProps) {
       <div className="workspace-shell">
         <Topbar bootstrap={bootstrap} theme={theme} onTheme={() => setTheme((value) => value === "dark" ? "light" : "dark")} onMenu={openDrawer} />
         <main id="main-content" tabIndex={-1}>
-          {activeId === "overview" ? <Overview bootstrap={bootstrap} onSelect={select} /> : activeItem ? <AreaPreview item={activeItem} /> : null}
+          {content}
         </main>
         <footer className="app-footer"><span>Local-only · launch-token protected</span><span>OpenHarness {bootstrap.app.version}</span></footer>
       </div>
       <MobileNavigation navigation={bootstrap.navigation} activeId={activeId} onSelect={select} onMore={openDrawer} />
       <NavigationDrawer open={drawerOpen} navigation={bootstrap.navigation} activeId={activeId} onClose={closeDrawer} onSelect={selectFromDrawer} />
+      <SessionDialogs
+        modal={webSession.state.modal}
+        selectRequest={webSession.state.selectRequest}
+        onPermission={webSession.respondPermission}
+        onQuestion={webSession.respondQuestion}
+        onSelect={webSession.applySelect}
+        onDismissSelect={webSession.dismissSelect}
+      />
       <div className="sr-only" aria-live="polite">Viewing {activeItem?.label ?? "Overview"}</div>
     </div>
   );
