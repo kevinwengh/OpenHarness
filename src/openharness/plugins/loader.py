@@ -970,7 +970,13 @@ def _load_plugin_tools(path: Path, manifest: PluginManifest) -> list:
 
 
 def _load_plugin_automation_actions(path: Path, manifest: PluginManifest) -> list:
-    """Discover typed AutomationAction subclasses from a trusted plugin directory."""
+    """Instantiate typed actions from an already trusted plugin directory.
+
+    Loading mirrors Python tool discovery: private modules are skipped, module
+    and constructor failures isolate only the affected contribution, and the
+    host later rejects duplicate action names. This function must never be used
+    to bypass the plugin loader's project-plugin trust decision.
+    """
 
     from openharness.automation.actions import AutomationAction
 

@@ -50,13 +50,13 @@ flowchart LR
 | --- | --- | --- | --- |
 | CLI | Typer entrypoint for setup, auth, providers, MCP, plugins, cron, autopilot, print mode, and interactive mode | Reads settings and launches UI/runtime | **Observed:** `src/openharness/cli.py`, `src/openharness/__main__.py` |
 | Runtime composition | Builds and tears down a complete session | Settings, plugins, MCP, tools, hooks, prompts, sandbox, session backend | **Observed:** `src/openharness/ui/runtime.py` |
-| Agent engine | Owns messages, model selection, token/cost accounting, memory checkpoints, and the streamed turn loop | Provider client, registry, permission checker, hooks | **Observed:** `src/openharness/engine/query_engine.py`, `query.py` |
+| Agent engine | Owns messages, model selection, token/cost accounting, memory checkpoints, and the streamed turn loop | Provider client, registry, permission checker, hooks | **Observed:** `src/openharness/engine/query_engine.py`, `query.py`, `src/openharness/tools/executor.py` |
 | Provider clients | Normalize Anthropic, OpenAI-compatible, Codex subscription, and Copilot streaming APIs | External APIs and auth stores/environment | **Observed:** `src/openharness/api/` and `src/openharness/auth/` |
 | Tools | Expose Pydantic-described asynchronous operations to models | Filesystem, shell, web, MCP, tasks, swarm, cron, images | **Observed:** `src/openharness/tools/base.py`, `tools/__init__.py` |
 | Permissions and sandbox | Decide whether a tool may run; route supported operations through Docker when enabled | Settings, approval callbacks, Docker | **Observed:** `src/openharness/permissions/`, `src/openharness/sandbox/` |
 | Hooks | Execute lifecycle and tool hooks, including blocking pre-tool hooks | Settings and plugin hook definitions | **Observed:** `src/openharness/hooks/` |
 | Skills and prompts | Discover instructions and assemble runtime context | Bundled, user, project, and plugin skill roots; `CLAUDE.md`-style context | **Observed:** `src/openharness/skills/`, `src/openharness/prompts/` |
-| Plugins | Load manifest-declared skills, commands, agents, tools, hooks, and MCP configuration | User plugins by default; trusted project plugins when enabled | **Observed:** `src/openharness/plugins/` |
+| Plugins | Load manifest-declared skills, commands, agents, tools, automation actions, hooks, and MCP configuration | User plugins by default; trusted project plugins when enabled | **Observed:** `src/openharness/plugins/` |
 | MCP | Connect to stdio, HTTP, or WebSocket MCP servers and adapt their tools/resources | Settings and plugin MCP definitions | **Observed:** `src/openharness/mcp/` and MCP tests |
 | Session and memory | Persist conversations, tool-loop metadata, project memory, usage, and optional extraction/consolidation | `~/.openharness` by default | **Observed:** `src/openharness/services/session_*`, `memory/`, `services/autodream/` |
 | Tasks and swarm | Run background shell/agent tasks, coordinate teammates, mailboxes, permissions, and Git worktrees | Local processes, filesystem mailboxes, Git, optional tmux/iTerm | **Observed:** `src/openharness/tasks/`, `swarm/`, `coordinator/` |
@@ -133,7 +133,7 @@ plaintext token formats before execution.
 ## Contracts and extension boundaries
 
 - **Observed.** Provider clients implement the streaming-messages protocol in `src/openharness/api/client.py`.
-- **Observed.** Tools subclass `BaseTool`, use a Pydantic input model, and return `ToolResult`.
+- **Observed.** Tools subclass `BaseTool`, use a Pydantic input model, and return `ToolResult`; reusable execution policy and hook ordering live in `GovernedToolExecutor`.
 - **Observed.** Hooks use the event names in `src/openharness/hooks/events.py`.
 - **Observed.** Sessions can replace the default file backend through the `SessionBackend` protocol.
 - **Observed.** Channels implement `BaseChannel` and exchange `InboundMessage` / `OutboundMessage` through `MessageBus`.

@@ -53,7 +53,7 @@ from openharness.permissions.checker import PermissionChecker
 from openharness.services.tool_outputs import tool_output_inline_chars, tool_output_preview_chars
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.base import ToolRegistry
-from openharness.tools.executor import GovernedToolExecutor
+from openharness.tools.executor import GovernedToolExecutor, GovernedToolOutcome
 
 AUTO_COMPACT_STATUS_MESSAGE = "Auto-compacting conversation memory to keep things fast and focused."
 REACTIVE_COMPACT_STATUS_MESSAGE = "Prompt too long; compacting conversation memory and retrying."
@@ -1278,6 +1278,24 @@ async def _execute_tool_call(
     the event loop and update permission, hooks, sandbox, persistence, and engine
     tests whenever this sequence changes.
     """
+    def _record_outcome(
+        name: str,
+        raw_input: dict[str, object],
+        outcome: GovernedToolOutcome,
+    ) -> None:
+        """Persist query-specific artifacts and carryover before post-tool hooks run."""
+        if outcome.artifact_path is not None:
+            _remember_active_artifact(context.tool_metadata, str(outcome.artifact_path))
+        _record_tool_carryover(
+            context,
+            tool_name=name,
+            tool_input=raw_input,
+            tool_output=outcome.output,
+            tool_result_metadata=outcome.metadata,
+            is_error=outcome.is_error,
+            resolved_file_path=outcome.resolved_file_path,
+        )
+
     executor = GovernedToolExecutor(
         registry=context.tool_registry,
         permission_checker=context.permission_checker,
@@ -1291,23 +1309,13 @@ async def _execute_tool_call(
             tool_use_id=invocation,
             output=output,
         ),
+        result_observer=_record_outcome,
     )
     outcome = await executor.execute(tool_name, tool_input, invocation_id=tool_use_id)
-    if outcome.artifact_path is not None:
-        _remember_active_artifact(context.tool_metadata, str(outcome.artifact_path))
     tool_result = ToolResultBlock(
         tool_use_id=tool_use_id,
         content=outcome.output,
         is_error=outcome.is_error,
         result_metadata=outcome.metadata,
-    )
-    _record_tool_carryover(
-        context,
-        tool_name=tool_name,
-        tool_input=tool_input,
-        tool_output=tool_result.content,
-        tool_result_metadata=outcome.metadata,
-        is_error=tool_result.is_error,
-        resolved_file_path=outcome.resolved_file_path,
     )
     return tool_result

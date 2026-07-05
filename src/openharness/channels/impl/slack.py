@@ -324,6 +324,13 @@ class SlackChannel(BaseChannel):
         return False
 
     def _group_allowlist(self) -> list[str]:
+        """Return the Slack-specific group list or the common admission fallback.
+
+        The fallback preserves one mandatory sender admission boundary; a group
+        policy can narrow access but cannot turn an empty common allowlist into
+        open access.
+        """
+
         configured = list(getattr(self.config, "group_allow_from", []) or [])
         return configured or list(getattr(self.config, "allow_from", []) or [])
 

@@ -36,6 +36,8 @@ class WorkflowNotMatchedError(ValueError):
 
 @dataclass(frozen=True)
 class AgentStepResult:
+    """Bounded structured outcome returned by an isolated skill agent."""
+
     output: dict[str, Any] | None = None
     is_error: bool = False
     error_category: str = "agent_error"
@@ -44,6 +46,8 @@ class AgentStepResult:
     outcome_unknown: bool = False
 
     def __post_init__(self) -> None:
+        """Reject non-JSON, oversized, or contradictory agent outcomes."""
+
         if self.output is not None:
             validate_json_value(self.output, path="agent step output")
             encoded = json.dumps(
@@ -59,7 +63,12 @@ class AgentStepResult:
 
 
 class AgentStepExecutor(Protocol):
-    def is_retry_safe(self, step: AgentStep) -> bool: ...
+    """Host contract for executing one bounded named-skill agent step."""
+
+    def is_retry_safe(self, step: AgentStep) -> bool:
+        """Return whether an interrupted execution can be replayed safely."""
+
+        ...
 
     async def execute(
         self,
@@ -67,11 +76,16 @@ class AgentStepExecutor(Protocol):
         run: WorkflowRun,
         *,
         invocation_id: str,
-    ) -> AgentStepResult: ...
+    ) -> AgentStepResult:
+        """Execute one skill step using the supplied stable attempt identity."""
+
+        ...
 
 
 @dataclass(frozen=True)
 class RunnerResult:
+    """Execution result paired with whether intake created the durable run."""
+
     run: WorkflowRun
     created: bool
 
@@ -82,7 +96,19 @@ logger = logging.getLogger(__name__)
 
 
 class WorkflowRunner:
-    """Run sequential action, agent, and approval steps with durable checkpoints."""
+    """Run sequential action, agent, and approval steps with durable checkpoints.
+
+    Integration: The runner owns orchestration while ``AutomationStore`` owns
+    every state transition and hosts inject actions, agents, governed tools, and
+    concurrency coordination.
+
+    Event loop: Blocking store operations are offloaded with ``to_thread``;
+    action, agent, timeout, cancellation, and backoff waits stay on the caller's
+    loop.
+
+    Change safety: Checkpoint before every effect, never replay an uncertain
+    non-retry-safe attempt automatically, and preserve declaration order.
+    """
 
     def __init__(
         self,
@@ -95,6 +121,8 @@ class WorkflowRunner:
         sleeper: Sleep = asyncio.sleep,
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        """Bind durable state, host capabilities, and loop-local coordinators."""
+
         self.store = store
         self.actions = actions
         self.agent_executor = agent_executor
@@ -121,6 +149,8 @@ class WorkflowRunner:
         definition: WorkflowDefinition,
         event: AutomationEvent,
     ) -> ReservationResult:
+        """Match, render concurrency identity, and reserve an event before execution."""
+
         trace = match_workflow(definition, event)
         if not trace.matched:
             raise WorkflowNotMatchedError(
@@ -155,12 +185,21 @@ class WorkflowRunner:
         definition: WorkflowDefinition,
         event: AutomationEvent,
     ) -> RunnerResult:
+        """Reserve and execute a newly created run, leaving duplicates untouched."""
+
         reservation = await self.submit(definition, event)
         if not reservation.created:
             return RunnerResult(reservation.run, False)
         return RunnerResult(await self.execute(reservation.run.id), True)
 
     async def execute(self, run_id: str) -> WorkflowRun:
+        """Execute or resume one run under per-run and rendered-key coordination.
+
+        Task cancellation normally checkpoints the run as cancelled. Service
+        shutdown may predeclare recovery preservation so startup recovery can
+        classify the interrupted attempt instead.
+        """
+
         try:
             async with self._run_concurrency.slot(run_id, "serialize"):
                 run = await asyncio.to_thread(self.store.load_run, run_id)
@@ -195,6 +234,8 @@ class WorkflowRunner:
             self._cancellation_directives.pop(run_id, None)
 
     async def _execute_steps(self, run_id: str) -> WorkflowRun:
+        """Advance sequential steps until completion, failure, or approval wait."""
+
         while True:
             run = await asyncio.to_thread(self.store.load_run, run_id)
             if run.status in {"completed", "failed", "cancelled", "waiting_approval"}:
@@ -266,6 +307,8 @@ class WorkflowRunner:
                 return result
 
     async def _execute_action_step(self, run: WorkflowRun, step: ActionStep) -> WorkflowRun:
+        """Render and prepare an action before any attempt checkpoint or effect."""
+
         if step.action not in run.definition.policy.allowed_actions:
             return await self._fail_pending(
                 run,
@@ -289,6 +332,8 @@ class WorkflowRunner:
         prepared: PreparedAction,
         rendered: dict[str, Any],
     ) -> WorkflowRun:
+        """Checkpoint, time-bound, execute, and normalize one action attempt."""
+
         started = await asyncio.to_thread(
             self.store.start_step,
             run.id,
@@ -357,6 +402,8 @@ class WorkflowRunner:
         return await self._finish_attempt(started, step, result)
 
     async def _execute_agent_step(self, run: WorkflowRun, step: AgentStep) -> WorkflowRun:
+        """Run a bounded skill agent and validate its declared structured output."""
+
         if self.agent_executor is None:
             return await self._fail_pending(
                 run,
@@ -468,6 +515,8 @@ class WorkflowRunner:
         step: ActionStep | AgentStep,
         result: ActionResult,
     ) -> WorkflowRun:
+        """Checkpoint success or failure and schedule only permitted retries."""
+
         if not result.is_error:
             completed = await asyncio.to_thread(
                 self.store.complete_step,
@@ -509,7 +558,11 @@ class WorkflowRunner:
         retry = step.retry or failed.definition.defaults.retry
         attempts = len(failed.steps[failed.current_step].attempts)
         if result.retryable and not result.outcome_unknown and attempts < retry.attempts:
-            pending = await asyncio.to_thread(self.store.retry_run, failed.id)
+            pending = await asyncio.to_thread(
+                self.store.retry_run,
+                failed.id,
+                operator_override=False,
+            )
             delay = retry_delay(retry.backoff_seconds, attempts)
             if delay > 0:
                 await self.sleeper(delay)
@@ -523,6 +576,8 @@ class WorkflowRunner:
         category: str,
         message: str,
     ) -> WorkflowRun:
+        """Fail before an external attempt when validation or setup is impossible."""
+
         failed = await asyncio.to_thread(
             self.store.fail_pending_step,
             run.id,
@@ -544,6 +599,8 @@ class WorkflowRunner:
         run: WorkflowRun,
         step_timeout: int,
     ) -> tuple[float, bool]:
+        """Intersect the step timeout with the workflow's remaining lifetime."""
+
         now = await asyncio.to_thread(self.store.now)
         elapsed = max(0.0, (now - run.created_at).total_seconds())
         remaining = max(0.0, run.definition.defaults.max_run_seconds - elapsed)
@@ -555,6 +612,8 @@ def _template_context(
     event: AutomationEvent | None = None,
     run: WorkflowRun | None = None,
 ) -> dict[str, Any]:
+    """Build the only event/run/step data visible to conditions and templates."""
+
     selected_event = event or (run.event if run is not None else None)
     return {
         "event": selected_event.model_dump(mode="json") if selected_event else {},
@@ -564,6 +623,8 @@ def _template_context(
 
 
 def retry_delay(backoff: list[float], attempts_completed: int) -> float:
+    """Select the bounded delay for the next attempt, repeating the last value."""
+
     if not backoff:
         return 0
     index = min(max(0, attempts_completed - 1), len(backoff) - 1)
@@ -571,6 +632,8 @@ def retry_delay(backoff: list[float], attempts_completed: int) -> float:
 
 
 def validate_agent_output(step: AgentStep, output: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate exact fields and primitive JSON types against an agent-step schema."""
+
     if not isinstance(output, dict):
         raise ValueError("agent output must be a JSON object")
     try:

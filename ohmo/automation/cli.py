@@ -29,16 +29,25 @@ from ohmo.workspace import (
 
 automation_app = typer.Typer(name="automation", help="Manage Ohmo automation workflows")
 _WORKSPACE_HELP = "Path to the ohmo workspace (defaults to ~/.ohmo)"
+_MAX_EVENT_INPUT_BYTES = 512 * 1024
 _SECRET_PARTS = (
     "api_key",
     "apikey",
+    "app_token",
     "access_token",
+    "accesstoken",
+    "auth_token",
+    "authtoken",
+    "bot_token",
+    "bottoken",
     "refresh_token",
+    "refreshtoken",
     "authorization",
     "credential",
     "password",
     "private_key",
     "secret",
+    "token",
 )
 _SECRET_VALUE_RE = re.compile(
     r"(?i)(?:sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[A-Z0-9]{16})"
@@ -46,14 +55,20 @@ _SECRET_VALUE_RE = re.compile(
 
 
 def _workspace(value: str | None) -> Path:
+    """Initialize and return the selected Ohmo workspace root."""
+
     return initialize_workspace(value)
 
 
 def _definitions(root: Path):
+    """Load valid workflow definitions and diagnostics for one workspace."""
+
     return load_workflow_definitions(get_automations_dir(root))
 
 
 def _definition(root: Path, workflow_id: str):
+    """Resolve one valid workflow or terminate with its diagnostic."""
+
     loaded = _definitions(root)
     for definition in loaded.definitions:
         if definition.id == workflow_id:
@@ -66,8 +81,20 @@ def _definition(root: Path, workflow_id: str):
 
 
 def _event(path: str) -> AutomationEvent:
+    """Load one bounded versioned JSON event from a path or standard input."""
+
     try:
-        text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+        if path == "-":
+            text = sys.stdin.read(_MAX_EVENT_INPUT_BYTES + 1)
+        else:
+            event_path = Path(path)
+            if event_path.stat().st_size > _MAX_EVENT_INPUT_BYTES:
+                raise ValueError(
+                    f"event input exceeds {_MAX_EVENT_INPUT_BYTES} bytes"
+                )
+            text = event_path.read_text(encoding="utf-8")
+        if len(text.encode("utf-8")) > _MAX_EVENT_INPUT_BYTES:
+            raise ValueError(f"event input exceeds {_MAX_EVENT_INPUT_BYTES} bytes")
         return AutomationEvent.model_validate_json(text)
     except Exception as exc:
         typer.echo(f"Cannot load automation event: {exc}", err=True)
@@ -75,14 +102,20 @@ def _event(path: str) -> AutomationEvent:
 
 
 def _store(root: Path) -> AutomationStore:
+    """Open the workspace's durable automation store."""
+
     return AutomationStore(get_automation_state_dir(root))
 
 
 def _json(value: Any) -> str:
+    """Render bounded credential-redacted operator JSON."""
+
     return json.dumps(_redact_and_bound(value), indent=2, ensure_ascii=False, default=str)
 
 
 def _redact_and_bound(value: Any, *, key: object | None = None, depth: int = 0) -> Any:
+    """Recursively redact secret-shaped fields and bound displayed structures."""
+
     if depth > 24:
         return "[TRUNCATED]"
     if key is not None:
@@ -105,6 +138,8 @@ def _redact_and_bound(value: Any, *, key: object | None = None, depth: int = 0) 
 
 
 def _service(root: Path, cwd: str) -> OhmoAutomationService:
+    """Compose a local service with an in-process outbound inspection bus."""
+
     return OhmoAutomationService(
         workspace=root,
         cwd=Path(cwd).resolve(),
@@ -118,9 +153,20 @@ def validate_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Validate workflow schemas and installed capabilities without effects."""
+
     root = _workspace(workspace)
     service = _service(root, cwd)
-    asyncio.run(service.validate_configuration())
+
+    async def validate() -> None:
+        """Resolve governed tools and always close any preflight runtime."""
+
+        try:
+            await service.validate_configuration(resolve_governed_tools=True)
+        finally:
+            await service.stop()
+
+    asyncio.run(validate())
     for diagnostic in service.diagnostics:
         typer.echo(f"{diagnostic.path}: {diagnostic.message}", err=True)
     typer.echo(
@@ -135,6 +181,8 @@ def validate_cmd(
 def list_cmd(
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """List valid workflow identities, status, priority, and source behavior."""
+
     loaded = _definitions(_workspace(workspace))
     for definition in loaded.definitions:
         typer.echo(
@@ -150,6 +198,8 @@ def show_cmd(
     workflow_id: str = typer.Argument(...),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Show one normalized definition with display-time redaction."""
+
     definition = _definition(_workspace(workspace), workflow_id)
     typer.echo(_json(definition.model_dump(mode="json", by_alias=True)))
 
@@ -160,6 +210,8 @@ def test_cmd(
     event: str = typer.Option(..., "--event", help="JSON event path, or - for stdin"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Dry-run matching, conditions, and available action argument rendering."""
+
     root = _workspace(workspace)
     definition = _definition(root, workflow_id)
     parsed_event = _event(event)
@@ -213,13 +265,21 @@ def run_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Submit one exact workflow/event locally without resuming unrelated runs."""
+
     root = _workspace(workspace)
     parsed_event = _event(event)
 
     async def run() -> dict[str, Any]:
+        """Execute the selected run and collect locally queued outbound messages."""
+
         service = _service(root, cwd)
         try:
-            dispatch = await service.submit_workflow(workflow_id, parsed_event)
+            dispatch = await service.submit_workflow(
+                workflow_id,
+                parsed_event,
+                resume_existing_runs=False,
+            )
             await service.drain()
             run_state = service.store.load_run(dispatch.run_ids[0])
             queued = []
@@ -249,6 +309,8 @@ def runs_cmd(
     status: str | None = typer.Option(None, "--status"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """List live run summaries with an optional exact status filter."""
+
     runs = _store(_workspace(workspace)).list_runs(status=status)
     counts = Counter(run.status for run in runs)
     typer.echo(" ".join(f"{name}={counts[name]}" for name in sorted(counts)) or "runs=0")
@@ -261,6 +323,8 @@ def inspect_cmd(
     run_id: str = typer.Argument(...),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Display one live or archived run with bounded credential redaction."""
+
     try:
         run = _store(_workspace(workspace)).load_run(run_id)
     except Exception as exc:
@@ -279,12 +343,15 @@ def _mutate_run(
     reason: str | None = None,
     allow_unknown_outcome: bool = False,
 ) -> None:
+    """Apply one targeted local run mutation and await only resulting work."""
+
     root = _workspace(workspace)
 
     async def mutate():
+        """Perform the requested transition without startup-resuming other runs."""
+
         service = _service(root, cwd)
         try:
-            await service.start()
             if operation == "retry":
                 await service.retry_run(
                     run_id,
@@ -321,6 +388,8 @@ def retry_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Retry a failed run, optionally acknowledging an uncertain prior effect."""
+
     _mutate_run(
         "retry",
         run_id,
@@ -337,6 +406,8 @@ def cancel_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Cancel one pending, active, or approval-waiting run."""
+
     _mutate_run("cancel", run_id, workspace=workspace, cwd=cwd, reason=reason)
 
 
@@ -347,6 +418,8 @@ def approve_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Approve one waiting run as an explicitly supplied actor."""
+
     _mutate_run("approve", run_id, workspace=workspace, cwd=cwd, actor=actor)
 
 
@@ -358,6 +431,8 @@ def reject_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    """Reject one waiting run as an explicitly supplied actor."""
+
     _mutate_run(
         "reject",
         run_id,

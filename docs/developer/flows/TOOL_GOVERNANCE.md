@@ -48,21 +48,23 @@ sequenceDiagram
 
 1. `run_query()` obtains `ToolUseBlock` values from the completed assistant message and calls
    `_execute_tool_call(context, name, id, input)` for each.
-2. `_execute_tool_call()` first awaits `HookExecutor.execute(PRE_TOOL_USE, ...)`. A blocked
+2. `_execute_tool_call()` delegates the common lifecycle to `GovernedToolExecutor.execute()`.
+   The executor first awaits `HookExecutor.execute(PRE_TOOL_USE, ...)`. A blocked
    `AggregatedHookResult` returns immediately, before registry lookup or Pydantic parsing.
 3. `ToolRegistry.get()` performs exact-name resolution. The selected tool's
    `input_model.model_validate()` converts untrusted provider JSON into the typed argument model.
-4. `_resolve_permission_file_path()` resolves common path fields against `QueryContext.cwd`, while
-   `_extract_permission_command()` obtains the command string used by deny patterns.
+4. `resolve_permission_file_path()` resolves common path fields against the executor cwd, while
+   `extract_permission_command()` obtains the command string used by deny patterns.
 5. `PermissionChecker.evaluate()` applies hard-sensitive paths, explicit tool rules, path/command
    rules, mode, and `is_read_only()` in its documented precedence.
 6. A confirmation decision fires `HookEvent.NOTIFICATION` and awaits the host-owned
    `permission_prompt`. The engine never fabricates an interactive approval.
-7. The engine awaits `BaseTool.execute(parsed_input, ToolExecutionContext(...))`. Tools that spawn
+7. The governed executor awaits `BaseTool.execute(parsed_input, ToolExecutionContext(...))`. Tools that spawn
    processes use `create_shell_subprocess()`; that helper chooses Docker routing or calls
    `wrap_command_for_sandbox()` for SRT/host behavior.
-8. `_offload_tool_output_if_needed()` bounds large output, `_record_tool_carryover()` updates
-   session metadata, and `POST_TOOL_USE` observes the normalized result.
+8. The executor bounds large output, then invokes the query loop's result observer to update
+   session carryover before `POST_TOOL_USE` observes the normalized result. This callback keeps
+   generic governance reusable without changing the historical hook-visible ordering.
 9. The returned `ToolResultBlock.tool_use_id` always equals the provider's original tool-use ID, so
    the next provider request is structurally valid even for denial and error paths.
 
@@ -81,7 +83,7 @@ operational failures should return `ToolResult(is_error=True)` instead of escapi
 
 ## 2. Hooks run before registry and permission checks
 
-`_execute_tool_call()` invokes `pre_tool_use` hooks first with the raw tool name and input. A blocking
+`GovernedToolExecutor.execute()` invokes `pre_tool_use` hooks first with the raw tool name and input. A blocking
 aggregate hook result returns an error result immediately. Hooks can be command, HTTP, prompt, or
 agent definitions selected by event and matcher; registry priority determines order.
 
@@ -160,7 +162,8 @@ next query-loop turn, allowing the model to recover from denials and operational
 | --- | --- |
 | Tool schema/effects | matching module under `src/openharness/tools/` |
 | General tool contract/registry | `src/openharness/tools/base.py`, `src/openharness/tools/__init__.py` |
-| Lifecycle ordering | `src/openharness/engine/query.py` |
+| Reusable lifecycle ordering | `src/openharness/tools/executor.py` |
+| Query-loop carryover integration | `src/openharness/engine/query.py` |
 | Permission precedence | `src/openharness/permissions/checker.py` |
 | Hook matching/execution | `src/openharness/hooks/loader.py`, `src/openharness/hooks/executor.py` |
 | Process isolation | `src/openharness/sandbox/`, `src/openharness/utils/shell.py`, effect-owning tool |
@@ -171,7 +174,8 @@ next query-loop turn, allowing the model to recover from denials and operational
 | --- | --- | --- |
 | Turn dispatch and parallel sibling handling | `src/openharness/engine/query.py` | `run_query()` |
 | Per-call governance | `src/openharness/engine/query.py` | `_execute_tool_call()` |
-| Policy metadata extraction | `src/openharness/engine/query.py` | `_resolve_permission_file_path()`, `_extract_permission_command()` |
+| Reusable governance sequence | `src/openharness/tools/executor.py` | `GovernedToolExecutor.execute()` |
+| Policy metadata extraction | `src/openharness/tools/executor.py` | `resolve_permission_file_path()`, `extract_permission_command()` |
 | Tool contract | `src/openharness/tools/base.py` | `BaseTool`, `ToolExecutionContext`, `ToolResult` |
 | Registry schema/export | `src/openharness/tools/base.py` | `ToolRegistry.get()`, `to_api_schema()` |
 | Permission precedence | `src/openharness/permissions/checker.py` | `PermissionChecker.evaluate()` |
@@ -179,7 +183,7 @@ next query-loop turn, allowing the model to recover from denials and operational
 | Process routing | `src/openharness/utils/shell.py` | `create_shell_subprocess()` |
 | SRT routing and fallback | `src/openharness/sandbox/adapter.py` | `get_sandbox_availability()`, `wrap_command_for_sandbox()` |
 | Docker execution session | `src/openharness/sandbox/docker_backend.py` | `DockerSandboxSession` |
-| Output offload | `src/openharness/engine/query.py` | `_offload_tool_output_if_needed()` |
+| Query output-offload callback | `src/openharness/engine/query.py` | `_offload_tool_output_if_needed()` |
 
 ## Verification map
 

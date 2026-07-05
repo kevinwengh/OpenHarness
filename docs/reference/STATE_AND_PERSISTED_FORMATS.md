@@ -27,7 +27,7 @@ Path ownership is centralized in `src/openharness/config/paths.py`. Core session
 | Project memory | discovered memory root | Markdown with frontmatter/index | `memory/manager.py`, `memory/schema.py` |
 | Project skills | configured relative skill roots | `SKILL.md` | `skills/loader.py` |
 | Project plugins | `.openharness/plugins` | manifest + content/code | `plugins/loader.py`; opt-in trust |
-| Tool artifacts | data `tool_artifacts/` | UTF-8 text offloaded from oversized tool results | `engine/query.py::_tool_artifact_dir()` |
+| Tool artifacts | data `tool_artifacts/` | UTF-8 text offloaded from oversized tool results | `engine/query.py::_tool_artifact_dir()`, `_offload_tool_output_if_needed()` |
 | Swarm team/mailboxes | `~/.openharness/teams/...` | JSON files/status | swarm lifecycle and mailbox |
 | Worktrees | Git metadata + directories | Git | `swarm/worktree.py` |
 | Autopilot | `.openharness/autopilot/` | JSON, JSONL, YAML, Markdown | `autopilot/service.py` |

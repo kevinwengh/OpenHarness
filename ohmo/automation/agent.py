@@ -18,7 +18,6 @@ from openharness.skills import load_skill_registry
 from openharness.ui.runtime import build_runtime, close_runtime, start_runtime
 
 from ohmo.memory import create_memory_command_backend
-from ohmo.prompts import build_ohmo_system_prompt
 from ohmo.workspace import (
     get_memory_dir,
     get_plugins_dir,
@@ -32,7 +31,15 @@ MAX_SKILL_CONTENT_BYTES = 64 * 1024
 
 
 class RuntimeSkillAgentExecutor:
-    """Resolve one named skill and run it in a bounded isolated OpenHarness runtime."""
+    """Resolve one named skill and run it in a bounded isolated OpenHarness runtime.
+
+    The runtime excludes Ohmo soul/profile/memory and project ambient context;
+    only the explicit procedure, bounded event/prior outputs, safety guidance,
+    and exact tool allowlist reach the model.
+
+    Event loop: Runtime construction, streaming, and cleanup remain on the
+    caller's loop while synchronous skill discovery is offloaded.
+    """
 
     def __init__(
         self,
@@ -43,6 +50,8 @@ class RuntimeSkillAgentExecutor:
         model: str | None = None,
         api_client: SupportsStreamingMessages | None = None,
     ) -> None:
+        """Bind workspace capability roots, provider selection, and optional test client."""
+
         self.workspace = initialize_workspace(workspace)
         self.cwd = Path(cwd).expanduser().resolve()
         self.provider_profile = provider_profile
@@ -52,6 +61,8 @@ class RuntimeSkillAgentExecutor:
         self.extra_plugin_roots = (str(get_plugins_dir(self.workspace)),)
 
     def is_retry_safe(self, step: AgentStep) -> bool:
+        """Conservatively permit replay only for tool-free judgment steps."""
+
         # Without tool arguments, argument-aware mutation classification is impossible.
         # Tool-free judgment steps are safe to repeat; tool-using steps are conservative.
         return not step.allowed_tools
@@ -78,6 +89,13 @@ class RuntimeSkillAgentExecutor:
         *,
         invocation_id: str,
     ) -> AgentStepResult:
+        """Execute the named procedure and parse one exact JSON object response.
+
+        The dedicated runtime disables post-turn memory and session lifecycle
+        effects, forces non-coordinator prompting, and is always closed in the
+        ``finally`` path.
+        """
+
         del invocation_id
         try:
             skill = await asyncio.to_thread(self._resolve_skill, step.skill)
@@ -145,11 +163,7 @@ class RuntimeSkillAgentExecutor:
                 cwd=str(self.cwd),
                 model=step.model or skill.model or self.model,
                 max_turns=step.max_turns,
-                system_prompt=build_ohmo_system_prompt(
-                    self.cwd,
-                    workspace=self.workspace,
-                    extra_prompt=automation_prompt,
-                ),
+                system_prompt=automation_prompt,
                 active_profile=self.provider_profile,
                 api_client=self.api_client,
                 enforce_max_turns=True,
@@ -166,10 +180,12 @@ class RuntimeSkillAgentExecutor:
                 tool_allowlist=step.allowed_tools,
                 post_turn_memory_enabled=False,
                 session_lifecycle_enabled=False,
+                sandbox_lifecycle_enabled=False,
                 coordinator_mode=False,
+                include_ambient_context=False,
             )
             settings = bundle.current_settings()
-            permission = _automation_permission_settings(settings.permission)
+            permission = automation_permission_settings(settings.permission)
             bundle.engine.set_permission_checker(PermissionChecker(permission))
             await start_runtime(bundle)
 
@@ -231,6 +247,8 @@ class RuntimeSkillAgentExecutor:
                 await close_runtime(bundle)
 
     def _resolve_skill(self, name: str):
+        """Resolve a skill using normal project/workspace/plugin precedence."""
+
         registry = load_skill_registry(
             self.cwd,
             extra_skill_dirs=self.extra_skill_dirs,
@@ -239,7 +257,7 @@ class RuntimeSkillAgentExecutor:
         return registry.get(name)
 
 
-def _automation_permission_settings(base: PermissionSettings) -> PermissionSettings:
+def automation_permission_settings(base: PermissionSettings) -> PermissionSettings:
     """Allow the filtered registry while preserving every configured hard denial."""
 
     return PermissionSettings(
@@ -249,3 +267,6 @@ def _automation_permission_settings(base: PermissionSettings) -> PermissionSetti
         path_rules=list(base.path_rules),
         denied_commands=list(base.denied_commands),
     )
+
+
+_automation_permission_settings = automation_permission_settings

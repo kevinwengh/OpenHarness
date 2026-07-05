@@ -189,7 +189,8 @@ concurrently with exception collection, but results are restored to protocol-saf
 
 ## 7. Every tool call passes the same governance path
 
-For each model-returned tool call, `_execute_tool_call` performs this order:
+For each model-returned tool call, the query wrapper delegates to
+`GovernedToolExecutor.execute()` and supplies a carryover observer. Together they perform this order:
 
 1. Fire the `PRE_TOOL_USE` hook.
 2. Look up the tool in the registry.
@@ -289,7 +290,8 @@ The core protocol invariants are:
 | Session-owned turn state | `src/openharness/engine/query_engine.py::QueryEngine.submit_message()` |
 | Session-memory checkpoint | `QueryEngine._prepare_session_memory()`, `_update_session_memory()` |
 | Model/tool loop | `src/openharness/engine/query.py::run_query()` |
-| Governed tool execution | `src/openharness/engine/query.py::_execute_tool_call()` |
+| Query carryover integration | `src/openharness/engine/query.py::_execute_tool_call()` |
+| Governed tool execution | `src/openharness/tools/executor.py::GovernedToolExecutor.execute()` |
 | Large-result offload | `src/openharness/engine/query.py::_offload_tool_output_if_needed()` |
 | Automatic compaction | `src/openharness/services/compact/__init__.py::auto_compact_if_needed()` |
 | Microcompaction/collapse | `microcompact_messages()`, `compact_messages()` in the compact service |

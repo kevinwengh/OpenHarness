@@ -37,6 +37,32 @@ def test_event_requires_timezone_and_json_safe_payload() -> None:
         AutomationEvent.model_validate(payload)
 
 
+def test_event_redacts_credential_shaped_keys_and_values_before_persistence() -> None:
+    event = AutomationEvent.model_validate(
+        {
+            "id": "event-secret",
+            "type": "manual.note",
+            "occurred_at": "2026-01-01T00:00:00Z",
+            "source": {"adapter": "cli"},
+            "actor": {"id": "local"},
+            "payload": {
+                "authorization": "Bearer token-value",
+                "text": "reported xoxb-1234567890-secret",
+                "nested": {"accessToken": "opaque", "token": "also-opaque"},
+            },
+            "metadata": {"api-key": "must-not-persist"},
+        }
+    )
+
+    assert event.payload["authorization"] == "[REDACTED]"
+    assert event.payload["text"] == "reported [REDACTED]"
+    assert event.payload["nested"] == {
+        "accessToken": "[REDACTED]",
+        "token": "[REDACTED]",
+    }
+    assert event.metadata["api-key"] == "[REDACTED]"
+
+
 @pytest.mark.parametrize(
     "condition",
     [
@@ -84,6 +110,25 @@ def test_silent_workflow_requires_explicit_approval_target() -> None:
         }
     ]
     with pytest.raises(ValidationError, match="explicit target"):
+        WorkflowDefinition.model_validate(payload)
+
+
+def test_explicit_approval_target_requires_policy_destination() -> None:
+    payload = workflow_payload(source_behavior="silent")
+    payload["policy"] = {
+        "channel_destinations": {"slack": ["C_ALLOWED"]},
+    }
+    payload["steps"] = [
+        {
+            "id": "approve",
+            "type": "approval",
+            "prompt": "Approve?",
+            "approver_ids": ["U1"],
+            "target": {"channel": "slack", "chat_id": "C_OTHER"},
+        }
+    ]
+
+    with pytest.raises(ValidationError, match="approval target"):
         WorkflowDefinition.model_validate(payload)
 
 

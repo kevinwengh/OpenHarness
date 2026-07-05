@@ -64,6 +64,8 @@ class TransitionError(RuntimeError):
 
 
 class RunError(AutomationModel):
+    """Bounded persisted failure classification for a run or step."""
+
     category: str = Field(min_length=1, max_length=128)
     message: str = Field(min_length=1, max_length=4000)
     retryable: bool = False
@@ -71,6 +73,8 @@ class RunError(AutomationModel):
 
 
 class StepAttempt(AutomationModel):
+    """One checkpointed execution attempt with stable idempotency identities."""
+
     number: int = Field(ge=1, le=1000)
     status: AttemptStatus
     retry_safe: bool
@@ -85,11 +89,15 @@ class StepAttempt(AutomationModel):
     @field_validator("input")
     @classmethod
     def _validate_input(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Normalize and size-bound the exact attempted input."""
+
         return _bounded_json_mapping(value, label="step input")
 
     @field_validator("output")
     @classmethod
     def _validate_output(cls, value: Any) -> Any:
+        """Normalize and size-bound terminal attempt output."""
+
         if value is None:
             return None
         return _bounded_json_value(value, label="step output")
@@ -97,10 +105,14 @@ class StepAttempt(AutomationModel):
     @field_validator("started_at", "completed_at")
     @classmethod
     def _validate_timestamps(cls, value: datetime | None) -> datetime | None:
+        """Normalize optional attempt timestamps to UTC."""
+
         return None if value is None else _utc(value)
 
     @model_validator(mode="after")
     def _validate_status(self) -> "StepAttempt":
+        """Keep active, terminal, failed, and uncertain attempt fields coherent."""
+
         if self.status == "running":
             if self.completed_at is not None or self.error is not None:
                 raise ValueError("running attempts cannot have completion state")
@@ -116,6 +128,8 @@ class StepAttempt(AutomationModel):
 
 
 class StepRun(AutomationModel):
+    """Durable lifecycle and attempts for one declared sequential step."""
+
     id: str
     type: Literal["action", "agent", "approval"]
     status: StepStatus = "pending"
@@ -124,10 +138,13 @@ class StepRun(AutomationModel):
     error: RunError | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    operator_retry_pending: bool = False
 
     @field_validator("output")
     @classmethod
     def _validate_output(cls, value: Any) -> Any:
+        """Normalize and size-bound output exposed to later templates."""
+
         if value is None:
             return None
         return _bounded_json_value(value, label="step output")
@@ -135,10 +152,16 @@ class StepRun(AutomationModel):
     @field_validator("started_at", "completed_at")
     @classmethod
     def _validate_timestamps(cls, value: datetime | None) -> datetime | None:
+        """Normalize optional step timestamps to UTC."""
+
         return None if value is None else _utc(value)
 
     @model_validator(mode="after")
     def _validate_status(self) -> "StepRun":
+        """Require status, active attempt, completion, and error consistency."""
+
+        if self.operator_retry_pending and self.status != "pending":
+            raise ValueError("operator retry override requires a pending step")
         if self.status == "running":
             if not self.attempts or self.attempts[-1].status != "running":
                 raise ValueError("running steps require an active attempt")
@@ -158,6 +181,8 @@ class StepRun(AutomationModel):
 
 
 class ApprovalRecord(AutomationModel):
+    """Persisted approval request, delivery checkpoint, and actor decision."""
+
     step_id: str
     status: ApprovalStatus = "pending"
     prompt: str = Field(min_length=1, max_length=4000)
@@ -172,10 +197,14 @@ class ApprovalRecord(AutomationModel):
     @field_validator("requested_at", "expires_at", "notification_sent_at", "resolved_at")
     @classmethod
     def _validate_timestamps(cls, value: datetime | None) -> datetime | None:
+        """Normalize approval lifecycle timestamps to UTC."""
+
         return None if value is None else _utc(value)
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ApprovalRecord":
+        """Require a future expiry and coherent pending or resolved state."""
+
         if self.expires_at <= self.requested_at:
             raise ValueError("approval expiry must be after its request time")
         if self.status == "pending":
@@ -187,6 +216,13 @@ class ApprovalRecord(AutomationModel):
 
 
 class WorkflowRun(AutomationModel):
+    """Complete immutable checkpoint for one workflow/event reservation.
+
+    The stored definition snapshot and revision make execution independent of
+    later definition edits. ``current_step`` always identifies the first
+    unfinished step, which is the recovery resume position.
+    """
+
     version: Literal[1] = 1
     id: str
     workflow_id: str
@@ -209,6 +245,8 @@ class WorkflowRun(AutomationModel):
     @field_validator("id")
     @classmethod
     def _validate_run_id(cls, value: str) -> str:
+        """Restrict run IDs to the store's path-safe generated grammar."""
+
         if not _RUN_ID_RE.fullmatch(value):
             raise ValueError("invalid workflow run ID")
         return value
@@ -216,15 +254,21 @@ class WorkflowRun(AutomationModel):
     @field_validator("context")
     @classmethod
     def _validate_context(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Normalize and size-bound template-visible run context."""
+
         return _bounded_json_mapping(value, label="run context")
 
     @field_validator("created_at", "started_at", "updated_at", "completed_at")
     @classmethod
     def _validate_timestamps(cls, value: datetime | None) -> datetime | None:
+        """Normalize optional run timestamps to UTC."""
+
         return None if value is None else _utc(value)
 
     @model_validator(mode="after")
     def _validate_consistency(self) -> "WorkflowRun":
+        """Validate definition identity, sequential position, and terminal state."""
+
         if self.workflow_id != self.definition.id:
             raise ValueError("workflow_id does not match the stored definition")
         if self.definition_revision != definition_revision(self.definition):
@@ -286,6 +330,8 @@ def new_workflow_run(
     now: datetime,
     concurrency_key: str | None = None,
 ) -> WorkflowRun:
+    """Create the initial pending checkpoint for one reserved event."""
+
     timestamp = _utc(now)
     return WorkflowRun(
         id=run_id,
@@ -302,16 +348,22 @@ def new_workflow_run(
 
 
 def ensure_run_transition(current: str, target: str) -> None:
+    """Raise ``TransitionError`` unless a run transition is legal."""
+
     if target not in RUN_TRANSITIONS.get(current, frozenset()):
         raise TransitionError(f"illegal run transition: {current} -> {target}")
 
 
 def ensure_step_transition(current: str, target: str) -> None:
+    """Raise ``TransitionError`` unless a step transition is legal."""
+
     if target not in STEP_TRANSITIONS.get(current, frozenset()):
         raise TransitionError(f"illegal step transition: {current} -> {target}")
 
 
 def approval_step_for(run: WorkflowRun, step_id: str) -> ApprovalStep:
+    """Resolve a stored definition step and require its approval type."""
+
     for step in run.definition.steps:
         if step.id == step_id and isinstance(step, ApprovalStep):
             return step
@@ -319,18 +371,24 @@ def approval_step_for(run: WorkflowRun, step_id: str) -> ApprovalStep:
 
 
 def _bounded_json_mapping(value: dict[str, Any], *, label: str) -> dict[str, Any]:
+    """Normalize and size-bound one persisted JSON object."""
+
     normalized = validate_json_value(value, path=label)
     _ensure_json_size(normalized, label=label)
     return normalized
 
 
 def _bounded_json_value(value: Any, *, label: str) -> Any:
+    """Normalize and size-bound one arbitrary persisted JSON value."""
+
     normalized = validate_json_value(value, path=label)
     _ensure_json_size(normalized, label=label)
     return normalized
 
 
 def _ensure_json_size(value: Any, *, label: str) -> None:
+    """Enforce the UTF-8 serialized size bound for step state."""
+
     encoded = json.dumps(
         value,
         ensure_ascii=False,
@@ -342,6 +400,8 @@ def _ensure_json_size(value: Any, *, label: str) -> None:
 
 
 def _utc(value: datetime) -> datetime:
+    """Require a timezone-aware timestamp and normalize it to UTC."""
+
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("workflow timestamps must include a timezone")
     return value.astimezone(timezone.utc)

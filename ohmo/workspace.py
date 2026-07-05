@@ -296,13 +296,21 @@ def get_plugins_dir(workspace: str | Path | None = None) -> Path:
 
 
 def get_automations_dir(workspace: str | Path | None = None) -> Path:
-    """Return the user-authored automation workflow definition directory."""
+    """Return the user-authored automation workflow definition directory.
+
+    Integration: Definition loading and local management commands read direct
+    child YAML files here; generated state must never be mixed into this path.
+    """
 
     return get_workspace_root(workspace) / "automations"
 
 
 def get_automation_state_dir(workspace: str | Path | None = None) -> Path:
-    """Return the generated durable automation run-state directory."""
+    """Return the generated durable automation run-state directory.
+
+    Integration: ``AutomationStore`` owns this directory's run, archive, index,
+    and lock files. Users should not edit it while the gateway is active.
+    """
 
     return get_workspace_root(workspace) / "automation"
 
@@ -529,6 +537,8 @@ def workspace_health(workspace: str | Path | None = None) -> dict[str, bool]:
         "memory_dir": get_memory_dir(root).exists(),
         "skills_dir": get_skills_dir(root).exists(),
         "plugins_dir": get_plugins_dir(root).exists(),
+        "automations_dir": get_automations_dir(root).exists(),
+        "automation_state_dir": get_automation_state_dir(root).exists(),
         "groups_dir": get_groups_dir(root).exists(),
         "memory_index": get_memory_index_path(root).exists(),
         "sessions_dir": get_sessions_dir(root).exists(),

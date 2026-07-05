@@ -171,7 +171,20 @@ class OhmoGatewayBridge:
                 session_key,
                 _content_snippet(message.content),
             )
-            if self._automation_service is not None:
+            if message.content.strip() == "/stop":
+                await self._handle_stop(message, session_key)
+                continue
+            if message.content.strip() == "/restart":
+                await self._handle_restart(message, session_key)
+                continue
+            group_args = _parse_group_command(message.content)
+            if group_args is not None:
+                prepared = await self._prepare_group_prompt_message(message, session_key, group_args)
+                if prepared is None:
+                    continue
+                message = prepared
+                session_key = session_key_for_message(message)
+            if group_args is None and self._automation_service is not None:
                 command_handler = getattr(
                     self._automation_service,
                     "handle_gateway_command",
@@ -183,7 +196,7 @@ class OhmoGatewayBridge:
                         await self._publish_command_reply(message, session_key, command_reply)
                         continue
             automation_dispatch = None
-            if self._automation_service is not None:
+            if group_args is None and self._automation_service is not None:
                 try:
                     automation_dispatch = await self._automation_service.dispatch_message(message)
                 except Exception:
@@ -193,12 +206,6 @@ class OhmoGatewayBridge:
                         message.chat_id,
                         message.sender_id,
                     )
-            if message.content.strip() == "/stop":
-                await self._handle_stop(message, session_key)
-                continue
-            if message.content.strip() == "/restart":
-                await self._handle_restart(message, session_key)
-                continue
             if automation_dispatch is not None and not automation_dispatch.continue_to_assistant:
                 logger.info(
                     "ohmo inbound consumed by automation channel=%s chat_id=%s workflows=%s behavior=%s",
@@ -208,13 +215,6 @@ class OhmoGatewayBridge:
                     automation_dispatch.source_behavior,
                 )
                 continue
-            group_args = _parse_group_command(message.content)
-            if group_args is not None:
-                prepared = await self._prepare_group_prompt_message(message, session_key, group_args)
-                if prepared is None:
-                    continue
-                message = prepared
-                session_key = session_key_for_message(message)
             await self._interrupt_session(
                 session_key,
                 reason="replaced by a newer user message",

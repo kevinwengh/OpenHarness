@@ -4,6 +4,7 @@ import pytest
 
 from openharness.api.client import ApiMessageCompleteEvent
 from openharness.api.usage import UsageSnapshot
+from openharness.config.settings import SandboxSettings, Settings
 from openharness.engine.messages import ConversationMessage, TextBlock
 from openharness.ui.runtime import build_runtime, close_runtime, start_runtime
 
@@ -35,6 +36,7 @@ async def test_build_runtime_filters_tools_to_explicit_allowlist(tmp_path) -> No
         assert bundle.tool_allowlist == ("read_file", "glob")
         assert bundle.post_turn_memory_enabled is True
         assert bundle.session_lifecycle_enabled is True
+        assert bundle.sandbox_lifecycle_enabled is True
     finally:
         await close_runtime(bundle)
 
@@ -46,11 +48,13 @@ async def test_build_runtime_can_disable_post_turn_memory(tmp_path) -> None:
         api_client=StaticClient(),
         post_turn_memory_enabled=False,
         session_lifecycle_enabled=False,
+        sandbox_lifecycle_enabled=False,
     )
     try:
         assert bundle.post_turn_memory_enabled is False
         assert bundle.engine._post_turn_memory_enabled is False
         assert bundle.session_lifecycle_enabled is False
+        assert bundle.sandbox_lifecycle_enabled is False
     finally:
         await close_runtime(bundle)
 
@@ -93,3 +97,45 @@ async def test_build_runtime_rejects_missing_allowed_tool(tmp_path) -> None:
             api_client=StaticClient(),
             tool_allowlist=["missing_tool"],
         )
+
+
+@pytest.mark.asyncio
+async def test_isolated_runtime_rejects_process_global_docker_tools(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "openharness.ui.runtime.load_settings",
+        lambda: Settings(
+            sandbox=SandboxSettings(enabled=True, backend="docker"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="isolated runtime cannot use Docker sandbox"):
+        await build_runtime(
+            cwd=str(tmp_path),
+            api_client=StaticClient(),
+            tool_allowlist=["read_file"],
+            sandbox_lifecycle_enabled=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_isolated_runtime_does_not_stop_another_runtime_sandbox(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    stopped: list[bool] = []
+    bundle = await build_runtime(
+        cwd=str(tmp_path),
+        api_client=StaticClient(),
+        sandbox_lifecycle_enabled=False,
+    )
+    monkeypatch.setattr(
+        "openharness.sandbox.session.stop_docker_sandbox",
+        lambda: stopped.append(True),
+    )
+
+    await close_runtime(bundle)
+
+    assert stopped == []

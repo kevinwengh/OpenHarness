@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserved pre-tool/carryover/post-tool hook ordering after extracting reusable tool governance,
+  kept legacy gateway control commands ahead of automation dispatch, retained manual-memory append
+  semantics, isolated automation prompts from ambient personal/project context, and made targeted
+  automation commands avoid resuming unrelated runs.
+- Hardened automation persistence and policy boundaries with event credential redaction, explicit
+  approval-destination validation, governed installed-tool execution, bounded unique event
+  ancestry, isolated sandbox ownership, and gateway startup cleanup.
+
 ### Added
 
 - Declarative Ohmo automation workflows with safe YAML rules, deterministic channel-event

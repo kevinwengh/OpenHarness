@@ -95,22 +95,30 @@ def add_memory_entry(
         namespace_key = namespace.strip().lower() if namespace else None
         if namespace_key and not fullmatch(r"[a-z][a-z0-9._-]{0,127}", namespace_key):
             raise ValueError("memory namespace must be a lowercase identifier")
-        exact = next(
-            (
-                header
-                for header in existing
-                if _memory_identity(header.path) == (namespace_key, title.strip())
-            ),
-            None,
+        exact = (
+            next(
+                (
+                    header
+                    for header in existing
+                    if _memory_identity(header.path) == (namespace_key, title.strip())
+                ),
+                None,
+            )
+            if namespace_key is not None
+            else None
         )
-        duplicate = next(
-            (
-                header
-                for header in existing
-                if _memory_namespace(header.path) == namespace_key
-                and _effective_signature(header.path, header.signature) == signature
-            ),
-            None,
+        duplicate = (
+            next(
+                (
+                    header
+                    for header in existing
+                    if _memory_namespace(header.path) is None
+                    and _effective_signature(header.path, header.signature) == signature
+                ),
+                None,
+            )
+            if namespace_key is None
+            else None
         )
         target = exact or duplicate
         file_slug = f"{namespace_key}_{slug}" if namespace_key else slug
@@ -338,6 +346,8 @@ def _effective_signature(path: Path, existing_signature: str) -> str:
 
 
 def _memory_namespace(path: Path) -> str | None:
+    """Read the optional namespace participating in automation upsert identity."""
+
     try:
         metadata, _, _, _ = split_memory_file(path.read_text(encoding="utf-8"))
     except OSError:
@@ -347,6 +357,8 @@ def _memory_namespace(path: Path) -> str | None:
 
 
 def _memory_identity(path: Path) -> tuple[str | None, str]:
+    """Return the namespace/title identity used only for namespaced upserts."""
+
     try:
         metadata, _, _, _ = split_memory_file(path.read_text(encoding="utf-8"))
     except OSError:

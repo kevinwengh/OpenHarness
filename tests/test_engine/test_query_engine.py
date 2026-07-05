@@ -943,6 +943,48 @@ def _tool_context(tmp_path: Path, registry: ToolRegistry, settings: PermissionSe
 
 
 @pytest.mark.asyncio
+async def test_execute_tool_call_records_carryover_before_post_tool_hook(tmp_path: Path):
+    sample = tmp_path / "observed.txt"
+    sample.write_text("observable\n", encoding="utf-8")
+    tool_metadata: dict[str, object] = {}
+    post_hook_observations: list[list[str]] = []
+
+    class _CarryoverObservingHooks:
+        async def execute(self, event: HookEvent, payload: dict):
+            from openharness.hooks.types import AggregatedHookResult
+
+            del payload
+            if event == HookEvent.POST_TOOL_USE:
+                task_focus = tool_metadata.get("task_focus_state", {})
+                assert isinstance(task_focus, dict)
+                artifacts = task_focus.get("active_artifacts", [])
+                assert isinstance(artifacts, list)
+                post_hook_observations.append(list(artifacts))
+            return AggregatedHookResult(results=[])
+
+    result = await _execute_tool_call(
+        QueryContext(
+            api_client=_NoopApiClient(),
+            tool_registry=create_default_tool_registry(),
+            permission_checker=PermissionChecker(PermissionSettings()),
+            cwd=tmp_path,
+            model="claude-test",
+            system_prompt="system",
+            max_tokens=1,
+            max_turns=1,
+            hook_executor=_CarryoverObservingHooks(),  # type: ignore[arg-type]
+            tool_metadata=tool_metadata,
+        ),
+        "read_file",
+        "toolu_read",
+        {"path": str(sample), "offset": 0, "limit": 1},
+    )
+
+    assert result.is_error is False
+    assert post_hook_observations == [[str(sample.resolve())]]
+
+
+@pytest.mark.asyncio
 async def test_execute_tool_call_blocks_sensitive_directory_roots(tmp_path: Path):
     sensitive_dir = tmp_path / ".ssh"
     sensitive_dir.mkdir()

@@ -142,18 +142,19 @@ def build_runtime_system_prompt(
     extra_plugin_roots: Iterable[str | Path] | None = None,
     include_project_memory: bool = True,
     coordinator_mode: bool | None = None,
+    include_ambient_context: bool = True,
 ) -> str:
-    """Build the runtime system prompt with project instructions and memory.
+    """Assemble the provider-visible prompt for one runtime boundary.
 
-    Integration: Called by ``OhmoSessionRuntimePool._runtime_system_prompt``, ``_run_scenario``
-    and collaborates with ``is_coordinator_mode``, ``sections.append``,
-    ``_build_skills_section``.
+    Permission and reasoning constraints are always included. By default the
+    prompt also includes ambient skills, delegation guidance, repository and
+    local instructions, issue/PR context, and project memory. Non-interactive
+    runtimes can set ``include_ambient_context=False`` to exclude all of those
+    implicit inputs and supply their complete task context explicitly. The
+    coordinator override avoids dependence on process-global coordinator state.
 
-    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
-    and non-blocking.
-
-    Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
-    exception and fallback behavior expected by callers.
+    This synchronous function may read bounded local context and update memory
+    usage metadata; callers on an event loop must keep those inputs bounded.
     """
     coordinator_active = is_coordinator_mode() if coordinator_mode is None else coordinator_mode
     if coordinator_active:
@@ -178,57 +179,58 @@ def build_runtime_system_prompt(
         "Adjust depth and iteration count to match these settings while still completing the task."
     )
 
-    skills_section = _build_skills_section(
-        cwd,
-        extra_skill_dirs=extra_skill_dirs,
-        extra_plugin_roots=extra_plugin_roots,
-        settings=settings,
-    )
-    if skills_section and not coordinator_active:
-        sections.append(skills_section)
-
-    if not coordinator_active:
-        sections.append(_build_delegation_section())
-
-    claude_md = load_claude_md_prompt(cwd)
-    if claude_md:
-        sections.append(claude_md)
-
-    local_rules = load_local_rules()
-    if local_rules:
-        sections.append(f"# Local Environment Rules\n\n{local_rules}")
-
-    for title, path in (
-        ("Issue Context", get_project_issue_file(cwd)),
-        ("Pull Request Comments", get_project_pr_comments_file(cwd)),
-        ("Active Repo Context", get_project_active_repo_context_path(cwd)),
-    ):
-        if path.exists():
-            content = path.read_text(encoding="utf-8", errors="replace").strip()
-            if content:
-                sections.append(f"# {title}\n\n```md\n{content[:12000]}\n```")
-
-    if include_project_memory and settings.memory.enabled:
-        memory_section = load_memory_prompt(
+    if include_ambient_context:
+        skills_section = _build_skills_section(
             cwd,
-            max_entrypoint_lines=settings.memory.max_entrypoint_lines,
-            max_entrypoint_bytes=settings.memory.max_entrypoint_bytes,
+            extra_skill_dirs=extra_skill_dirs,
+            extra_plugin_roots=extra_plugin_roots,
+            settings=settings,
         )
-        if memory_section:
-            sections.append(memory_section)
+        if skills_section and not coordinator_active:
+            sections.append(skills_section)
 
-        if latest_user_prompt:
-            relevant = select_relevant_memories(
-                latest_user_prompt,
+        if not coordinator_active:
+            sections.append(_build_delegation_section())
+
+        claude_md = load_claude_md_prompt(cwd)
+        if claude_md:
+            sections.append(claude_md)
+
+        local_rules = load_local_rules()
+        if local_rules:
+            sections.append(f"# Local Environment Rules\n\n{local_rules}")
+
+        for title, path in (
+            ("Issue Context", get_project_issue_file(cwd)),
+            ("Pull Request Comments", get_project_pr_comments_file(cwd)),
+            ("Active Repo Context", get_project_active_repo_context_path(cwd)),
+        ):
+            if path.exists():
+                content = path.read_text(encoding="utf-8", errors="replace").strip()
+                if content:
+                    sections.append(f"# {title}\n\n```md\n{content[:12000]}\n```")
+
+        if include_project_memory and settings.memory.enabled:
+            memory_section = load_memory_prompt(
                 cwd,
-                max_results=settings.memory.max_files,
+                max_entrypoint_lines=settings.memory.max_entrypoint_lines,
+                max_entrypoint_bytes=settings.memory.max_entrypoint_bytes,
             )
-            if relevant:
-                try:
-                    headers = [item.header for item in relevant]
-                    mark_memory_used(cwd, headers, memory_dir=headers[0].path.parent)
-                except OSError:
-                    pass
-                sections.append(format_relevant_memories(relevant))
+            if memory_section:
+                sections.append(memory_section)
+
+            if latest_user_prompt:
+                relevant = select_relevant_memories(
+                    latest_user_prompt,
+                    cwd,
+                    max_results=settings.memory.max_files,
+                )
+                if relevant:
+                    try:
+                        headers = [item.header for item in relevant]
+                        mark_memory_used(cwd, headers, memory_dir=headers[0].path.parent)
+                    except OSError:
+                        pass
+                    sections.append(format_relevant_memories(relevant))
 
     return "\n\n".join(section for section in sections if section.strip())

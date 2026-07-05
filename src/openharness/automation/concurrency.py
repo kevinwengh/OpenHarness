@@ -12,6 +12,8 @@ ConcurrencyPolicy = Literal["serialize", "drop", "cancel_previous"]
 
 @dataclass(frozen=True)
 class ConcurrencyLease:
+    """Result yielded after applying one rendered concurrency-key policy."""
+
     key: str
     policy: ConcurrencyPolicy
     acquired: bool
@@ -20,15 +22,26 @@ class ConcurrencyLease:
 
 @dataclass
 class _Entry:
+    """Reference-counted lock and current owner for one in-process key."""
+
     lock: asyncio.Lock
     users: int = 0
     owner: asyncio.Task | None = None
 
 
 class WorkflowConcurrencyCoordinator:
-    """Serialize, drop, or replace active runs sharing a rendered key."""
+    """Serialize, drop, or replace active runs sharing a rendered key.
+
+    Event loop: All state belongs to the loop that created the coordinator.
+    Cancellation releases both the per-key lock and its reference count.
+
+    Change safety: Never await a cancelled owner while holding ``_guard``; the
+    owner needs that guard to release its key in the context-manager ``finally``.
+    """
 
     def __init__(self, *, cancel_timeout: float = 3.0) -> None:
+        """Initialize loop-local key state with a bounded replacement timeout."""
+
         if cancel_timeout <= 0:
             raise ValueError("cancel_timeout must be positive")
         self._cancel_timeout = cancel_timeout
@@ -41,6 +54,12 @@ class WorkflowConcurrencyCoordinator:
         key: str,
         policy: ConcurrencyPolicy,
     ) -> AsyncIterator[ConcurrencyLease]:
+        """Acquire a key according to ``serialize``, ``drop``, or replacement policy.
+
+        The yielded lease may be unacquired for non-blocking policies. Callers
+        must inspect ``lease.acquired`` before performing effects.
+        """
+
         if policy not in {"serialize", "drop", "cancel_previous"}:
             raise ValueError(f"unsupported concurrency policy: {policy}")
         if not key:
@@ -99,6 +118,8 @@ class WorkflowConcurrencyCoordinator:
             await self._release(key, entry)
 
     async def _retain(self, key: str) -> _Entry:
+        """Return and retain the shared entry for a rendered key."""
+
         async with self._guard:
             entry = self._entries.get(key)
             if entry is None:
@@ -108,6 +129,8 @@ class WorkflowConcurrencyCoordinator:
             return entry
 
     async def _release(self, key: str, entry: _Entry) -> None:
+        """Drop one user and remove an idle entry without racing new acquirers."""
+
         async with self._guard:
             entry.users -= 1
             if entry.users == 0 and not entry.lock.locked() and entry.owner is None:

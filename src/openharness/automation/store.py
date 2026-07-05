@@ -38,12 +38,16 @@ class AutomationStoreError(RuntimeError):
 
 @dataclass(frozen=True)
 class ReservationResult:
+    """Existing or newly created workflow/event reservation result."""
+
     run: WorkflowRun
     created: bool
 
 
 @dataclass(frozen=True)
 class RecoveryResult:
+    """Recovered, uncertain, and malformed run evidence from a store scan."""
+
     recovered_run_ids: tuple[str, ...]
     outcome_unknown_run_ids: tuple[str, ...]
     diagnostics: tuple[str, ...]
@@ -51,13 +55,26 @@ class RecoveryResult:
 
 @dataclass(frozen=True)
 class RetentionResult:
+    """Archive/deletion changes and non-fatal retention diagnostics."""
+
     archived_run_ids: tuple[str, ...]
     deleted_archive_run_ids: tuple[str, ...]
     diagnostics: tuple[str, ...]
 
 
 class AutomationStore:
-    """Own atomic run checkpoints and workflow/event idempotency reservations."""
+    """Own atomic run checkpoints and workflow/event idempotency reservations.
+
+    Integration: ``WorkflowRunner`` offloads these synchronous operations to
+    worker threads. Local CLI and recovery paths use the same transition API.
+
+    Concurrency: Every mutation holds one cross-process exclusive file lock;
+    run and index writes use atomic replacement. Read-only listing tolerates
+    malformed files and never mutates them.
+
+    Change safety: Preserve reservation-before-effect ordering, path-safe run
+    IDs, definition snapshots, and explicit uncertain-outcome recovery.
+    """
 
     def __init__(
         self,
@@ -66,6 +83,8 @@ class AutomationStore:
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
     ) -> None:
+        """Initialize store paths, deterministic test hooks, and state directories."""
+
         self.root = Path(root).expanduser().resolve()
         self.runs_dir = self.root / "runs"
         self.archive_dir = self.root / "archive"
@@ -77,6 +96,8 @@ class AutomationStore:
         self.archive_dir.mkdir(parents=True, exist_ok=True)
 
     def now(self) -> datetime:
+        """Return the configured store clock normalized to UTC."""
+
         return _utc(self._clock())
 
     def reserve(
@@ -120,6 +141,8 @@ class AutomationStore:
             return ReservationResult(run, True)
 
     def load_run(self, run_id: str) -> WorkflowRun:
+        """Load and validate a live or archived run by path-safe identifier."""
+
         path = self._run_path(run_id)
         if not path.exists():
             path = self.archive_dir / path.name
@@ -137,6 +160,8 @@ class AutomationStore:
         workflow_id: str | None = None,
         status: str | None = None,
     ) -> tuple[WorkflowRun, ...]:
+        """Return valid live runs newest-first with optional exact filters."""
+
         runs: list[WorkflowRun] = []
         for path in sorted(self.runs_dir.glob("run-*.json")):
             try:
@@ -152,6 +177,48 @@ class AutomationStore:
             runs.append(run)
         return tuple(sorted(runs, key=lambda run: (run.created_at, run.id), reverse=True))
 
+    def status_counts(self) -> dict[str, int]:
+        """Count live run statuses from the bounded index instead of all run payloads.
+
+        Gateway heartbeats call this frequently. A missing or invalid index is
+        rebuilt once under the store lock so subsequent reads remain one-file
+        operations rather than scanning up to the full retained run history.
+        """
+
+        with exclusive_file_lock(self.lock_path):
+            try:
+                index = json.loads(
+                    self._read_bounded(
+                        self.index_path,
+                        MAX_INDEX_BYTES,
+                        "automation index",
+                    )
+                )
+                if index.get("version") != 1 or not isinstance(
+                    index.get("reservations"),
+                    dict,
+                ):
+                    raise ValueError("invalid automation index shape")
+                if not isinstance(index.get("runs"), dict):
+                    raise ValueError("invalid automation index run summaries")
+            except (
+                FileNotFoundError,
+                OSError,
+                json.JSONDecodeError,
+                ValueError,
+                AutomationStoreError,
+            ):
+                index, _ = self._rebuild_index_locked()
+                self._write_index_locked(index)
+            counts: dict[str, int] = {}
+            for summary in index["runs"].values():
+                if not isinstance(summary, dict):
+                    continue
+                status = summary.get("status")
+                if isinstance(status, str):
+                    counts[status] = counts.get(status, 0) + 1
+            return counts
+
     def transition_run(
         self,
         run_id: str,
@@ -159,6 +226,8 @@ class AutomationStore:
         *,
         error: RunError | None = None,
     ) -> WorkflowRun:
+        """Apply a generic running/completed transition under the store lock."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if target not in {"running", "completed"}:
@@ -190,6 +259,8 @@ class AutomationStore:
         input: dict[str, Any] | None = None,
         retry_safe: bool,
     ) -> WorkflowRun:
+        """Checkpoint a new non-approval attempt before its effect begins."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status not in {"pending", "running"}:
@@ -203,7 +274,7 @@ class AutomationStore:
                 raise TransitionError("approval steps must use wait_for_approval")
             retry = definition_step.retry or run.definition.defaults.retry
             attempt_number = len(step.attempts) + 1
-            if attempt_number > retry.attempts:
+            if attempt_number > retry.attempts and not step.operator_retry_pending:
                 raise TransitionError(f"step {step_id!r} exhausted its {retry.attempts} attempts")
             now = _utc(self._clock())
             attempt = StepAttempt(
@@ -222,6 +293,7 @@ class AutomationStore:
                     "started_at": step.started_at or now,
                     "completed_at": None,
                     "error": None,
+                    "operator_retry_pending": False,
                 }
             )
             run_updates: dict[str, Any] = {
@@ -235,6 +307,8 @@ class AutomationStore:
             return self._checkpoint_locked(updated)
 
     def complete_step(self, run_id: str, step_id: str, *, output: Any) -> WorkflowRun:
+        """Complete the active attempt and expose output to later templates."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status != "running":
@@ -255,6 +329,7 @@ class AutomationStore:
                     "output": output,
                     "completed_at": now,
                     "error": None,
+                    "operator_retry_pending": False,
                 }
             )
             context = dict(run.context)
@@ -278,6 +353,8 @@ class AutomationStore:
         error: RunError,
         outcome_unknown: bool = False,
     ) -> WorkflowRun:
+        """Fail the active attempt, recording whether its external outcome is unknown."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status != "running":
@@ -294,6 +371,7 @@ class AutomationStore:
                     "status": "outcome_unknown" if outcome_unknown else "failed",
                     "completed_at": now,
                     "error": normalized_error,
+                    "operator_retry_pending": False,
                 }
             )
             updated_step = step.model_copy(
@@ -315,6 +393,8 @@ class AutomationStore:
             return self._checkpoint_locked(updated)
 
     def skip_step(self, run_id: str, step_id: str) -> WorkflowRun:
+        """Mark the current conditional step skipped and advance sequentially."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status not in {"pending", "running"}:
@@ -325,7 +405,11 @@ class AutomationStore:
             ensure_step_transition(step.status, "skipped")
             now = _utc(self._clock())
             updated_step = step.model_copy(
-                update={"status": "skipped", "completed_at": now}
+                update={
+                    "status": "skipped",
+                    "completed_at": now,
+                    "operator_retry_pending": False,
+                }
             )
             updated = _replace_step(run, index, updated_step).model_copy(
                 update={"current_step": index + 1, "updated_at": now}
@@ -351,7 +435,12 @@ class AutomationStore:
             ensure_step_transition(step.status, "failed")
             now = _utc(self._clock())
             failed_step = step.model_copy(
-                update={"status": "failed", "completed_at": now, "error": error}
+                update={
+                    "status": "failed",
+                    "completed_at": now,
+                    "error": error,
+                    "operator_retry_pending": False,
+                }
             )
             failed_run = _replace_step(run, index, failed_step).model_copy(
                 update={
@@ -370,6 +459,8 @@ class AutomationStore:
         *,
         prompt: str | None = None,
     ) -> WorkflowRun:
+        """Checkpoint a durable approval request without starting an action attempt."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status not in {"pending", "running"}:
@@ -430,6 +521,8 @@ class AutomationStore:
         approved: bool,
         reason: str | None = None,
     ) -> WorkflowRun:
+        """Authorize and checkpoint one approval decision or expiry outcome."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status != "waiting_approval" or not run.approvals:
@@ -561,7 +654,20 @@ class AutomationStore:
                 self._write_index_locked(index)
         return tuple(expired_run_ids)
 
-    def retry_run(self, run_id: str, *, allow_unknown_outcome: bool = False) -> WorkflowRun:
+    def retry_run(
+        self,
+        run_id: str,
+        *,
+        allow_unknown_outcome: bool = False,
+        operator_override: bool = True,
+    ) -> WorkflowRun:
+        """Reset a failed step, optionally granting one operator-owned extra attempt.
+
+        Automated retry paths pass ``operator_override=False`` and remain
+        bounded by the definition. The management operation defaults to one
+        additional attempt without deleting prior audit history.
+        """
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status != "failed":
@@ -575,7 +681,12 @@ class AutomationStore:
             ensure_step_transition(step.status, "pending")
             now = _utc(self._clock())
             updated_step = step.model_copy(
-                update={"status": "pending", "completed_at": None, "error": None}
+                update={
+                    "status": "pending",
+                    "completed_at": None,
+                    "error": None,
+                    "operator_retry_pending": operator_override and step.type != "approval",
+                }
             )
             updated = _replace_step(run, index, updated_step).model_copy(
                 update={
@@ -588,6 +699,8 @@ class AutomationStore:
             return self._checkpoint_locked(updated)
 
     def cancel_run(self, run_id: str, *, reason: str = "cancelled by operator") -> WorkflowRun:
+        """Cancel active work and conservatively classify any in-flight effect."""
+
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             ensure_run_transition(run.status, "cancelled")
@@ -650,6 +763,13 @@ class AutomationStore:
             return self._checkpoint_locked(updated)
 
     def recover(self) -> RecoveryResult:
+        """Repair crash-shaped runs without replaying uncertain external effects.
+
+        Retry-safe active attempts become pending when attempts remain. Unsafe
+        attempts become terminal ``outcome_unknown`` failures requiring an
+        explicit operator decision. Completed steps are never reset.
+        """
+
         recovered: list[str] = []
         unknown: list[str] = []
         diagnostics: list[str] = []
@@ -786,6 +906,8 @@ class AutomationStore:
         return RecoveryResult(tuple(recovered), tuple(unknown), tuple(diagnostics))
 
     def rebuild_index(self) -> RecoveryResult:
+        """Reconstruct live reservation and status summaries from valid run files."""
+
         with exclusive_file_lock(self.lock_path):
             index, diagnostics = self._rebuild_index_locked()
             self._write_index_locked(index)
@@ -846,6 +968,8 @@ class AutomationStore:
         return RetentionResult(tuple(archived), tuple(deleted), tuple(diagnostics))
 
     def _checkpoint_locked(self, run: WorkflowRun) -> WorkflowRun:
+        """Revalidate, atomically write, and reindex one run while locked."""
+
         validated = WorkflowRun.model_validate(run.model_dump(mode="python"))
         self._write_run_locked(validated)
         index, _ = self._load_or_rebuild_index_locked()
@@ -854,6 +978,8 @@ class AutomationStore:
         return validated
 
     def _write_run_locked(self, run: WorkflowRun) -> None:
+        """Atomically persist one bounded run file with owner-only permissions."""
+
         content = run.model_dump_json(indent=2, by_alias=True) + "\n"
         if len(content.encode("utf-8")) > MAX_RUN_BYTES:
             raise AutomationStoreError(f"workflow run {run.id} exceeds {MAX_RUN_BYTES} bytes")
@@ -864,6 +990,8 @@ class AutomationStore:
         )
 
     def _load_run_locked(self, run_id: str) -> WorkflowRun:
+        """Load one live run while translating storage failures consistently."""
+
         try:
             return WorkflowRun.model_validate_json(
                 self._read_bounded(self._run_path(run_id), MAX_RUN_BYTES, "workflow run")
@@ -874,6 +1002,8 @@ class AutomationStore:
             raise AutomationStoreError(f"cannot load workflow run {run_id}: {exc}") from exc
 
     def _load_run_if_present_locked(self, run_id: str) -> WorkflowRun | None:
+        """Resolve an indexed live run or fail closed on unreadable state."""
+
         if not run_id:
             return None
         path = self._run_path(run_id)
@@ -887,6 +1017,8 @@ class AutomationStore:
             ) from exc
 
     def _find_run_locked(self, workflow_id: str, event_id: str) -> WorkflowRun | None:
+        """Find the oldest valid orphan matching an idempotency reservation."""
+
         matches: list[WorkflowRun] = []
         for path in self.runs_dir.glob("run-*.json"):
             try:
@@ -902,6 +1034,8 @@ class AutomationStore:
         return min(matches, key=lambda run: (run.created_at, run.id))
 
     def _load_or_rebuild_index_locked(self) -> tuple[dict[str, Any], list[str]]:
+        """Load a valid bounded index or reconstruct it from run checkpoints."""
+
         try:
             raw = json.loads(
                 self._read_bounded(self.index_path, MAX_INDEX_BYTES, "automation index")
@@ -917,6 +1051,8 @@ class AutomationStore:
             return self._rebuild_index_locked()
 
     def _rebuild_index_locked(self) -> tuple[dict[str, Any], list[str]]:
+        """Rebuild deterministic live summaries and resolve duplicate reservations."""
+
         index = _empty_index()
         diagnostics: list[str] = []
         reservations: dict[str, WorkflowRun] = {}
@@ -945,6 +1081,8 @@ class AutomationStore:
         return index, diagnostics
 
     def _index_run(self, index: dict[str, Any], run: WorkflowRun) -> None:
+        """Update one reservation and run summary in an in-memory index."""
+
         key = _reservation_key(run.workflow_id, run.event.id)
         index["reservations"][key] = {
             "workflow_id": run.workflow_id,
@@ -959,6 +1097,8 @@ class AutomationStore:
         }
 
     def _write_index_locked(self, index: dict[str, Any]) -> None:
+        """Atomically persist the reservation index with owner-only permissions."""
+
         atomic_write_text(
             self.index_path,
             json.dumps(index, indent=2, sort_keys=True) + "\n",
@@ -966,21 +1106,29 @@ class AutomationStore:
         )
 
     def _run_path(self, run_id: str) -> Path:
+        """Return a live run path after rejecting traversal and unsafe characters."""
+
         if not run_id.startswith("run-") or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for char in run_id):
             raise AutomationStoreError(f"invalid workflow run ID: {run_id!r}")
         return self.runs_dir / f"{run_id}.json"
 
     def _new_run_id(self) -> str:
+        """Generate a sortable timestamp-and-randomness run identifier."""
+
         now = _utc(self._clock()).strftime("%Y%m%dT%H%M%S%fZ")
         return f"run-{now}-{uuid4().hex[:12]}"
 
     @staticmethod
     def _read_bounded(path: Path, limit: int, label: str) -> str:
+        """Read UTF-8 text only after enforcing its on-disk byte bound."""
+
         if path.stat().st_size > limit:
             raise AutomationStoreError(f"{label} {path.name} exceeds {limit} bytes")
         return path.read_text(encoding="utf-8")
 
     def _next_available_run_id_locked(self) -> str:
+        """Allocate a collision-free run ID without overwriting prior evidence."""
+
         for _ in range(10):
             run_id = self._id_factory()
             if not self._run_path(run_id).exists():
@@ -989,19 +1137,27 @@ class AutomationStore:
 
 
 def _empty_index() -> dict[str, Any]:
+    """Return a fresh version-1 reservation index."""
+
     return {"version": 1, "reservations": {}, "runs": {}}
 
 
 def _reservation_key(workflow_id: str, event_id: str) -> str:
+    """Hash a length-delimited workflow/event identity into an index key."""
+
     return hashlib.sha256(f"{workflow_id}\0{event_id}".encode("utf-8")).hexdigest()
 
 
 def _verify_reservation(run: WorkflowRun, workflow_id: str, event_id: str) -> None:
+    """Fail closed if an index entry does not match its loaded run."""
+
     if run.workflow_id != workflow_id or run.event.id != event_id:
         raise AutomationStoreError("automation reservation hash collision or corrupt index")
 
 
 def _step_by_id(run: WorkflowRun, step_id: str) -> tuple[int, StepRun]:
+    """Return a stored step and index by exact declared identifier."""
+
     for index, step in enumerate(run.steps):
         if step.id == step_id:
             return index, step
@@ -1009,18 +1165,24 @@ def _step_by_id(run: WorkflowRun, step_id: str) -> tuple[int, StepRun]:
 
 
 def _replace_step(run: WorkflowRun, index: int, step: StepRun) -> WorkflowRun:
+    """Return an immutable run copy with one step checkpoint replaced."""
+
     steps = list(run.steps)
     steps[index] = step
     return run.model_copy(update={"steps": steps})
 
 
 def _active_attempt(step: StepRun) -> StepAttempt:
+    """Return the terminal-position running attempt or raise a transition error."""
+
     if not step.attempts or step.attempts[-1].status != "running":
         raise TransitionError(f"step {step.id!r} has no active attempt")
     return step.attempts[-1]
 
 
 def _utc(value: datetime) -> datetime:
+    """Require an aware store-clock value and normalize it to UTC."""
+
     if value.tzinfo is None or value.utcoffset() is None:
         raise AutomationStoreError("automation store clock must return a timezone-aware datetime")
     return value.astimezone(timezone.utc)

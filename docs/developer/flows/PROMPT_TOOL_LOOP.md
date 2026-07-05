@@ -176,7 +176,8 @@ extraction happen after the query run. See [Memory, sessions, and compaction](ME
 | Session-owned messages and usage | `src/openharness/engine/query_engine.py` | `QueryEngine.submit_message()`, `continue_pending()` |
 | Immutable turn dependencies | `src/openharness/engine/query.py` | `QueryContext` |
 | Provider/tool turn loop | `src/openharness/engine/query.py` | `run_query()` |
-| One governed tool invocation | `src/openharness/engine/query.py` | `_execute_tool_call()` |
+| Query carryover integration | `src/openharness/engine/query.py` | `_execute_tool_call()` |
+| Reusable governed invocation | `src/openharness/tools/executor.py` | `GovernedToolExecutor.execute()` |
 | Large-output pressure valve | `src/openharness/engine/query.py` | `_offload_tool_output_if_needed()` |
 | Compaction | `src/openharness/services/compact/__init__.py` | `auto_compact_if_needed()` |
 | Message shape and replay | `src/openharness/engine/messages.py` | `ConversationMessage`, `ToolUseBlock`, `ToolResultBlock` |
@@ -188,7 +189,7 @@ extraction happen after the query run. See [Memory, sessions, and compaction](ME
 | Change | Primary owner | Cross-flow checks |
 | --- | --- | --- |
 | Conversation/message shape | `src/openharness/engine/messages.py` | every provider, persistence, compaction, UI, `ohmo` |
-| Turn ordering/replay | `src/openharness/engine/query.py` | tools, providers, max turns, session resume |
+| Turn ordering/replay | `src/openharness/engine/query.py`, `src/openharness/tools/executor.py` | tools, providers, hooks, max turns, session resume |
 | Per-session state/usage | `src/openharness/engine/query_engine.py` | persistence and memory hooks |
 | Command versus prompt behavior | `src/openharness/ui/runtime.py`, command registry | local UI and remote `ohmo` commands |
 | Provider translation | selected client under `src/openharness/api/` | text, tools, reasoning, usage, errors |

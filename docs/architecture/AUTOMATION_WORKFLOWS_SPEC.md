@@ -71,8 +71,8 @@ can be added later through event/action adapters rather than becoming a prerequi
    destinations, paths, or approval policy.
 5. **Deterministic work stays deterministic.** Known actions do not require a model turn.
 6. **Every external effect is attributable.** Runs and steps have stable IDs and audit records.
-7. **At-least-once delivery is made safe with idempotency.** Exactly-once external side effects are
-   not claimed.
+7. **At-least-once delivery is bounded with idempotency.** Reservations deduplicate retained live
+   run history; exactly-once external side effects and deduplication beyond retention are not claimed.
 8. **Core remains reusable.** Generic definitions, matching, state, and running live under
    `src/openharness`; workspace, channel, and personal-memory adapters live under `ohmo`.
 9. **Project content is not silently trusted.** Project automation is disabled unless explicitly
@@ -116,7 +116,8 @@ continues.
 
 - **AUT-FR-001 — Normalized event.** Core defines a versioned `AutomationEvent` containing a stable
   ID, type, source, timestamp, actor, subject, JSON-safe payload, sanitized metadata, and an
-  `automation_generated` marker.
+  `automation_generated` marker. Credential-shaped keys and recognizable authorization/token values
+  are redacted before validation and persistence.
 - **AUT-FR-002 — Channel trigger.** `ohmo` converts every admitted channel message into a
   `channel.message` event with channel, chat, thread, sender, text, attachment descriptions, and
   platform message/event identifiers where available.
@@ -165,10 +166,15 @@ continues.
 - **AUT-FR-021 — Governed tool action.** A workflow can invoke an existing built-in, plugin, or MCP
   tool through a reusable governed executor that preserves schema validation, sensitive-path
   denial, permission rules, hooks, sandbox-aware effect routing, output bounds, and `ToolResult`
-  normalization.
+  normalization. Ohmo composes a dedicated runtime for the declared tool union and filters it again
+  for each workflow run. Until Docker sessions become runtime-scoped rather than process-global,
+  isolated automation rejects Docker-backed tool use instead of sharing or replacing another
+  session's container; SRT remains available.
 - **AUT-FR-022 — Restricted agent step.** An agent step loads the named skill content explicitly,
   runs in an isolated automation session, enforces step-specific model/turn/time limits, and exposes
-  only the intersection of workflow-allowed and installed tools.
+  only the intersection of workflow-allowed and installed tools. It excludes interactive Ohmo
+  identity/profile, personal and project memory, repository instructions, and other ambient prompt
+  context unless the workflow explicitly supplies equivalent data.
 - **AUT-FR-023 — Structured agent output.** An agent step declares an object-shaped output schema.
   Later steps cannot consume its output until the final response parses as JSON and validates. An
   invalid response may use the step retry policy but never silently becomes an empty object.
@@ -196,7 +202,9 @@ continues.
   retry-safe action but cannot erase completed step evidence.
 - **AUT-FR-033 — Idempotent intake.** The store atomically reserves
   `(workflow_id, event_id)` before execution. Repeated platform deliveries return the existing run.
-  Startup recovery can rebuild a corrupt or missing reservation index by scanning run files.
+  Startup recovery can rebuild a corrupt or missing reservation index by scanning live run files.
+  Once retention archives and deletes that history, a sufficiently old redelivery can create a new
+  run; version 1 does not retain unbounded tombstones.
 - **AUT-FR-034 — Action idempotency.** The runner supplies
   `<run_id>:<step_id>:<attempt>` plus a stable logical step key. Actions capable of server-side
   idempotency use the stable key. `channel.send` is deliberately non-retry-safe and records local
@@ -205,7 +213,8 @@ continues.
   The system must not report such queue acceptance as exactly-once or confirmed delivery.
 - **AUT-FR-035 — Retry and timeout.** Workflow defaults and step overrides define attempts,
   bounded exponential backoff, timeout, and retryable error categories. Validation, policy denial,
-  and approval rejection are not retried.
+  and approval rejection are not retried automatically. An explicit local operator retry grants
+  one additional attempt without deleting prior attempt history.
 - **AUT-FR-036 — Concurrency key.** A definition can render a concurrency key and choose `serialize`,
   `drop`, or `cancel_previous`. The service releases every acquired key during success, failure,
   and cancellation.
@@ -227,7 +236,8 @@ continues.
   resume position, and an explicit notification target or the admitted source conversation. The
   host delivers the request once with the run ID and approve/reject instructions. A run resumes only
   after an authenticated admitted actor approves it. `silent` workflows must configure an explicit
-  approval target rather than implicitly notifying the source.
+  approval target rather than implicitly notifying the source. Every explicit target must also be
+  present in `policy.channel_destinations`.
 - **AUT-FR-041 — Approval commands.** `ohmo` supports `/automation approve <run-id>` and
   `/automation reject <run-id> [reason]` through the gateway and equivalent local CLI commands.
   The actor must match the step allowlist; normal remote-admin configuration cannot bypass it.
@@ -518,7 +528,7 @@ ohmo automation cancel RUN_ID
 ohmo automation approve RUN_ID
 ```
 
-Gateway equivalents are limited to admitted, explicitly authorized approval/cancellation actions;
+Gateway equivalents are limited to admitted, explicitly authorized approval decisions;
 definition editing and arbitrary manual event submission remain local-only.
 
 ## Incremental delivery and commit gates

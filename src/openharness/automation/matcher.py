@@ -16,6 +16,8 @@ _MISSING = object()
 
 @dataclass(frozen=True)
 class ConditionOutcome:
+    """Trace entry describing one evaluated condition leaf."""
+
     path: str
     operator: str
     matched: bool
@@ -24,6 +26,8 @@ class ConditionOutcome:
 
 @dataclass(frozen=True)
 class MatchTrace:
+    """Workflow match decision with deterministic source and condition evidence."""
+
     matched: bool
     outcomes: tuple[ConditionOutcome, ...]
 
@@ -90,6 +94,8 @@ def _source_checks(
     definition: WorkflowDefinition,
     event: AutomationEvent,
 ) -> list[tuple[str, str | tuple[str, ...], str | None]]:
+    """Build exact source comparisons for configured non-empty trigger filters."""
+
     source = definition.trigger.source
     checks: list[tuple[str, str | tuple[str, ...], str | None]] = []
     if source.adapter is not None:
@@ -116,6 +122,8 @@ def evaluate_condition(
     outcomes: list[ConditionOutcome] = []
 
     def evaluate(node: Condition) -> bool:
+        """Evaluate one validated condition node with normal short-circuit rules."""
+
         if node.all is not None:
             return all(evaluate(child) for child in node.all)
         if node.any is not None:
@@ -132,6 +140,8 @@ def evaluate_condition(
 
 
 def resolve_path(context: dict[str, Any], path: str) -> Any:
+    """Resolve a validated dotted path or return the private missing sentinel."""
+
     current: Any = context
     for part in path.split("."):
         if not isinstance(current, dict) or part not in current:
@@ -141,6 +151,8 @@ def resolve_path(context: dict[str, Any], path: str) -> Any:
 
 
 def _apply_operator(actual: Any, operator: str, expected: Any) -> tuple[bool, str]:
+    """Apply one bounded operator without raising for incompatible JSON types."""
+
     exists = actual is not _MISSING
     if operator == "exists":
         wanted = True if expected is None else expected

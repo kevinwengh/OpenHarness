@@ -142,6 +142,40 @@ def test_failed_step_requires_override_when_outcome_is_unknown(store, workflow, 
     assert retried.steps[0].status == "pending"
 
 
+def test_operator_retry_grants_one_attempt_without_discarding_audit_history(
+    store,
+    workflow,
+    channel_event,
+) -> None:
+    run = store.reserve(workflow, channel_event).run
+    run = store.start_step(run.id, "assess", retry_safe=True)
+    run = store.fail_step(
+        run.id,
+        "assess",
+        error=RunError(category="failed", message="first attempt failed"),
+    )
+
+    run = store.retry_run(run.id)
+    assert run.steps[0].operator_retry_pending is True
+    run = store.start_step(run.id, "assess", retry_safe=True)
+
+    assert [attempt.number for attempt in run.steps[0].attempts] == [1, 2]
+    assert run.steps[0].operator_retry_pending is False
+
+
+def test_status_counts_repairs_index_without_reading_each_run_on_next_call(
+    store,
+    workflow,
+    channel_event,
+) -> None:
+    run = store.reserve(workflow, channel_event).run
+    store.index_path.write_text("not-json", encoding="utf-8")
+
+    assert store.status_counts() == {"pending": 1}
+    repaired = json.loads(store.index_path.read_text(encoding="utf-8"))
+    assert repaired["runs"][run.id]["status"] == "pending"
+
+
 def test_skip_and_cancel_update_current_state(store, workflow, channel_event) -> None:
     run = store.reserve(workflow, channel_event).run
     run = store.skip_step(run.id, "assess")

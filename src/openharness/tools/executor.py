@@ -21,7 +21,12 @@ OutputTransform = Callable[[str, str, str], tuple[str, Path | None]]
 
 @dataclass(frozen=True)
 class GovernedToolOutcome:
-    """Normalized result of one governed tool invocation."""
+    """Normalized host-independent result of one governed tool invocation.
+
+    The engine adapter converts this into a provider ``ToolResultBlock`` while
+    automation adapters convert it into their own durable action result. Paths
+    are included only for already-evaluated permission and artifact state.
+    """
 
     output: str
     is_error: bool
@@ -30,8 +35,22 @@ class GovernedToolOutcome:
     artifact_path: Path | None = None
 
 
+ResultObserver = Callable[[str, dict[str, object], GovernedToolOutcome], None]
+
+
 class GovernedToolExecutor:
-    """Apply hooks, validation, permission policy, and output bounds to one tool call."""
+    """Apply the shared safety sequence to model- and workflow-requested tools.
+
+    Integration: ``engine.query`` and automation hosts configure this executor
+    with their registry, policy, hooks, and output observer rather than
+    duplicating the governance path.
+
+    Event loop: ``execute`` awaits hooks, prompts, and the tool on the caller's
+    loop. Synchronous transforms and observers must remain bounded.
+
+    Change safety: Preserve pre-hook, lookup, validation, permission, execution,
+    output transform, result observer, and post-hook ordering.
+    """
 
     def __init__(
         self,
@@ -44,7 +63,14 @@ class GovernedToolExecutor:
         ask_user_prompt: AskUserPrompt | None = None,
         metadata: dict[str, object] | None = None,
         output_transform: OutputTransform | None = None,
+        result_observer: ResultObserver | None = None,
     ) -> None:
+        """Bind host-owned governance collaborators for subsequent invocations.
+
+        ``result_observer`` runs after output normalization and before the post
+        hook so hosts can checkpoint state using the historical engine ordering.
+        The executor does not own or close any supplied collaborator.
+        """
         self.registry = registry
         self.permission_checker = permission_checker
         self.cwd = Path(cwd).expanduser().resolve()
@@ -53,6 +79,7 @@ class GovernedToolExecutor:
         self.ask_user_prompt = ask_user_prompt
         self.metadata = metadata or {}
         self.output_transform = output_transform
+        self.result_observer = result_observer
 
     async def execute(
         self,
@@ -61,7 +88,12 @@ class GovernedToolExecutor:
         *,
         invocation_id: str,
     ) -> GovernedToolOutcome:
-        """Execute one exact-name tool call through the shared governance sequence."""
+        """Execute one exact-name tool call through the shared governance sequence.
+
+        Unknown tools, invalid input, denials, and tool exceptions become error
+        outcomes. Cancellation still propagates, and every accepted call uses a
+        validated Pydantic input plus a resolved ``ToolExecutionContext``.
+        """
 
         if self.hook_executor is not None:
             pre_hooks = await self.hook_executor.execute(
@@ -167,6 +199,8 @@ class GovernedToolExecutor:
             resolved_file_path=file_path,
             artifact_path=artifact_path,
         )
+        if self.result_observer is not None:
+            self.result_observer(tool_name, tool_input, outcome)
         if self.hook_executor is not None:
             await self.hook_executor.execute(
                 HookEvent.POST_TOOL_USE,
@@ -186,7 +220,11 @@ def resolve_permission_file_path(
     raw_input: dict[str, object],
     parsed_input: object,
 ) -> str | None:
-    """Resolve supported path fields against the governed execution cwd."""
+    """Resolve common raw or validated path fields for permission evaluation.
+
+    Raw input is checked first for compatibility with plugin schemas. This
+    helper never rewrites the arguments passed to the tool.
+    """
 
     for key in ("file_path", "path", "root"):
         value = raw_input.get(key)
@@ -209,7 +247,11 @@ def extract_permission_command(
     raw_input: dict[str, object],
     parsed_input: object,
 ) -> str | None:
-    """Return the command field used by command-deny permission rules."""
+    """Return the raw or validated command used by command-deny policy.
+
+    Extraction is deliberately side-effect free: permission policy observes the
+    same command string that the tool will later receive.
+    """
 
     value = raw_input.get("command")
     if isinstance(value, str) and value.strip():

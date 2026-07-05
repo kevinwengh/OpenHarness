@@ -108,6 +108,29 @@ def test_automation_validate_list_show_and_dry_run(tmp_path: Path, monkeypatch) 
     assert not list((workspace / "automation" / "runs").glob("*.json"))
 
 
+def test_automation_event_input_is_bounded_before_json_parsing(tmp_path: Path) -> None:
+    workspace = initialize_workspace(tmp_path / "workspace")
+    _write_workflow(workspace)
+    event = tmp_path / "oversized-event.json"
+    event.write_text(" " * (512 * 1024 + 1), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "automation",
+            "test",
+            "remember-event",
+            "--event",
+            str(event),
+            "--workspace",
+            str(workspace),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "event input exceeds 524288 bytes" in result.output
+
+
 def test_automation_run_runs_and_inspect_redact_secrets(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     workspace = initialize_workspace(tmp_path / "workspace")
@@ -134,6 +157,10 @@ def test_automation_run_runs_and_inspect_redact_secrets(tmp_path: Path, monkeypa
     run_id = payload["run"]["id"]
     assert payload["run"]["status"] == "completed"
     assert payload["run"]["event"]["metadata"]["api_key"] == "[REDACTED]"
+    persisted = (workspace / "automation" / "runs" / f"{run_id}.json").read_text(
+        encoding="utf-8"
+    )
+    assert "must-not-display" not in persisted
 
     runs = runner.invoke(app, ["automation", "runs", "--workspace", str(workspace)])
     inspected = runner.invoke(

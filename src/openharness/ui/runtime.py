@@ -199,6 +199,7 @@ class RuntimeBundle:
     tool_allowlist: tuple[str, ...] | None = None
     post_turn_memory_enabled: bool = True
     session_lifecycle_enabled: bool = True
+    sandbox_lifecycle_enabled: bool = True
 
     def current_settings(self):
         """Return the effective settings for this session.
@@ -467,13 +468,22 @@ async def build_runtime(
     tool_allowlist: Iterable[str] | None = None,
     post_turn_memory_enabled: bool = True,
     session_lifecycle_enabled: bool = True,
+    sandbox_lifecycle_enabled: bool = True,
     coordinator_mode: bool | None = None,
+    include_ambient_context: bool = True,
 ) -> RuntimeBundle:
     """Compose a complete, not-yet-started OpenHarness runtime session.
 
     Ordering is contractual: merge settings/overrides, discover trusted plugins,
     resolve auth/client, connect MCP, assemble tools/hooks/state/prompt, restore
     sanitized messages and carryover, then start an optional Docker sandbox.
+    ``tool_allowlist`` is enforced after built-in, MCP, and trusted-plugin tool
+    discovery and rejects missing names. The memory, lifecycle, coordinator, and
+    ambient-context switches let a host compose an isolated non-conversational
+    runtime without changing interactive defaults. A runtime that disables
+    sandbox lifecycle may not expose tools under the process-global Docker
+    backend, because it cannot safely own that shared container.
+
     Callers must later pair the returned bundle with ``start_runtime`` and
     ``close_runtime`` on the same event loop. Changes require tracing provider
     selection, plugin trust, MCP/tool registration, permissions, hooks, session
@@ -526,6 +536,21 @@ async def build_runtime(
                 + ", ".join(missing_tools)
             )
         tool_registry = tool_registry.filtered(normalized_tool_allowlist)
+    if (
+        settings.sandbox.enabled
+        and settings.sandbox.backend == "docker"
+        and not sandbox_lifecycle_enabled
+        and normalized_tool_allowlist
+    ):
+        await mcp_manager.close()
+        if api_client is None:
+            close_api_client = getattr(resolved_api_client, "close", None)
+            if close_api_client is not None:
+                await close_api_client()
+        raise ValueError(
+            "isolated runtime cannot use Docker sandbox with tools; "
+            "use the SRT backend or disable those automation tools"
+        )
     provider = detect_provider(settings)
     bridge_manager = get_bridge_manager()
     app_state = AppStateStore(
@@ -571,6 +596,7 @@ async def build_runtime(
         extra_plugin_roots=normalized_plugin_roots,
         include_project_memory=include_project_memory,
         coordinator_mode=coordinator_mode,
+        include_ambient_context=include_ambient_context,
     )
     from uuid import uuid4
 
@@ -638,7 +664,11 @@ async def build_runtime(
         engine.load_messages(restored)
 
     # Start Docker sandbox if configured
-    if settings.sandbox.enabled and settings.sandbox.backend == "docker":
+    if (
+        sandbox_lifecycle_enabled
+        and settings.sandbox.enabled
+        and settings.sandbox.backend == "docker"
+    ):
         from openharness.sandbox.session import start_docker_sandbox
 
         await start_docker_sandbox(settings, session_id, Path(cwd))
@@ -672,6 +702,7 @@ async def build_runtime(
         tool_allowlist=normalized_tool_allowlist,
         post_turn_memory_enabled=post_turn_memory_enabled,
         session_lifecycle_enabled=session_lifecycle_enabled,
+        sandbox_lifecycle_enabled=sandbox_lifecycle_enabled,
     )
 
 
@@ -696,9 +727,10 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
     is best-effort, while owned clients must be awaited. External-client ownership
     changes need an explicit close contract to avoid leaks or double close.
     """
-    from openharness.sandbox.session import stop_docker_sandbox
+    if bundle.sandbox_lifecycle_enabled:
+        from openharness.sandbox.session import stop_docker_sandbox
 
-    await stop_docker_sandbox()
+        await stop_docker_sandbox()
     if bundle.session_lifecycle_enabled:
         # Extract local environment rules from interactive sessions before closing.
         try:

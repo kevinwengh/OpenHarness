@@ -369,18 +369,13 @@ class OhmoGatewayService:
         Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
         exception and fallback behavior expected by callers.
         """
-        self.pid_file.write_text(str(os.getpid()), encoding="utf-8")
-        self.write_state(running=True)
-        await self._automation_service.start()
-        bridge_task = asyncio.create_task(self._bridge.run(), name="ohmo-gateway-bridge")
-        manager_task = asyncio.create_task(self._manager.start_all(), name="ohmo-gateway-channels")
-        restart_notice_task = asyncio.create_task(
-            self._publish_pending_restart_notice(),
-            name="ohmo-gateway-restart-notice",
-        )
         stop_event = asyncio.Event()
         self._stop_event = stop_event
         self._restart_requested = False
+        bridge_task: asyncio.Task | None = None
+        manager_task: asyncio.Task | None = None
+        restart_notice_task: asyncio.Task | None = None
+        state_task: asyncio.Task | None = None
 
         def _stop(*_: object) -> None:
             """Stop the active ohmo gateway service.run foreground lifecycle.
@@ -395,11 +390,6 @@ class OhmoGatewayService:
             """
             stop_event.set()
 
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            with contextlib.suppress(NotImplementedError):
-                loop.add_signal_handler(sig, _stop)
-
         async def _state_heartbeat() -> None:
             """Run the state heartbeat workflow through its asynchronous collaborators.
 
@@ -413,35 +403,60 @@ class OhmoGatewayService:
             expected by callers.
             """
             while not stop_event.is_set():
-                self.write_state(running=True)
+                await asyncio.to_thread(self.write_state, running=True)
                 await asyncio.sleep(5.0)
 
-        state_task = asyncio.create_task(_state_heartbeat(), name="ohmo-gateway-state")
-
         try:
+            # Automation startup owns runtime resources and persistent recovery.
+            # Acquire it inside the same cleanup scope as channels so any startup
+            # exception cannot leave a stale gateway PID/state or open runtime.
+            await self._automation_service.start()
+            self.pid_file.write_text(str(os.getpid()), encoding="utf-8")
+            await asyncio.to_thread(self.write_state, running=True)
+            bridge_task = asyncio.create_task(self._bridge.run(), name="ohmo-gateway-bridge")
+            manager_task = asyncio.create_task(
+                self._manager.start_all(),
+                name="ohmo-gateway-channels",
+            )
+            restart_notice_task = asyncio.create_task(
+                self._publish_pending_restart_notice(),
+                name="ohmo-gateway-restart-notice",
+            )
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                with contextlib.suppress(NotImplementedError):
+                    loop.add_signal_handler(sig, _stop)
+            state_task = asyncio.create_task(_state_heartbeat(), name="ohmo-gateway-state")
             await stop_event.wait()
         except Exception as exc:
-            self.write_state(running=False, last_error=str(exc))
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(
+                    self.write_state,
+                    running=False,
+                    last_error=str(exc),
+                )
             raise
         finally:
             self._bridge.stop()
-            bridge_task.cancel()
-            manager_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await bridge_task
-            with contextlib.suppress(asyncio.CancelledError):
-                await manager_task
+            for task in (bridge_task, manager_task):
+                if task is not None and not task.done():
+                    task.cancel()
+            for task in (bridge_task, manager_task):
+                if task is not None:
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
             await self._automation_service.stop()
-            if not state_task.done():
+            if state_task is not None and not state_task.done():
                 state_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await state_task
-            if not restart_notice_task.done():
+            if restart_notice_task is not None and not restart_notice_task.done():
                 restart_notice_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await restart_notice_task
             await self._manager.stop_all()
-            self.write_state(running=False)
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(self.write_state, running=False)
             self.pid_file.unlink(missing_ok=True)
             self._stop_event = None
         if self._restart_requested:

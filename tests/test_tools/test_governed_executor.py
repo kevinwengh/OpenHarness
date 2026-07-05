@@ -61,6 +61,7 @@ def _executor(
     hooks=None,
     permission_prompt=None,
     output_transform=None,
+    result_observer=None,
 ) -> GovernedToolExecutor:
     registry = ToolRegistry()
     registry.register(tool)
@@ -72,6 +73,7 @@ def _executor(
         permission_prompt=permission_prompt,
         metadata={"custom": "metadata"},
         output_transform=output_transform,
+        result_observer=result_observer,
     )
 
 
@@ -79,11 +81,18 @@ def _executor(
 async def test_executor_preserves_hook_permission_execution_and_output_order(tmp_path: Path) -> None:
     tool = RecordingTool(read_only=True)
     hooks = RecordingHooks()
+    observed: list[tuple[str, str, str]] = []
+
+    def observe_result(name, raw_input, outcome) -> None:
+        assert [event for event, _ in hooks.calls] == [HookEvent.PRE_TOOL_USE]
+        observed.append((name, str(raw_input["value"]), outcome.output))
+
     executor = _executor(
         tmp_path,
         tool,
         hooks=hooks,
         output_transform=lambda name, invocation, output: (f"{name}:{invocation}:{output}", None),
+        result_observer=observe_result,
     )
 
     outcome = await executor.execute(
@@ -95,6 +104,7 @@ async def test_executor_preserves_hook_permission_execution_and_output_order(tmp
     assert outcome.output == "recording:call-1:done"
     assert outcome.metadata == {"recorded": True}
     assert outcome.resolved_file_path == str((tmp_path / "file.txt").resolve())
+    assert observed == [("recording", "done", "recording:call-1:done")]
     assert [event for event, _ in hooks.calls] == [HookEvent.PRE_TOOL_USE, HookEvent.POST_TOOL_USE]
     assert tool.calls[0][1].metadata["custom"] == "metadata"
 

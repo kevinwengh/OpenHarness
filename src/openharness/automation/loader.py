@@ -45,6 +45,8 @@ def _construct_unique_mapping(
     node: MappingNode,
     deep: bool = False,
 ) -> dict:
+    """Construct one YAML mapping while rejecting duplicate or unhashable keys."""
+
     loader.flatten_mapping(node)
     mapping: dict = {}
     for key_node, value_node in node.value:
@@ -77,6 +79,8 @@ _WorkflowSafeLoader.add_constructor(
 
 @dataclass(frozen=True)
 class DefinitionDiagnostic:
+    """File-scoped reason a workflow definition was excluded from loading."""
+
     path: Path
     message: str
     workflow_id: str | None = None
@@ -84,6 +88,8 @@ class DefinitionDiagnostic:
 
 @dataclass(frozen=True)
 class DefinitionLoadResult:
+    """Deterministically ordered valid definitions and bounded diagnostics."""
+
     definitions: tuple[WorkflowDefinition, ...]
     diagnostics: tuple[DefinitionDiagnostic, ...]
 
@@ -187,6 +193,8 @@ def load_workflow_definitions(
 
 
 def _validation_message(exc: ValidationError) -> str:
+    """Render the first Pydantic error plus a count of remaining failures."""
+
     errors = exc.errors(include_url=False)
     if not errors:
         return "definition validation failed"
@@ -199,6 +207,8 @@ def _validation_message(exc: ValidationError) -> str:
 
 
 def _plaintext_secret_path(value, *, path: str = "definition") -> str | None:
+    """Return the first credential-shaped key or value path in a definition."""
+
     if isinstance(value, dict):
         for key, item in value.items():
             normalized = str(key).lower().replace("-", "_")

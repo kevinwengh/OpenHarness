@@ -203,7 +203,16 @@ class ToolRegistry:
         return list(self._tools.values())
 
     def filtered(self, names: set[str] | list[str] | tuple[str, ...]) -> "ToolRegistry":
-        """Return a registry exposing only the requested installed tool names."""
+        """Return a registry exposing only requested installed tool names.
+
+        Integration: Isolated automation runtimes use this as a capability
+        boundary before model schema exposure and again before governed action
+        execution. Missing names are omitted; composition code that requires an
+        exact allowlist validates availability before calling this helper.
+
+        Concurrency: The new registry shares immutable tool instances with the
+        source and does not mutate the source registry.
+        """
 
         selected = ToolRegistry()
         for name in names:

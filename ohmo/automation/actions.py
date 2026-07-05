@@ -17,6 +17,7 @@ from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.memory.schema import split_memory_file
 
+from ohmo.automation.events import bounded_event_ancestry
 from ohmo.memory import add_memory_entry
 from ohmo.workspace import get_attachments_dir
 
@@ -24,6 +25,8 @@ _NAME = re.compile(r"^[a-z][a-z0-9._-]{0,127}$")
 
 
 class ChannelSendInput(BaseModel):
+    """Strict outbound-message fields accepted from rendered workflow data."""
+
     model_config = ConfigDict(extra="forbid")
 
     channel: str = Field(min_length=1, max_length=64)
@@ -36,6 +39,8 @@ class ChannelSendInput(BaseModel):
     @field_validator("channel")
     @classmethod
     def _normalize_channel(cls, value: str) -> str:
+        """Normalize the exact channel adapter identifier."""
+
         normalized = value.strip().lower()
         if not _NAME.fullmatch(normalized):
             raise ValueError("channel must be a lowercase identifier")
@@ -44,6 +49,8 @@ class ChannelSendInput(BaseModel):
     @field_validator("chat_id", "content", "thread_id", "reply_to")
     @classmethod
     def _strip_text(cls, value: str | None) -> str | None:
+        """Trim required and optional text fields while rejecting blanks."""
+
         if value is None:
             return None
         normalized = value.strip()
@@ -53,11 +60,20 @@ class ChannelSendInput(BaseModel):
 
 
 class ChannelSendAction(AutomationAction):
+    """Publish a policy-authorized message through Ohmo's existing bus.
+
+    Queue acceptance is the only success guarantee; adapters do not expose a
+    durable remote-delivery acknowledgement, so this action remains
+    intentionally non-retry-safe.
+    """
+
     name = "channel.send"
     description = "Queue a message to a workflow-authorized channel destination."
     input_model = ChannelSendInput
 
     def __init__(self, bus: MessageBus, workspace: str | Path) -> None:
+        """Bind the host bus and resolve the only permitted media root."""
+
         self._bus = bus
         self._media_root = get_attachments_dir(workspace).expanduser().resolve()
 
@@ -66,6 +82,8 @@ class ChannelSendAction(AutomationAction):
         arguments: ChannelSendInput,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        """Validate destination/media policy and enqueue one outbound message."""
+
         allowed = context.run.definition.policy.channel_destinations.get(arguments.channel, [])
         if arguments.chat_id not in allowed:
             return ActionResult(
@@ -76,11 +94,11 @@ class ChannelSendAction(AutomationAction):
                     "by the workflow"
                 ),
             )
-        ancestry = [
+        ancestry = bounded_event_ancestry(
             *context.run.event.ancestry,
             context.run.event.id,
             context.run.id,
-        ][-16:]
+        )
         metadata: dict[str, object] = {
             "_automation": {
                 "generated": True,
@@ -125,6 +143,8 @@ class ChannelSendAction(AutomationAction):
 
 
 class KnowledgeUpsertInput(BaseModel):
+    """Strict namespace, title, and content for personal-memory upsert."""
+
     model_config = ConfigDict(extra="forbid")
 
     namespace: str = Field(min_length=1, max_length=128)
@@ -134,6 +154,8 @@ class KnowledgeUpsertInput(BaseModel):
     @field_validator("namespace")
     @classmethod
     def _normalize_namespace(cls, value: str) -> str:
+        """Normalize the policy and storage namespace identifier."""
+
         normalized = value.strip().lower()
         if not _NAME.fullmatch(normalized):
             raise ValueError("namespace must be a lowercase identifier")
@@ -142,6 +164,8 @@ class KnowledgeUpsertInput(BaseModel):
     @field_validator("title", "content")
     @classmethod
     def _strip_content(cls, value: str) -> str:
+        """Trim memory title/content and reject empty persisted values."""
+
         normalized = value.strip()
         if not normalized:
             raise ValueError("value cannot be blank")
@@ -149,14 +173,20 @@ class KnowledgeUpsertInput(BaseModel):
 
 
 class KnowledgeUpsertAction(AutomationAction):
+    """Upsert one policy-authorized Ohmo personal-memory entry."""
+
     name = "knowledge.upsert"
     description = "Upsert one workflow-authorized entry in Ohmo personal memory."
     input_model = KnowledgeUpsertInput
 
     def __init__(self, workspace: str | Path) -> None:
+        """Bind the resolved workspace that owns memory schema and index state."""
+
         self._workspace = Path(workspace).expanduser().resolve()
 
     def is_retry_safe(self, arguments: KnowledgeUpsertInput) -> bool:
+        """Declare replay safe because namespace and title form the stable identity."""
+
         del arguments
         # Namespace + title is the stable upsert identity; replay updates the same
         # schema-backed file and preserves its memory ID.
@@ -167,6 +197,8 @@ class KnowledgeUpsertAction(AutomationAction):
         arguments: KnowledgeUpsertInput,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        """Enforce namespace policy and write through the memory subsystem."""
+
         if arguments.namespace not in context.run.definition.policy.knowledge_namespaces:
             return ActionResult(
                 is_error=True,
@@ -198,11 +230,15 @@ class KnowledgeUpsertAction(AutomationAction):
 
 
 def _read_memory_metadata(path: Path) -> dict:
+    """Read only the schema metadata needed for the action result."""
+
     metadata, _, _, _ = split_memory_file(path.read_text(encoding="utf-8"))
     return metadata
 
 
 def _resolve_media_paths(references: list[str], root: Path) -> list[str]:
+    """Resolve existing files and confine every reference beneath attachments."""
+
     resolved: list[str] = []
     for reference in references:
         if len(reference) > 4096:

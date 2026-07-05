@@ -22,6 +22,14 @@ _EVENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9._-]{0,127}$")
 _PATH_RE = re.compile(r"^(event|run|steps)(?:\.[A-Za-z0-9_-]+)+$")
 _OUTPUT_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,127}$")
+_SENSITIVE_EVENT_KEY_RE = re.compile(
+    r"(?:^|_)(?:api_?key|access_?token|auth_?token|authorization|bot_?token|credential|"
+    r"password|private_?key|refresh_?token|secret|token)(?:$|_)"
+)
+_SENSITIVE_EVENT_VALUE_RE = re.compile(
+    r"(?i)(?:sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
+    r"gh[pousr]_[A-Za-z0-9]{16,}|AKIA[A-Z0-9]{16,})"
+)
 
 
 class AutomationModel(BaseModel):
@@ -31,6 +39,8 @@ class AutomationModel(BaseModel):
 
 
 def validate_json_value(value: Any, *, path: str = "value", depth: int = 0) -> Any:
+    """Validate and normalize a bounded-depth value to the strict JSON domain."""
+
     if depth > 24:
         raise ValueError(f"{path} exceeds the maximum JSON nesting depth")
     if isinstance(value, float) and not math.isfinite(value):
@@ -56,7 +66,34 @@ def validate_json_value(value: Any, *, path: str = "value", depth: int = 0) -> A
     raise ValueError(f"{path} contains non-JSON value {type(value).__name__}")
 
 
+def redact_sensitive_event_value(
+    value: Any,
+    *,
+    key: str | None = None,
+) -> Any:
+    """Return a JSON value with credential-shaped event content replaced."""
+
+    if key is not None:
+        normalized_key = key.lower().replace("-", "_")
+        if _SENSITIVE_EVENT_KEY_RE.search(normalized_key):
+            return "[REDACTED]"
+    if isinstance(value, dict):
+        return {
+            item_key: redact_sensitive_event_value(item, key=item_key)
+            for item_key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_sensitive_event_value(item) for item in value]
+    if isinstance(value, str):
+        if value.lower().startswith(("bearer ", "basic ")):
+            return "[REDACTED]"
+        return _SENSITIVE_EVENT_VALUE_RE.sub("[REDACTED]", value)
+    return value
+
+
 def _validate_name(value: str, *, label: str) -> str:
+    """Normalize a stable lowercase automation identifier."""
+
     normalized = value.strip()
     if not _IDENTIFIER_RE.fullmatch(normalized):
         raise ValueError(
@@ -115,6 +152,8 @@ def _validate_regex_quantifier_cost(pattern: str) -> None:
 
 
 class EventSource(AutomationModel):
+    """Normalized adapter and account identity that emitted an event."""
+
     adapter: str = Field(min_length=1, max_length=64)
     channel: str | None = Field(default=None, max_length=64)
     account: str | None = Field(default=None, max_length=128)
@@ -122,17 +161,23 @@ class EventSource(AutomationModel):
 
 
 class EventActor(AutomationModel):
+    """Admitted external or local actor associated with an event."""
+
     id: str = Field(min_length=1, max_length=256)
     display_name: str | None = Field(default=None, max_length=256)
 
 
 class EventSubject(AutomationModel):
+    """Optional conversation and message coordinates for an event."""
+
     chat_id: str | None = Field(default=None, max_length=512)
     thread_id: str | None = Field(default=None, max_length=512)
     message_id: str | None = Field(default=None, max_length=512)
 
 
 class AutomationEvent(AutomationModel):
+    """Versioned, bounded, credential-redacted event consumed by workflows."""
+
     version: Literal[1] = 1
     id: str = Field(min_length=1, max_length=256)
     type: str = Field(min_length=1, max_length=256)
@@ -148,6 +193,8 @@ class AutomationEvent(AutomationModel):
     @field_validator("id", "type")
     @classmethod
     def _validate_event_name(cls, value: str) -> str:
+        """Restrict event IDs and types to portable persisted characters."""
+
         if not _EVENT_NAME_RE.fullmatch(value):
             raise ValueError("must contain only letters, digits, dots, underscores, colons, slashes, or hyphens")
         return value
@@ -155,6 +202,8 @@ class AutomationEvent(AutomationModel):
     @field_validator("occurred_at")
     @classmethod
     def _normalize_timestamp(cls, value: datetime) -> datetime:
+        """Require an aware event timestamp and normalize it to UTC."""
+
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("occurred_at must include a timezone")
         return value.astimezone(timezone.utc)
@@ -162,7 +211,9 @@ class AutomationEvent(AutomationModel):
     @field_validator("payload", "metadata")
     @classmethod
     def _validate_json_mapping(cls, value: dict[str, Any]) -> dict[str, Any]:
-        normalized = validate_json_value(value)
+        """Redact and size-bound event payload or metadata before persistence."""
+
+        normalized = redact_sensitive_event_value(validate_json_value(value))
         encoded = json.dumps(
             normalized,
             ensure_ascii=False,
@@ -176,6 +227,8 @@ class AutomationEvent(AutomationModel):
     @field_validator("ancestry")
     @classmethod
     def _validate_ancestry(cls, value: list[str]) -> list[str]:
+        """Require unique bounded ancestry entries for loop prevention."""
+
         if any(not item.strip() or len(item) > 256 for item in value):
             raise ValueError("ancestry entries must be non-empty and at most 256 characters")
         if len(value) != len(set(value)):
@@ -184,6 +237,8 @@ class AutomationEvent(AutomationModel):
 
 
 class TriggerSource(AutomationModel):
+    """Optional exact-match source filters applied before workflow conditions."""
+
     adapter: str | None = Field(default=None, max_length=64)
     channel: str | None = Field(default=None, max_length=64)
     accounts: list[str] = Field(default_factory=list, max_length=100)
@@ -195,6 +250,8 @@ class TriggerSource(AutomationModel):
     @field_validator("accounts", "chat_ids", "thread_ids", "actor_ids")
     @classmethod
     def _unique_filters(cls, value: list[str]) -> list[str]:
+        """Normalize source allowlists while rejecting blanks and duplicates."""
+
         normalized = [item.strip() for item in value]
         if any(not item or len(item) > 512 for item in normalized):
             raise ValueError("source filter values must be non-empty and at most 512 characters")
@@ -204,12 +261,16 @@ class TriggerSource(AutomationModel):
 
 
 class WorkflowTrigger(AutomationModel):
+    """Event type and source gate that admit a workflow candidate."""
+
     event: str = Field(min_length=1, max_length=256)
     source: TriggerSource = Field(default_factory=TriggerSource)
 
     @field_validator("event")
     @classmethod
     def _validate_event_type(cls, value: str) -> str:
+        """Apply the portable event-name grammar to trigger types."""
+
         if not _EVENT_NAME_RE.fullmatch(value):
             raise ValueError("trigger event contains unsupported characters")
         return value
@@ -234,6 +295,8 @@ ConditionOperator = Literal[
 
 
 class Condition(AutomationModel):
+    """Validated leaf or Boolean group in the safe condition language."""
+
     path: str | None = None
     op: ConditionOperator | None = None
     value: Any = None
@@ -243,6 +306,8 @@ class Condition(AutomationModel):
 
     @model_validator(mode="after")
     def _validate_shape(self) -> "Condition":
+        """Enforce one unambiguous expression shape and operator requirements."""
+
         group_fields = [self.all is not None, self.any is not None, self.not_condition is not None]
         is_leaf = self.path is not None or self.op is not None
         if sum(group_fields) + int(is_leaf) != 1:
@@ -272,29 +337,39 @@ class Condition(AutomationModel):
 
 
 class RetryPolicy(AutomationModel):
+    """Bounded attempt count and per-retry delay schedule."""
+
     attempts: int = Field(default=1, ge=1, le=10)
     backoff_seconds: list[float] = Field(default_factory=list, max_length=9)
 
     @field_validator("backoff_seconds")
     @classmethod
     def _validate_backoff(cls, value: list[float]) -> list[float]:
+        """Reject non-finite, negative, or excessively long retry delays."""
+
         if any(not math.isfinite(item) or item < 0 or item > 3600 for item in value):
             raise ValueError("backoff values must be between 0 and 3600 seconds")
         return value
 
 
 class WorkflowDefaults(AutomationModel):
+    """Workflow-wide retry, step-timeout, and total-duration defaults."""
+
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     timeout_seconds: int = Field(default=120, ge=1, le=3600)
     max_run_seconds: int = Field(default=604800, ge=1, le=604800)
 
 
 class WorkflowConcurrency(AutomationModel):
+    """Rendered concurrency key and conflict policy for matching runs."""
+
     key: str = Field(min_length=1, max_length=1024)
     policy: Literal["serialize", "drop", "cancel_previous"] = "serialize"
 
 
 class WorkflowPolicy(AutomationModel):
+    """Declarative action, tool, destination, and knowledge capability bounds."""
+
     allowed_actions: list[str] = Field(default_factory=list, max_length=128)
     allowed_tools: list[str] = Field(default_factory=list, max_length=128)
     channel_destinations: dict[str, list[str]] = Field(default_factory=dict)
@@ -303,6 +378,8 @@ class WorkflowPolicy(AutomationModel):
     @field_validator("allowed_actions", "allowed_tools", "knowledge_namespaces")
     @classmethod
     def _validate_policy_names(cls, value: list[str], info) -> list[str]:
+        """Normalize named capability lists and reject duplicate entries."""
+
         normalized = [_validate_name(item, label=info.field_name) for item in value]
         if len(normalized) != len(set(normalized)):
             raise ValueError(f"{info.field_name} entries must be unique")
@@ -311,6 +388,8 @@ class WorkflowPolicy(AutomationModel):
     @field_validator("channel_destinations")
     @classmethod
     def _validate_destinations(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        """Normalize exact per-channel destination allowlists."""
+
         normalized: dict[str, list[str]] = {}
         for channel, destinations in value.items():
             channel_name = _validate_name(channel, label="channel")
@@ -324,17 +403,30 @@ class WorkflowPolicy(AutomationModel):
 
 
 class AgentOutputField(AutomationModel):
+    """Minimal JSON type contract for one structured agent output field."""
+
     type: Literal["string", "integer", "number", "boolean", "object", "array"]
     required: bool = True
 
 
 class ApprovalTarget(AutomationModel):
+    """Explicit policy-authorized conversation for an approval request."""
+
     channel: str = Field(min_length=1, max_length=64)
     chat_id: str = Field(min_length=1, max_length=512)
     thread_id: str | None = Field(default=None, max_length=512)
 
+    @field_validator("channel")
+    @classmethod
+    def _validate_channel(cls, value: str) -> str:
+        """Normalize the approval target's channel identifier."""
+
+        return _validate_name(value, label="approval target channel")
+
 
 class StepBase(AutomationModel):
+    """Fields shared by sequential action, agent, and approval steps."""
+
     id: str
     when: Condition | None = None
     retry: RetryPolicy | None = None
@@ -343,10 +435,14 @@ class StepBase(AutomationModel):
     @field_validator("id")
     @classmethod
     def _validate_step_id(cls, value: str) -> str:
+        """Normalize the stable step identifier used by templates and state."""
+
         return _validate_name(value, label="step id")
 
 
 class ActionStep(StepBase):
+    """Typed host-action invocation with recursively rendered arguments."""
+
     type: Literal["action"]
     action: str
     arguments: dict[str, Any] = Field(default_factory=dict, alias="with")
@@ -354,15 +450,21 @@ class ActionStep(StepBase):
     @field_validator("action")
     @classmethod
     def _validate_action(cls, value: str) -> str:
+        """Normalize the exact action registry name."""
+
         return _validate_name(value, label="action")
 
     @field_validator("arguments")
     @classmethod
     def _validate_arguments(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Restrict persisted action templates to JSON-safe values."""
+
         return validate_json_value(value)
 
 
 class AgentStep(StepBase):
+    """Bounded named-skill judgment step with an exact tool allowlist."""
+
     type: Literal["agent"]
     skill: str
     model: str | None = Field(default=None, max_length=256)
@@ -373,11 +475,15 @@ class AgentStep(StepBase):
     @field_validator("skill")
     @classmethod
     def _validate_skill(cls, value: str) -> str:
+        """Normalize the skill name resolved by normal registry precedence."""
+
         return _validate_name(value, label="skill")
 
     @field_validator("allowed_tools")
     @classmethod
     def _validate_tools(cls, value: list[str]) -> list[str]:
+        """Normalize the step-specific tool subset and reject duplicates."""
+
         normalized = [_validate_name(item, label="tool") for item in value]
         if len(normalized) != len(set(normalized)):
             raise ValueError("allowed_tools entries must be unique")
@@ -389,12 +495,16 @@ class AgentStep(StepBase):
         cls,
         value: dict[str, AgentOutputField],
     ) -> dict[str, AgentOutputField]:
+        """Require portable field names for structured model output."""
+
         if any(not _OUTPUT_FIELD_RE.fullmatch(name) for name in value):
             raise ValueError("output field names must be identifiers")
         return value
 
 
 class ApprovalStep(StepBase):
+    """Durable actor-authorized pause with bounded expiry and destination."""
+
     type: Literal["approval"]
     prompt: str = Field(min_length=1, max_length=4000)
     approver_ids: list[str] = Field(min_length=1, max_length=100)
@@ -404,6 +514,8 @@ class ApprovalStep(StepBase):
     @field_validator("approver_ids")
     @classmethod
     def _validate_approvers(cls, value: list[str]) -> list[str]:
+        """Normalize the exact actor allowlist used for approval decisions."""
+
         normalized = [item.strip() for item in value]
         if any(not item or len(item) > 256 for item in normalized):
             raise ValueError("approver IDs must be non-empty and at most 256 characters")
@@ -419,6 +531,13 @@ WorkflowStep = Annotated[
 
 
 class WorkflowDefinition(AutomationModel):
+    """Complete immutable version-1 workflow definition snapshot.
+
+    Cross-field validation ensures every executable capability is declared in
+    policy, step IDs are unique, approval targets are authorized, and condition
+    trees remain within deterministic bounds.
+    """
+
     version: Literal[1]
     id: str
     description: str = Field(default="", max_length=1000)
@@ -435,10 +554,14 @@ class WorkflowDefinition(AutomationModel):
     @field_validator("id")
     @classmethod
     def _validate_workflow_id(cls, value: str) -> str:
+        """Normalize the workflow identity used by reservations and filenames."""
+
         return _validate_name(value, label="workflow id")
 
     @model_validator(mode="after")
     def _validate_workflow(self) -> "WorkflowDefinition":
+        """Validate cross-step policy, destination, and condition invariants."""
+
         step_ids = [step.id for step in self.steps]
         if len(step_ids) != len(set(step_ids)):
             raise ValueError("workflow step IDs must be unique")
@@ -457,6 +580,15 @@ class WorkflowDefinition(AutomationModel):
                 and step.target is None
             ):
                 raise ValueError("silent workflows require an explicit target for approval steps")
+            if isinstance(step, ApprovalStep) and step.target is not None:
+                allowed_destinations = self.policy.channel_destinations.get(
+                    step.target.channel,
+                    [],
+                )
+                if step.target.chat_id not in allowed_destinations:
+                    raise ValueError(
+                        "approval target must be listed in policy.channel_destinations"
+                    )
         _validate_condition_limits(self.conditions)
         for step in self.steps:
             _validate_condition_limits(step.when)
@@ -464,11 +596,15 @@ class WorkflowDefinition(AutomationModel):
 
 
 def _validate_condition_limits(condition: Condition | None) -> None:
+    """Reject condition trees exceeding global node or nesting limits."""
+
     if condition is None:
         return
     count = 0
 
     def visit(node: Condition, depth: int) -> None:
+        """Count one condition node and recursively inspect its children."""
+
         nonlocal count
         count += 1
         if count > MAX_CONDITION_COUNT:

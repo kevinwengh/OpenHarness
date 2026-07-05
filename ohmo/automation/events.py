@@ -14,6 +14,22 @@ from openharness.channels.bus.events import InboundMessage
 _SAFE_EVENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 
 
+def bounded_event_ancestry(*values: object) -> list[str]:
+    """Normalize, de-duplicate, and cap loop-prevention ancestry.
+
+    Platform adapters may round-trip automation metadata more than once. Stable
+    de-duplication keeps such messages valid under ``AutomationEvent``'s unique
+    ancestry contract while retaining the most recent sixteen identities.
+    """
+
+    normalized: list[str] = []
+    for value in values:
+        item = str(value).strip()[:256]
+        if item and item not in normalized:
+            normalized.append(item)
+    return normalized[-16:]
+
+
 def channel_message_event(message: InboundMessage) -> AutomationEvent:
     """Return a sanitized event for a message already admitted by its channel adapter."""
 
@@ -45,7 +61,7 @@ def channel_message_event(message: InboundMessage) -> AutomationEvent:
     ancestry = automation_marker.get("ancestry")
     if not isinstance(ancestry, list):
         ancestry = []
-    ancestry = [str(item)[:256] for item in ancestry if str(item).strip()][-16:]
+    ancestry = bounded_event_ancestry(*ancestry)
 
     safe_metadata = {
         key: value
@@ -86,10 +102,14 @@ def channel_message_event(message: InboundMessage) -> AutomationEvent:
 
 
 def _utc_timestamp(value: datetime) -> datetime:
+    """Normalize an inbound message timestamp to UTC."""
+
     return value.astimezone(timezone.utc)
 
 
 def _first_string(*values, limit: int = 512) -> str | None:
+    """Return the first non-blank string bounded for persisted event state."""
+
     for value in values:
         if isinstance(value, str) and value.strip():
             return value.strip()[:limit]
@@ -97,6 +117,8 @@ def _first_string(*values, limit: int = 512) -> str | None:
 
 
 def _event_id(channel: str, source_id: str) -> str:
+    """Keep a safe platform ID readable or hash an unsafe composite identity."""
+
     candidate = f"{channel}:{source_id}"
     if _SAFE_EVENT_ID.fullmatch(candidate):
         return candidate
@@ -105,6 +127,8 @@ def _event_id(channel: str, source_id: str) -> str:
 
 
 def _fallback_source_id(message: InboundMessage, occurred_at: datetime) -> str:
+    """Derive a deterministic delivery identity when the adapter provides none."""
+
     content = "\0".join(
         (
             message.channel,
@@ -118,6 +142,8 @@ def _fallback_source_id(message: InboundMessage, occurred_at: datetime) -> str:
 
 
 def _attachment_description(reference: str) -> dict[str, str]:
+    """Persist only a bounded filename and scheme, never signed URL details."""
+
     parsed = urlsplit(str(reference))
     if parsed.scheme and parsed.netloc:
         name = Path(parsed.path).name or "attachment"

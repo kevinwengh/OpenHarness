@@ -40,6 +40,8 @@ def render_template(
 
 
 def _render(template: Any, context: dict[str, Any], *, depth: int) -> Any:
+    """Recursively render a JSON template while enforcing nesting depth."""
+
     if depth > MAX_TEMPLATE_DEPTH:
         raise TemplateRenderError(f"template exceeds nesting depth {MAX_TEMPLATE_DEPTH}")
     if isinstance(template, dict):
@@ -58,6 +60,8 @@ def _render(template: Any, context: dict[str, Any], *, depth: int) -> Any:
         return _resolved(context, full.group(1))
 
     def replace(match: re.Match[str]) -> str:
+        """Render one embedded scalar reference as deterministic text."""
+
         value = _resolved(context, match.group(1))
         if isinstance(value, (dict, list)):
             raise TemplateRenderError(
@@ -76,6 +80,8 @@ def _render(template: Any, context: dict[str, Any], *, depth: int) -> Any:
 
 
 def _resolved(context: dict[str, Any], path: str) -> Any:
+    """Resolve one validated reference path or raise a render error."""
+
     sentinel = object()
     current: Any = context
     for part in path.split("."):

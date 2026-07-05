@@ -65,6 +65,9 @@ class QueryEngine:
         settings. Constructor changes must be reflected in runtime composition,
         restored-session paths, and tests; no asynchronous resource is started
         here because lifecycle startup and cleanup belong to the runtime bundle.
+        ``post_turn_memory_enabled=False`` disables all automatic dream,
+        extraction, and session-memory checkpoints for isolated background work;
+        the default preserves interactive behavior.
         """
         self._api_client = api_client
         self._tool_registry = tool_registry

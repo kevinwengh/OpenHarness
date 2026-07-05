@@ -104,6 +104,14 @@ async def test_agent_executes_named_skill_with_exact_tools_and_event_context(
         workspace,
         "# Incident triage\nClassify impact and summarize the incident precisely.\n",
     )
+    (workspace / "soul.md").write_text("PRIVATE_SOUL_CONTEXT\n", encoding="utf-8")
+    (workspace / "user.md").write_text("PRIVATE_USER_PROFILE\n", encoding="utf-8")
+    (workspace / "memory").mkdir(parents=True, exist_ok=True)
+    (workspace / "memory" / "MEMORY.md").write_text(
+        "PRIVATE_PERSONAL_MEMORY\n",
+        encoding="utf-8",
+    )
+    (cwd / "CLAUDE.md").write_text("PROJECT_AMBIENT_INSTRUCTION\n", encoding="utf-8")
     client = RecordingClient(
         '{"summary":"Production is unavailable","customer_impact":true}'
     )
@@ -126,6 +134,10 @@ async def test_agent_executes_named_skill_with_exact_tools_and_event_context(
     assert [tool["name"] for tool in request.tools] == ["read_file", "glob"]
     assert "Classify impact and summarize the incident precisely" in request.system_prompt
     assert "exactly one JSON object" in request.system_prompt
+    assert "PRIVATE_SOUL_CONTEXT" not in request.system_prompt
+    assert "PRIVATE_USER_PROFILE" not in request.system_prompt
+    assert "PRIVATE_PERSONAL_MEMORY" not in request.system_prompt
+    assert "PROJECT_AMBIENT_INSTRUCTION" not in request.system_prompt
     assert any("Production is DOWN" in message.text for message in request.messages)
 
 

@@ -68,6 +68,54 @@ def test_gateway_router_uses_thread_and_sender_for_group_when_present():
     assert session_key_for_message(message) == "slack:c1:t1:u1"
 
 
+@pytest.mark.asyncio
+async def test_gateway_startup_failure_cleans_automation_and_stale_process_state(tmp_path):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    lifecycle: list[str] = []
+
+    class FailingAutomation:
+        async def start(self):
+            lifecycle.append("automation-start")
+            raise RuntimeError("recovery failed")
+
+        async def stop(self):
+            lifecycle.append("automation-stop")
+
+    class Bridge:
+        def stop(self):
+            lifecycle.append("bridge-stop")
+
+    class Manager:
+        async def stop_all(self):
+            lifecycle.append("manager-stop")
+
+    service = object.__new__(OhmoGatewayService)
+    service._workspace = workspace
+    service._automation_service = FailingAutomation()
+    service._bridge = Bridge()
+    service._manager = Manager()
+    service._restart_requested = False
+    service._stop_event = None
+    service.write_state = lambda **kwargs: lifecycle.append(
+        f"state:{kwargs['running']}"
+    )
+
+    with pytest.raises(RuntimeError, match="recovery failed"):
+        await service.run_foreground()
+
+    assert service.pid_file.exists() is False
+    assert service._stop_event is None
+    assert lifecycle == [
+        "automation-start",
+        "state:False",
+        "bridge-stop",
+        "automation-stop",
+        "manager-stop",
+        "state:False",
+    ]
+
+
 def test_gateway_router_keeps_private_chat_scope_for_legacy_sessions():
     message = InboundMessage(
         channel="feishu",
