@@ -171,6 +171,17 @@ class OhmoGatewayBridge:
                 session_key,
                 _content_snippet(message.content),
             )
+            if self._automation_service is not None:
+                command_handler = getattr(
+                    self._automation_service,
+                    "handle_gateway_command",
+                    None,
+                )
+                if command_handler is not None:
+                    command_reply = await command_handler(message)
+                    if command_reply is not None:
+                        await self._publish_command_reply(message, session_key, command_reply)
+                        continue
             automation_dispatch = None
             if self._automation_service is not None:
                 try:

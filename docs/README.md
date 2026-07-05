@@ -11,6 +11,9 @@ new contributor from detailed reference material and generated artifacts.
 - [ohmo common scenarios and workflows](guides/OHMO_USER_GUIDE.md) — install, initialize, work
   locally, personalize memory, connect channels, use groups and attachments, schedule recurring
   tasks, operate the gateway, back up state, and troubleshoot.
+- [Ohmo automation workflows](guides/OHMO_AUTOMATION.md) — configure durable event rules, explicit
+  skill judgment, policy-limited actions, cross-channel routing, knowledge updates, approvals, and
+  operator recovery.
 
 ## New contributor path
 
@@ -55,6 +58,7 @@ provider, extension, UI, and `ohmo` work.
 | --- | --- | --- |
 | Use `oh` as a coding agent | [`oh` user guide](guides/OH_USER_GUIDE.md) | Project scope, permissions, sessions, memory, extensions, automation, and current limitations |
 | Use `ohmo` as a personal agent | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | Local work, personal memory, channels, groups, attachments, scheduling, and operations |
+| Automate admitted messages and multi-step actions | [Ohmo automation workflows](guides/OHMO_AUTOMATION.md) | Rules, named skills, policies, approvals, recovery, CLI, and examples |
 | Understand how `oh` launches | [CLI entrypoints](developer/flows/CLI_ENTRYPOINTS.md) | `pyproject.toml`, `cli.py`, and `ui/app.py` |
 | Develop/debug in VS Code or install a local source build | [VS Code and local release guide](developer/VSCODE_LOCAL_DEVELOPMENT_AND_RELEASE.md) | Non-overwriting templates, process-specific breakpoints, checksummed builds, isolated launchers, and rollback |
 | Trace an entire interactive `uv run oh` session | [Interactive frontend/backend flow](developer/flows/INTERACTIVE_OH_FRONTEND_BACKEND_E2E.md) | Python launcher, React terminal, backend host, protocol, interruption, and shutdown |

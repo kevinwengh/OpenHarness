@@ -23,6 +23,7 @@ import typer
 from openharness.auth.manager import AuthManager
 from openharness.config import load_settings
 
+from ohmo.automation.cli import automation_app
 from ohmo.gateway.config import load_gateway_config, save_gateway_config
 from ohmo.gateway.models import GatewayConfig
 from ohmo.gateway.service import (
@@ -61,6 +62,7 @@ app.add_typer(memory_app)
 app.add_typer(soul_app)
 app.add_typer(user_app)
 app.add_typer(gateway_app)
+app.add_typer(automation_app)
 
 _INTERACTIVE_CHANNELS = ("telegram", "slack", "discord", "feishu")
 _WORKSPACE_HELP = "Path to the ohmo workspace (defaults to ~/.ohmo)"

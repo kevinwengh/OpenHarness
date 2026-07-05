@@ -1,0 +1,68 @@
+version: 1
+id: production-incident-routing
+description: Classify production alerts, request high-severity approval, notify operations, and retain knowledge.
+enabled: true
+priority: 100
+source_behavior: consume
+
+trigger:
+  event: channel.message
+  source:
+    channel: slack
+    chat_ids: [C_ALERTS]
+    include_automation_generated: false
+
+conditions:
+  path: event.payload.text
+  op: contains
+  value: production
+
+policy:
+  allowed_actions: [channel.send, knowledge.upsert]
+  allowed_tools: []
+  channel_destinations:
+    slack: [C_OPERATIONS]
+  knowledge_namespaces: [incidents]
+
+defaults:
+  retry:
+    attempts: 2
+    backoff_seconds: [2]
+  timeout_seconds: 120
+
+steps:
+  - id: assess
+    type: agent
+    skill: incident-triage
+    max_turns: 4
+    allowed_tools: []
+    output_schema:
+      severity: {type: string, required: true}
+      summary: {type: string, required: true}
+      knowledge: {type: string, required: true}
+
+  - id: approve
+    type: approval
+    prompt: 'Approve incident notification: ${steps.assess.output.summary}'
+    approver_ids: [U_INCIDENT_COMMANDER]
+    expires_seconds: 900
+    when:
+      path: steps.assess.output.severity
+      op: in
+      value: [sev1, sev2]
+
+  - id: notify
+    type: action
+    action: channel.send
+    with:
+      channel: slack
+      chat_id: C_OPERATIONS
+      content: '${steps.assess.output.summary}'
+
+  - id: remember
+    type: action
+    action: knowledge.upsert
+    with:
+      namespace: incidents
+      title: '${steps.assess.output.summary}'
+      content: '${steps.assess.output.knowledge}'

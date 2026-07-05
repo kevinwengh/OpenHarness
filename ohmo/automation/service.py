@@ -10,10 +10,16 @@ from pathlib import Path
 from openharness.automation.actions import ActionRegistry
 from openharness.automation.loader import DefinitionDiagnostic, load_workflow_definitions
 from openharness.automation.matcher import match_workflow
-from openharness.automation.models import AgentStep, AutomationEvent, WorkflowDefinition
+from openharness.automation.models import (
+    AgentStep,
+    ApprovalStep,
+    AutomationEvent,
+    WorkflowDefinition,
+)
 from openharness.automation.runner import AgentStepExecutor, WorkflowRunner
-from openharness.automation.store import AutomationStore
-from openharness.channels.bus.events import InboundMessage
+from openharness.automation.state import TransitionError
+from openharness.automation.store import AutomationStore, AutomationStoreError
+from openharness.channels.bus.events import InboundMessage, OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.config.settings import load_settings
 from openharness.plugins.loader import load_plugins
@@ -100,13 +106,7 @@ class OhmoAutomationService:
     async def start(self) -> None:
         if self._started:
             return
-        loaded = await asyncio.to_thread(
-            load_workflow_definitions,
-            get_automations_dir(self.workspace),
-        )
-        definitions, preflight = await self._preflight(loaded.definitions)
-        self.definitions = definitions
-        self.diagnostics = (*loaded.diagnostics, *preflight)
+        await self.validate_configuration()
         for diagnostic in self.diagnostics:
             logger.warning(
                 "ohmo automation definition ignored path=%s workflow=%s reason=%s",
@@ -120,8 +120,20 @@ class OhmoAutomationService:
             logger.warning("ohmo automation recovery diagnostic: %s", diagnostic)
         self._started = True
         pending = await asyncio.to_thread(self.store.list_runs, status="pending")
-        for run in pending:
+        waiting = await asyncio.to_thread(self.store.list_runs, status="waiting_approval")
+        for run in (*pending, *waiting):
             self._schedule(run.id)
+
+    async def validate_configuration(self) -> None:
+        """Load and capability-check definitions without recovering or executing runs."""
+
+        loaded = await asyncio.to_thread(
+            load_workflow_definitions,
+            get_automations_dir(self.workspace),
+        )
+        definitions, preflight = await self._preflight(loaded.definitions)
+        self.definitions = definitions
+        self.diagnostics = (*loaded.diagnostics, *preflight)
 
     async def stop(self) -> None:
         tasks = list(self._tasks.values())
@@ -161,11 +173,115 @@ class OhmoAutomationService:
             created_run_ids=tuple(created),
         )
 
+    async def submit_workflow(
+        self,
+        workflow_id: str,
+        event: AutomationEvent,
+    ) -> AutomationDispatch:
+        if not self._started:
+            await self.start()
+        definition = next(
+            (item for item in self.definitions if item.id == workflow_id),
+            None,
+        )
+        if definition is None:
+            raise ValueError(f"automation workflow not found or failed preflight: {workflow_id}")
+        reservation = await self.runner.submit(definition, event)
+        if reservation.created:
+            self._schedule(reservation.run.id)
+        return AutomationDispatch(
+            source_behavior=definition.source_behavior,
+            workflow_ids=(definition.id,),
+            run_ids=(reservation.run.id,),
+            created_run_ids=(reservation.run.id,) if reservation.created else (),
+        )
+
+    async def retry_run(
+        self,
+        run_id: str,
+        *,
+        allow_unknown_outcome: bool = False,
+    ):
+        run = await asyncio.to_thread(
+            self.store.retry_run,
+            run_id,
+            allow_unknown_outcome=allow_unknown_outcome,
+        )
+        self._schedule(run.id)
+        return run
+
+    async def cancel_run(self, run_id: str, *, reason: str):
+        task = self._tasks.get(run_id)
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        return await asyncio.to_thread(self.store.cancel_run, run_id, reason=reason)
+
+    async def resolve_approval(
+        self,
+        run_id: str,
+        *,
+        actor_id: str,
+        approved: bool,
+        reason: str | None = None,
+    ):
+        current = await asyncio.to_thread(self.store.load_run, run_id)
+        delivery_task = self._tasks.get(run_id)
+        if (
+            current.status == "waiting_approval"
+            and delivery_task is not None
+            and not delivery_task.done()
+        ):
+            await asyncio.gather(delivery_task, return_exceptions=True)
+        run = await asyncio.to_thread(
+            self.store.resolve_approval,
+            run_id,
+            actor_id=actor_id,
+            approved=approved,
+            reason=reason,
+        )
+        if run.status == "pending":
+            self._schedule(run.id)
+        return run
+
+    async def handle_gateway_command(self, message: InboundMessage) -> str | None:
+        parts = message.content.strip().split(maxsplit=3)
+        if len(parts) < 3 or parts[0].lower() != "/automation":
+            return None
+        operation = parts[1].lower()
+        if operation not in {"approve", "reject"}:
+            return None
+        run_id = parts[2]
+        reason = parts[3] if len(parts) == 4 else None
+        try:
+            run = await self.resolve_approval(
+                run_id,
+                actor_id=str(message.sender_id),
+                approved=operation == "approve",
+                reason=reason,
+            )
+        except (AutomationStoreError, TransitionError, ValueError) as exc:
+            return f"Automation {operation} failed for {run_id}: {exc}"
+        except Exception:
+            logger.exception("ohmo approval command failed run_id=%s", run_id)
+            return f"Automation {operation} failed for {run_id}."
+        return f"Automation run {run.id} {run.approvals[-1].status}."
+
     async def drain(self) -> None:
         """Wait until currently scheduled runs finish; intended for shutdown and tests."""
 
         while self._tasks:
             await asyncio.gather(*tuple(self._tasks.values()), return_exceptions=True)
+
+    def status_counts(self) -> dict[str, int]:
+        runs = self.store.list_runs()
+        return {
+            "loaded": len(self.definitions),
+            "invalid": len(self.diagnostics),
+            "active": sum(run.status in {"pending", "running"} for run in runs),
+            "waiting": sum(run.status == "waiting_approval" for run in runs),
+            "failed": sum(run.status == "failed" for run in runs),
+        }
 
     async def _preflight(
         self,
@@ -211,7 +327,7 @@ class OhmoAutomationService:
         if current is not None and not current.done():
             return
         task = asyncio.create_task(
-            self.runner.execute(run_id),
+            self._execute_run(run_id),
             name=f"ohmo-automation:{run_id}",
         )
         self._tasks[run_id] = task
@@ -230,6 +346,56 @@ class OhmoAutomationService:
                 type(error).__name__,
                 error,
             )
+
+    async def _execute_run(self, run_id: str):
+        run = await self.runner.execute(run_id)
+        if run.status == "waiting_approval":
+            await self._deliver_approval(run)
+            run = await asyncio.to_thread(self.store.load_run, run.id)
+        return run
+
+    async def _deliver_approval(self, run) -> None:
+        approval = run.approvals[-1]
+        if approval.notification_sent_at is not None:
+            return
+        step = run.definition.steps[run.current_step]
+        if not isinstance(step, ApprovalStep):
+            raise RuntimeError("waiting approval run does not reference an approval step")
+        target = step.target
+        channel = target.channel if target else run.event.source.channel
+        chat_id = target.chat_id if target else run.event.subject.chat_id
+        thread_id = target.thread_id if target else run.event.subject.thread_id
+        if not channel or not chat_id:
+            if run.event.source.adapter == "cli":
+                await asyncio.to_thread(self.store.mark_approval_notified, run.id)
+                return
+            raise RuntimeError("approval request has no notification target")
+        metadata: dict[str, object] = {
+            "_automation": {
+                "generated": True,
+                "run_id": run.id,
+                "workflow_id": run.workflow_id,
+                "ancestry": [*run.event.ancestry, run.event.id, run.id][-16:],
+            }
+        }
+        if thread_id:
+            metadata["thread_id"] = thread_id
+            if channel == "slack":
+                metadata["slack"] = {"thread_ts": thread_id}
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=(
+                    f"Approval required for automation run {run.id}:\n"
+                    f"{approval.prompt}\n\n"
+                    f"Approve: /automation approve {run.id}\n"
+                    f"Reject: /automation reject {run.id} [reason]"
+                ),
+                metadata=metadata,
+            )
+        )
+        await asyncio.to_thread(self.store.mark_approval_notified, run.id)
 
 
 def _combined_source_behavior(definitions: tuple[WorkflowDefinition, ...]) -> str:

@@ -164,11 +164,12 @@ class ApprovalRecord(AutomationModel):
     approver_ids: list[str] = Field(min_length=1, max_length=100)
     requested_at: datetime
     expires_at: datetime
+    notification_sent_at: datetime | None = None
     resolved_at: datetime | None = None
     resolved_by: str | None = Field(default=None, max_length=256)
     reason: str | None = Field(default=None, max_length=1000)
 
-    @field_validator("requested_at", "expires_at", "resolved_at")
+    @field_validator("requested_at", "expires_at", "notification_sent_at", "resolved_at")
     @classmethod
     def _validate_timestamps(cls, value: datetime | None) -> datetime | None:
         return None if value is None else _utc(value)

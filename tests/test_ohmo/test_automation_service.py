@@ -81,6 +81,36 @@ steps:
     )
 
 
+def _write_approval_workflow(workspace: Path) -> None:
+    (workspace / "automations" / "approval.yaml").write_text(
+        """\
+version: 1
+id: approval-routing
+source_behavior: consume
+trigger:
+  event: channel.message
+  source: {channel: slack, chat_ids: [C_REQUESTS]}
+policy:
+  allowed_actions: [channel.send]
+  channel_destinations: {slack: [C_OPERATIONS]}
+steps:
+  - id: approve
+    type: approval
+    prompt: Approve routing this request?
+    approver_ids: [U_APPROVER]
+    expires_seconds: 900
+  - id: notify
+    type: action
+    action: channel.send
+    with:
+      channel: slack
+      chat_id: C_OPERATIONS
+      content: Request approved
+""",
+        encoding="utf-8",
+    )
+
+
 def test_channel_message_event_sanitizes_slack_metadata_and_signed_media() -> None:
     message = InboundMessage(
         channel="slack",
@@ -247,6 +277,105 @@ steps:
     await service.stop()
 
 
+@pytest.mark.asyncio
+async def test_service_delivers_and_authenticates_durable_approval(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    bus = MessageBus()
+    service = OhmoAutomationService(
+        workspace=workspace,
+        cwd=tmp_path,
+        bus=bus,
+        agent_executor=StaticAgent({}),
+    )
+    _write_approval_workflow(workspace)
+    await service.start()
+    source = InboundMessage(
+        channel="slack",
+        sender_id="U_REQUESTER",
+        chat_id="C_REQUESTS",
+        content="please route",
+        metadata={"slack": {"event": {"ts": "approval-1"}}},
+    )
+
+    dispatch = await service.dispatch_message(source)
+    await service.drain()
+
+    request = await bus.consume_outbound()
+    assert request.chat_id == "C_REQUESTS"
+    assert f"/automation approve {dispatch.run_ids[0]}" in request.content
+    waiting = service.store.load_run(dispatch.run_ids[0])
+    assert waiting.status == "waiting_approval"
+    assert waiting.approvals[-1].notification_sent_at is not None
+    assert service.status_counts()["waiting"] == 1
+
+    denied = await service.handle_gateway_command(
+        InboundMessage(
+            channel="slack",
+            sender_id="U_ATTACKER",
+            chat_id="C_REQUESTS",
+            content=f"/automation approve {waiting.id}",
+        )
+    )
+    assert denied is not None and "not allowed to approve" in denied
+    assert service.store.load_run(waiting.id).status == "waiting_approval"
+
+    approved = await service.handle_gateway_command(
+        InboundMessage(
+            channel="slack",
+            sender_id="U_APPROVER",
+            chat_id="C_REQUESTS",
+            content=f"/automation approve {waiting.id}",
+        )
+    )
+    assert approved == f"Automation run {waiting.id} approved."
+    await service.drain()
+    notification = await bus.consume_outbound()
+    assert notification.chat_id == "C_OPERATIONS"
+    assert notification.content == "Request approved"
+    assert service.store.load_run(waiting.id).status == "completed"
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_service_does_not_redeliver_recorded_approval_after_restart(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    first_bus = MessageBus()
+    first = OhmoAutomationService(
+        workspace=workspace,
+        cwd=tmp_path,
+        bus=first_bus,
+        agent_executor=StaticAgent({}),
+    )
+    _write_approval_workflow(workspace)
+    await first.start()
+    dispatch = await first.dispatch_message(
+        InboundMessage(
+            channel="slack",
+            sender_id="U_REQUESTER",
+            chat_id="C_REQUESTS",
+            content="please route",
+            metadata={"slack": {"event": {"ts": "approval-restart"}}},
+        )
+    )
+    await first.drain()
+    await first_bus.consume_outbound()
+    await first.stop()
+
+    second_bus = MessageBus()
+    second = OhmoAutomationService(
+        workspace=workspace,
+        cwd=tmp_path,
+        bus=second_bus,
+        agent_executor=StaticAgent({}),
+    )
+    await second.start()
+    await second.drain()
+
+    assert second.store.load_run(dispatch.run_ids[0]).status == "waiting_approval"
+    assert second_bus.outbound_size == 0
+    await second.stop()
+
+
 def test_namespaced_memory_upsert_reuses_identity_and_path(tmp_path: Path) -> None:
     first = add_memory_entry(
         tmp_path,
@@ -335,6 +464,49 @@ async def test_gateway_bridge_skips_normal_assistant_for_consumed_message() -> N
         await asyncio.wait_for(dispatched.wait(), timeout=1)
         await asyncio.sleep(0)
         assert runtime_pool.calls == 0
+    finally:
+        bridge.stop()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_routes_approval_command_before_normal_dispatch() -> None:
+    bus = MessageBus()
+    handled = asyncio.Event()
+
+    class AutomationService:
+        async def handle_gateway_command(self, message):
+            assert message.sender_id == "U_APPROVER"
+            handled.set()
+            return "Automation run approved."
+
+        async def dispatch_message(self, message):
+            raise AssertionError(f"approval command was dispatched as an event: {message}")
+
+    class RuntimePool:
+        async def stream_message(self, message, session_key):
+            raise AssertionError((message, session_key))
+            yield
+
+    bridge = OhmoGatewayBridge(
+        bus=bus,
+        runtime_pool=RuntimePool(),
+        automation_service=AutomationService(),
+    )
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(
+            InboundMessage(
+                channel="slack",
+                sender_id="U_APPROVER",
+                chat_id="C_REQUESTS",
+                content="/automation approve run-automation-0001",
+            )
+        )
+        await asyncio.wait_for(handled.wait(), timeout=1)
+        reply = await asyncio.wait_for(bus.consume_outbound(), timeout=1)
+        assert reply.content == "Automation run approved."
     finally:
         bridge.stop()
         task.cancel()

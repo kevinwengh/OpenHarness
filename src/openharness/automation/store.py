@@ -447,6 +447,28 @@ class AutomationStore:
                 )
             return self._checkpoint_locked(updated)
 
+    def mark_approval_notified(self, run_id: str) -> WorkflowRun:
+        """Record successful local publication of the active approval request."""
+
+        with exclusive_file_lock(self.lock_path):
+            run = self._load_run_locked(run_id)
+            if run.status != "waiting_approval" or not run.approvals:
+                raise TransitionError("run is not waiting for approval")
+            approval = run.approvals[-1]
+            if approval.status != "pending":
+                raise TransitionError("approval is already resolved")
+            if approval.notification_sent_at is not None:
+                return run
+            now = _utc(self._clock())
+            notified = approval.model_copy(update={"notification_sent_at": now})
+            updated = run.model_copy(
+                update={
+                    "approvals": [*run.approvals[:-1], notified],
+                    "updated_at": now,
+                }
+            )
+            return self._checkpoint_locked(updated)
+
     def retry_run(self, run_id: str, *, allow_unknown_outcome: bool = False) -> WorkflowRun:
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)

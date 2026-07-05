@@ -59,4 +59,9 @@ class GatewayState(BaseModel):
     active_sessions: int = 0
     provider_profile: str = "codex"
     enabled_channels: list[str] = Field(default_factory=list)
+    automation_loaded: int = 0
+    automation_invalid: int = 0
+    automation_active: int = 0
+    automation_waiting: int = 0
+    automation_failed: int = 0
     last_error: str | None = None

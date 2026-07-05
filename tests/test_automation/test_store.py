@@ -171,6 +171,10 @@ def test_approval_authorization_resolution_and_expiry(store, channel_event) -> N
     run = store.reserve(definition, channel_event).run
     waiting = store.wait_for_approval(run.id, "approve")
     assert waiting.status == "waiting_approval"
+    assert waiting.approvals[-1].notification_sent_at is None
+    notified = store.mark_approval_notified(run.id)
+    assert notified.approvals[-1].notification_sent_at is not None
+    assert store.mark_approval_notified(run.id) == notified
 
     other = store.reserve(
         definition,

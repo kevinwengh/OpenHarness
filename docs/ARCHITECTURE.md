@@ -105,7 +105,10 @@ background tasks. A workflow can continue to the normal assistant, consume that 
 silent. Its named skill agent receives an exact filtered tool registry; external effects occur
 through policy-checked `channel.send`, `knowledge.upsert`, or trusted plugin actions. Gateway
 shutdown leaves active checkpoints for startup recovery rather than blindly replaying uncertain
-effects. Evidence: `ohmo/automation/`, `src/openharness/automation/`, and automation tests.
+effects. Approval requests are checkpointed, routed through the bus, and resolved only by an
+admitted actor in the step allowlist. Local `ohmo automation` commands provide validation, dry-run,
+manual submission, inspection, and explicit recovery transitions. Evidence: `ohmo/automation/`,
+`src/openharness/automation/`, and automation tests.
 
 ## State and ownership
 

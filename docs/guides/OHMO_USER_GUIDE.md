@@ -42,6 +42,7 @@ OpenHarness command. The `ohmo` command is unchanged.
 | Send images or files | Attach them to a supported channel message | `~/.ohmo/attachments` and session history |
 | Repeat work on a schedule | Ask local ohmo to create a cron job, then `oh cron start` | `~/.openharness/data/cron_jobs.json` |
 | Diagnose a problem | `ohmo doctor`, gateway status/logs | workspace and operational state |
+| Automate admitted channel messages | `ohmo automation validate`, then restart the gateway | `automations/` definitions and `automation/` run state |
 | Back up or migrate ohmo | Stop services and copy the workspace securely | personal data, channel secrets, sessions |
 
 ## 1. Install and prepare a provider

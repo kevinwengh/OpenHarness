@@ -188,12 +188,18 @@ class OhmoGatewayService:
         Change safety: Preserve path isolation, encoding, and persistence side effects expected
         by callers.
         """
+        automation = self._automation_service.status_counts()
         state = GatewayState(
             running=running,
             pid=os.getpid() if running else None,
             active_sessions=self._runtime_pool.active_sessions,
             provider_profile=self._config.provider_profile,
             enabled_channels=self._config.enabled_channels,
+            automation_loaded=automation["loaded"],
+            automation_invalid=automation["invalid"],
+            automation_active=automation["active"],
+            automation_waiting=automation["waiting"],
+            automation_failed=automation["failed"],
             last_error=last_error or self._channel_last_error(),
         )
         self.state_file.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")

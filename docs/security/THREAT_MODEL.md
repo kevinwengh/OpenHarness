@@ -75,6 +75,7 @@ Pre-hooks are trusted policy code because they run before validation and permiss
 | Session-key collision/leakage | router includes channel/chat/thread/sender dimensions | key-shape changes can merge or split histories without migration |
 | Bridge secret disclosure | required fields/version validation | encoding is base64url, not encryption; disclosure exposes ingress token material |
 | Autopilot unsafe mutation | worktree default, verification policy, draft/mode/label merge checks | full-auto execution remains powerful; declared release human-gate fields are not currently enforced |
+| Automation prompt injection or overreach | deterministic admission/matching; exact action/tool/destination/namespace policy; structured agent output; sensitive-path rules | trusted definitions/plugins remain powerful; external effects are not exactly-once when a platform lacks idempotency |
 | Sandbox confusion | explicit enablement, path/network validation, resource settings | one module-global Docker session slot; not every tool runs in the container |
 | Sensitive logs/artifacts | bounded output and config redaction in selected paths | tool inputs, child output, sessions, and attachments may contain private data |
 
@@ -92,6 +93,12 @@ secrets passed through argv may be visible to shell history or process inspectio
 manager. `ohmo/gateway/bridge.py` authorizes messages, derives session keys, and owns same-key
 cancellation. The gateway is safe only to the extent that every enabled adapter enforces its
 configured ingress policy. Administrative commands require separate opt-in in gateway config.
+
+Admitted messages may also enter `ohmo.automation`. Event payloads are untrusted data; definitions
+and enabled workspace plugins are trusted policy/code. Agent steps receive filtered tool registries,
+while actions independently enforce channel destinations and knowledge namespaces. Approval actor
+lists are checked against the admitted sender and are not bypassed by remote-admin settings.
+Interrupted non-retry-safe effects fail with unknown outcome instead of automatic replay.
 
 ### Cron and remote triggers
 
