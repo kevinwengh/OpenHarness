@@ -62,12 +62,20 @@ def inspect_wheel(path: Path) -> None:
         "openharness/_frontend/package.json",
         "openharness/_frontend/package-lock.json",
         "openharness/_frontend/src/index.tsx",
+        "openharness/_web/index.html",
     }
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
         missing = sorted(required_files - names)
         if missing:
             raise RuntimeError(f"Wheel is missing required files: {', '.join(missing)}")
+        web_assets = {
+            Path(name).suffix
+            for name in names
+            if name.startswith("openharness/_web/assets/")
+        }
+        if not {".css", ".js"}.issubset(web_assets):
+            raise RuntimeError("Wheel must contain the built web UI CSS and JavaScript assets")
         entrypoint_names = [name for name in names if name.endswith(".dist-info/entry_points.txt")]
         if len(entrypoint_names) != 1:
             raise RuntimeError("Wheel must contain exactly one entry_points.txt")
@@ -108,6 +116,9 @@ def build_release(output_dir: Path, *, quick: bool) -> Path:
         run(["uv", "run", "pytest", "-q"], env=env)
         run(["npm", "ci"], cwd=ROOT / "frontend" / "terminal")
         run(["npx", "tsc", "--noEmit"], cwd=ROOT / "frontend" / "terminal")
+        run(["npm", "ci"], cwd=ROOT / "frontend" / "web")
+        run(["npm", "test"], cwd=ROOT / "frontend" / "web")
+        run(["npm", "run", "build"], cwd=ROOT / "frontend" / "web")
 
     with tempfile.TemporaryDirectory(prefix="openharness-build-") as temporary:
         staging = Path(temporary)

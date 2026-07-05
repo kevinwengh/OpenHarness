@@ -14,6 +14,8 @@ new contributor from detailed reference material and generated artifacts.
 - [Ohmo automation workflows](guides/OHMO_AUTOMATION.md) — configure durable event rules, explicit
   skill judgment, policy-limited actions, cross-channel routing, knowledge updates, approvals, and
   operator recovery.
+- [Local `oh` web UI](guides/WEB_UI.md) — launch the loopback browser workspace, understand its
+  token boundary, and see the capability depth available in the current staged release.
 
 ## New contributor path
 
@@ -57,6 +59,7 @@ provider, extension, UI, and `ohmo` work.
 | Goal | Start here | Then inspect |
 | --- | --- | --- |
 | Use `oh` as a coding agent | [`oh` user guide](guides/OH_USER_GUIDE.md) | Project scope, permissions, sessions, memory, extensions, automation, and current limitations |
+| Use the local browser workspace | [Local web UI guide](guides/WEB_UI.md) | Loopback launch, token handling, current screens, security, and staged limitations |
 | Use `ohmo` as a personal agent | [ohmo user guide](guides/OHMO_USER_GUIDE.md) | Local work, personal memory, channels, groups, attachments, scheduling, and operations |
 | Automate admitted messages and multi-step actions | [Ohmo automation workflows](guides/OHMO_AUTOMATION.md) | Rules, named skills, policies, approvals, recovery, CLI, and examples |
 | Understand how `oh` launches | [CLI entrypoints](developer/flows/CLI_ENTRYPOINTS.md) | `pyproject.toml`, `cli.py`, and `ui/app.py` |

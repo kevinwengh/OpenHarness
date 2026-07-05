@@ -12,9 +12,13 @@ uv run pytest -q
 uv run ruff check src tests scripts
 uv run python scripts/check_docs.py
 cd frontend/terminal && npm ci && npx tsc --noEmit
+cd frontend/web && npm ci && npm test && npm run build
 ```
 
-Python tests run on 3.10 and 3.11. Ruff and the frontend typecheck run on Python 3.11 and Node 20 respectively. The dashboard has a separate Pages workflow that runs `npm run build` when its source or published assets change.
+Python tests run on 3.10 and 3.11. Ruff, the terminal typecheck, and the web component/build gates
+run on Python 3.11 and Node 20 respectively. Web CI also rebuilds `src/openharness/_web` and rejects
+stale package assets. The dashboard has a separate Pages workflow that runs `npm run build` when
+its source or published assets change.
 
 ## Test selection matrix
 
@@ -32,6 +36,8 @@ Python tests run on 3.10 and 3.11. Ruff and the frontend typecheck run on Python
 | ohmo | `tests/test_ohmo` | Isolated temporary workspace; gateway manual check if lifecycle changed |
 | Python UI/backend | `tests/test_ui` | Terminal E2E scripts for rendering/input changes |
 | React terminal | `npx tsc --noEmit` in `frontend/terminal` | `scripts/react_tui_e2e.py` or targeted interaction scripts |
+| Local web host | `tests/test_ui/test_web_server.py` | `oh web --no-open`; verify token/origin denial and cleanup |
+| React web UI | `npm test && npm run build` in `frontend/web` | Desktop/mobile browser review and package-asset diff |
 | Autopilot service | `tests/test_autopilot`, `tests/test_services/test_autopilot.py` | Dashboard build and snapshot review |
 | Autopilot dashboard | `npm run build` in `autopilot-dashboard` | Inspect generated `docs/autopilot` output |
 | Installer/platform | `tests/test_install`, `tests/test_platforms.py` | Test on each affected OS/shell |

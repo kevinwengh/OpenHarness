@@ -29,6 +29,10 @@ htmlcov/
 # React TUI frontend
 frontend/terminal/node_modules/
 
+# React web frontend
+frontend/web/node_modules/
+frontend/web/*.tsbuildinfo
+
 # User data (never commit API keys or session data)
 .openharness/
 react_tui_smoke.txt

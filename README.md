@@ -657,6 +657,24 @@ React/Ink TUI with full interactive experience:
 - **Animated spinner**: Real-time feedback during tool execution
 - **Keyboard shortcuts**: Shown at the bottom, context-aware
 
+### 🌐 Local web UI
+
+Start the launch-token-protected browser workspace on loopback:
+
+```bash
+oh web
+
+# Print the URL without opening a browser; select a fixed local port if useful
+oh web --no-open --port 8765
+```
+
+The current first stage provides a responsive runtime overview and navigation across Workbench,
+Sessions, Runtime, Capabilities, Work, Knowledge, and Autopilot. Interactive conversations and
+operational resource screens are being added in the following staged increments. The server rejects
+non-loopback binds, does not return credentials or provider endpoints in its bootstrap payload, and
+requires the generated launch token for every data API request. See the
+[local web UI guide](docs/guides/WEB_UI.md) for current behavior and limitations.
+
 ### 📡 CLI
 
 ```
@@ -669,7 +687,7 @@ Permissions: --permission-mode, --dangerously-skip-permissions
 Context:     -s/--system-prompt, --append-system-prompt, --settings
 Advanced:    -d/--debug, --mcp-config, --bare
 
-Subcommands: oh setup | oh provider | oh auth | oh mcp | oh plugin | oh config | oh cron | oh autopilot
+Subcommands: oh web | oh setup | oh provider | oh auth | oh mcp | oh plugin | oh config | oh cron | oh autopilot
 ```
 
 ### 🧑‍💼 ohmo Personal Agent
@@ -733,9 +751,10 @@ Currently `ohmo init` / `ohmo config` can guide channel setup for:
 ## 📊 Validation
 
 Pull requests run the offline Python suite on Python 3.10 and 3.11, Ruff on the Python source,
-tests, and scripts, and a Node 20 TypeScript check for the React terminal. The live model, Docker,
-and interactive terminal drivers are opt-in because they need credentials, external services, or a
-real TTY. See the [testing and validation guide](docs/TESTING.md) for the current CI contract and
+tests, and scripts, a Node 20 TypeScript check for the React terminal, and Node 20 component/build
+checks for the local web UI. The live model, Docker, interactive terminal, and rendered browser
+drivers are opt-in because they need credentials, external services, a real TTY, or a browser
+surface. See the [testing and validation guide](docs/TESTING.md) for the current CI contract and
 change-specific test matrix.
 
 ```bash

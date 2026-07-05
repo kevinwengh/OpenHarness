@@ -220,8 +220,9 @@ Its implementation directory is created in Stage 1. It owns:
 The production build is packaged into the Python wheel. Development mode can proxy to the Python
 host, but production is always same-origin.
 
-The build output is force-included at `openharness/_web` using the same source-build discipline as
-the terminal frontend. CI uses Node 20, `npm ci`, TypeScript, Vitest, and a Vite production build.
+The build output lives inside the Python package at `openharness/_web` and follows the same
+source-build discipline as the terminal frontend. CI uses Node 20, `npm ci`, TypeScript, Vitest,
+and a Vite production build.
 
 ## Security and privacy requirements
 
@@ -295,6 +296,23 @@ Stage 0 critical review resolved these issues before implementation:
   typed bootstrap snapshot, responsive navigation shell, overview health, and unit/component tests.
 - **Review gate:** unauthorized/cross-origin access is denied; startup/shutdown has one cleanup
   owner; mobile and keyboard navigation work; no credentials appear in bootstrap payloads.
+
+Stage 1 implementation review found and corrected four issues before publication:
+
+- framework-generated error responses now receive the same CSP, framing, referrer, permissions,
+  and cache policy as successful responses;
+- the responsive navigation drawer traps focus, closes with Escape, and restores focus to its
+  launcher instead of leaving keyboard users at the document root;
+- route scrolling observes `prefers-reduced-motion`, and desktop/mobile navigation share one
+  semantic route model rather than separate feature inventories;
+- Node dependencies are pinned for the repository's Node 20 contract, production dependencies
+  audit clean, and CI rebuilds the wheel-packaged bundle to detect stale assets.
+
+The Stage 1 host is intentionally status-only: it does not construct a `RuntimeBundle`, accept
+prompts, or expose generic mutations. Rendered desktop/mobile browser evidence remains a Stage 4
+release gate; the in-app browser surface was unavailable during this stage's automated review, so
+component, responsive-source, production-build, and live HTTP checks are recorded without claiming
+a completed visual audit.
 
 ### Stage 2 — interactive workbench
 

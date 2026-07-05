@@ -24,6 +24,8 @@ from urllib.parse import urlparse
 
 import typer
 
+from openharness.ui.web_cli import web_cmd
+
 __version__ = "0.1.9"
 
 _PREVIEW_STOPWORDS = {
@@ -914,6 +916,8 @@ app.add_typer(provider_app)
 app.add_typer(config_app)
 app.add_typer(cron_app)
 app.add_typer(autopilot_app)
+
+app.command("web")(web_cmd)
 
 
 # ---- mcp subcommands ----

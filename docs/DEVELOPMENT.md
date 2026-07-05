@@ -11,7 +11,7 @@ configurations and a source-built local installation, use the
 
 - Python 3.10 or 3.11
 - [`uv`](https://docs.astral.sh/uv/) for the repository's documented Python workflow
-- Node.js 20 for terminal UI or dashboard work
+- Node.js 20 for terminal UI, web UI, or dashboard work
 - Git and ripgrep
 - Docker only for sandbox integration work
 - tmux or iTerm2 only for the corresponding optional swarm backends
@@ -32,6 +32,18 @@ cd frontend/terminal
 npm ci
 npx tsc --noEmit
 ```
+
+For local web UI work:
+
+```bash
+cd frontend/web
+npm ci
+npm test
+npm run build
+```
+
+The web build writes the production bundle to `src/openharness/_web`. Commit source and generated
+package assets together; CI rebuilds the bundle and fails when they disagree.
 
 For autopilot dashboard work:
 
@@ -61,6 +73,7 @@ Use `OPENHARNESS_CONFIG_DIR`, `OPENHARNESS_DATA_DIR`, and `OPENHARNESS_LOGS_DIR`
 | `src/openharness/autopilot` | Repository work intake, policies, execution records, dashboard export |
 | `ohmo` | Personal-agent product built on the OpenHarness runtime |
 | `frontend/terminal` | React/Ink terminal UI packaged in the Python wheel |
+| `frontend/web` | React/Vite local browser UI; builds packaged assets under `src/openharness/_web` |
 | `autopilot-dashboard` | Vite source for the generated/published dashboard |
 | `tests` | Offline unit and integration-style test suites mirroring subsystems |
 | `scripts` | Installer and opt-in E2E/manual verification drivers |
