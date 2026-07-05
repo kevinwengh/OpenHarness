@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Protocol
 
@@ -77,6 +78,7 @@ class RunnerResult:
 
 ToolExecutorFactory = Callable[[WorkflowRun], GovernedToolExecutor | None]
 Sleep = Callable[[float], Awaitable[None]]
+logger = logging.getLogger(__name__)
 
 
 class WorkflowRunner:
@@ -92,7 +94,6 @@ class WorkflowRunner:
         concurrency: WorkflowConcurrencyCoordinator | None = None,
         sleeper: Sleep = asyncio.sleep,
         metadata: dict[str, Any] | None = None,
-        cancel_on_task_cancel: bool = True,
     ) -> None:
         self.store = store
         self.actions = actions
@@ -102,7 +103,18 @@ class WorkflowRunner:
         self._run_concurrency = WorkflowConcurrencyCoordinator()
         self.sleeper = sleeper
         self.metadata = metadata or {}
-        self.cancel_on_task_cancel = cancel_on_task_cancel
+        self._cancellation_directives: dict[str, tuple[bool, str | None]] = {}
+
+    def prepare_cancellation(
+        self,
+        run_id: str,
+        *,
+        preserve_for_recovery: bool = False,
+        reason: str | None = None,
+    ) -> None:
+        """Describe how the next task cancellation for a run should be checkpointed."""
+
+        self._cancellation_directives[run_id] = (preserve_for_recovery, reason)
 
     async def submit(
         self,
@@ -123,12 +135,20 @@ class WorkflowRunner:
             if not isinstance(rendered, str) or not rendered.strip():
                 raise TemplateRenderError("concurrency key must render to a non-empty string")
             concurrency_key = rendered
-        return await asyncio.to_thread(
+        reservation = await asyncio.to_thread(
             self.store.reserve,
             definition,
             event,
             concurrency_key=concurrency_key,
         )
+        logger.info(
+            "automation run reserved workflow_id=%s run_id=%s event_id=%s created=%s",
+            definition.id,
+            reservation.run.id,
+            event.id,
+            reservation.created,
+        )
+        return reservation
 
     async def run_event(
         self,
@@ -161,15 +181,18 @@ class WorkflowRunner:
                         )
                     return await self._execute_steps(run.id)
         except asyncio.CancelledError:
-            if self.cancel_on_task_cancel:
+            preserve, reason = self._cancellation_directives.pop(run_id, (False, None))
+            if not preserve:
                 latest = await asyncio.to_thread(self.store.load_run, run_id)
                 if latest.status in {"pending", "running", "waiting_approval"}:
                     await asyncio.to_thread(
                         self.store.cancel_run,
                         run_id,
-                        reason="workflow task was cancelled",
+                        reason=reason or "workflow task was cancelled",
                     )
             raise
+        finally:
+            self._cancellation_directives.pop(run_id, None)
 
     async def _execute_steps(self, run_id: str) -> WorkflowRun:
         while True:
@@ -179,11 +202,43 @@ class WorkflowRunner:
             if run.current_step >= len(run.steps):
                 if run.status == "pending":
                     run = await asyncio.to_thread(self.store.transition_run, run.id, "running")
-                return await asyncio.to_thread(self.store.transition_run, run.id, "completed")
+                completed = await asyncio.to_thread(
+                    self.store.transition_run,
+                    run.id,
+                    "completed",
+                )
+                logger.info(
+                    "automation run completed workflow_id=%s run_id=%s event_id=%s",
+                    run.workflow_id,
+                    run.id,
+                    run.event.id,
+                )
+                return completed
+            now = await asyncio.to_thread(self.store.now)
+            elapsed = (now - run.created_at).total_seconds()
+            if elapsed >= run.definition.defaults.max_run_seconds:
+                step = run.definition.steps[run.current_step]
+                return await self._fail_pending(
+                    run,
+                    step.id,
+                    "run_duration_exceeded",
+                    (
+                        "workflow exceeded its maximum duration of "
+                        f"{run.definition.defaults.max_run_seconds} seconds"
+                    ),
+                )
             if run.status == "pending":
                 run = await asyncio.to_thread(self.store.transition_run, run.id, "running")
 
             step_definition = run.definition.steps[run.current_step]
+            logger.info(
+                "automation step evaluating workflow_id=%s run_id=%s event_id=%s step_id=%s step_type=%s",
+                run.workflow_id,
+                run.id,
+                run.event.id,
+                step_definition.id,
+                step_definition.type,
+            )
             if step_definition.when is not None:
                 matched, _ = evaluate_condition(step_definition.when, _template_context(run=run))
                 if not matched:
@@ -253,7 +308,17 @@ class WorkflowRunner:
             ),
             metadata=dict(self.metadata),
         )
-        timeout = step.timeout_seconds or started.definition.defaults.timeout_seconds
+        step_timeout = step.timeout_seconds or started.definition.defaults.timeout_seconds
+        timeout, duration_limited = await self._remaining_timeout(started, step_timeout)
+        if timeout <= 0:
+            result = ActionResult(
+                is_error=True,
+                error_category="run_duration_exceeded",
+                error_message="workflow exceeded its maximum duration",
+                retryable=False,
+                outcome_unknown=False,
+            )
+            return await self._finish_attempt(started, step, result)
         try:
             result = await asyncio.wait_for(
                 self.actions.execute(prepared, context),
@@ -262,9 +327,13 @@ class WorkflowRunner:
         except asyncio.TimeoutError:
             result = ActionResult(
                 is_error=True,
-                error_category="timeout",
-                error_message=f"action timed out after {timeout} seconds",
-                retryable=prepared.retry_safe,
+                error_category=("run_duration_exceeded" if duration_limited else "timeout"),
+                error_message=(
+                    "workflow exceeded its maximum duration"
+                    if duration_limited
+                    else f"action timed out after {timeout} seconds"
+                ),
+                retryable=prepared.retry_safe and not duration_limited,
                 outcome_unknown=not prepared.retry_safe,
             )
         except Exception as exc:
@@ -304,7 +373,23 @@ class WorkflowRunner:
             retry_safe=retry_safe,
         )
         attempt = started.steps[started.current_step].attempts[-1]
-        timeout = step.timeout_seconds or started.definition.defaults.timeout_seconds
+        step_timeout = step.timeout_seconds or started.definition.defaults.timeout_seconds
+        timeout, duration_limited = await self._remaining_timeout(started, step_timeout)
+        if timeout <= 0:
+            agent_result = AgentStepResult(
+                is_error=True,
+                error_category="run_duration_exceeded",
+                error_message="workflow exceeded its maximum duration",
+                retryable=False,
+                outcome_unknown=False,
+            )
+            result = ActionResult(
+                is_error=True,
+                error_category=agent_result.error_category,
+                error_message=agent_result.error_message,
+                outcome_unknown=agent_result.outcome_unknown,
+            )
+            return await self._finish_attempt(started, step, result)
         try:
             agent_result = await asyncio.wait_for(
                 self.agent_executor.execute(
@@ -317,9 +402,13 @@ class WorkflowRunner:
         except asyncio.TimeoutError:
             agent_result = AgentStepResult(
                 is_error=True,
-                error_category="timeout",
-                error_message=f"agent step timed out after {timeout} seconds",
-                retryable=retry_safe,
+                error_category=("run_duration_exceeded" if duration_limited else "timeout"),
+                error_message=(
+                    "workflow exceeded its maximum duration"
+                    if duration_limited
+                    else f"agent step timed out after {timeout} seconds"
+                ),
+                retryable=retry_safe and not duration_limited,
                 outcome_unknown=not retry_safe,
             )
         except Exception as exc:
@@ -341,12 +430,20 @@ class WorkflowRunner:
                     retryable=retry_safe,
                 )
             else:
-                return await asyncio.to_thread(
+                completed = await asyncio.to_thread(
                     self.store.complete_step,
                     started.id,
                     step.id,
                     output=output,
                 )
+                logger.info(
+                    "automation step completed workflow_id=%s run_id=%s event_id=%s step_id=%s",
+                    started.workflow_id,
+                    started.id,
+                    started.event.id,
+                    step.id,
+                )
+                return completed
         if agent_result.retryable and not retry_safe:
             agent_result = AgentStepResult(
                 output=agent_result.output,
@@ -372,12 +469,20 @@ class WorkflowRunner:
         result: ActionResult,
     ) -> WorkflowRun:
         if not result.is_error:
-            return await asyncio.to_thread(
+            completed = await asyncio.to_thread(
                 self.store.complete_step,
                 run.id,
                 step.id,
                 output=result.output,
             )
+            logger.info(
+                "automation step completed workflow_id=%s run_id=%s event_id=%s step_id=%s",
+                run.workflow_id,
+                run.id,
+                run.event.id,
+                step.id,
+            )
+            return completed
         error = RunError(
             category=result.error_category,
             message=(result.error_message or result.error_category)[:4000],
@@ -390,6 +495,16 @@ class WorkflowRunner:
             step.id,
             error=error,
             outcome_unknown=result.outcome_unknown,
+        )
+        logger.warning(
+            "automation step failed workflow_id=%s run_id=%s event_id=%s step_id=%s category=%s retryable=%s outcome_unknown=%s",
+            run.workflow_id,
+            run.id,
+            run.event.id,
+            step.id,
+            result.error_category,
+            result.retryable,
+            result.outcome_unknown,
         )
         retry = step.retry or failed.definition.defaults.retry
         attempts = len(failed.steps[failed.current_step].attempts)
@@ -408,12 +523,31 @@ class WorkflowRunner:
         category: str,
         message: str,
     ) -> WorkflowRun:
-        return await asyncio.to_thread(
+        failed = await asyncio.to_thread(
             self.store.fail_pending_step,
             run.id,
             step_id,
             error=RunError(category=category, message=(message or category)[:4000]),
         )
+        logger.warning(
+            "automation step failed workflow_id=%s run_id=%s event_id=%s step_id=%s category=%s",
+            run.workflow_id,
+            run.id,
+            run.event.id,
+            step_id,
+            category,
+        )
+        return failed
+
+    async def _remaining_timeout(
+        self,
+        run: WorkflowRun,
+        step_timeout: int,
+    ) -> tuple[float, bool]:
+        now = await asyncio.to_thread(self.store.now)
+        elapsed = max(0.0, (now - run.created_at).total_seconds())
+        remaining = max(0.0, run.definition.defaults.max_run_seconds - elapsed)
+        return min(float(step_timeout), remaining), remaining <= step_timeout
 
 
 def _template_context(

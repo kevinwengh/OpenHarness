@@ -110,6 +110,11 @@ admitted actor in the step allowlist. Local `ohmo automation` commands provide v
 manual submission, inspection, and explicit recovery transitions. Evidence: `ohmo/automation/`,
 `src/openharness/automation/`, and automation tests.
 
+**Observed.** Workflow defaults bound per-step time and total run duration. The store bounds live
+and archived terminal history, while structured lifecycle logs carry workflow, run, event, and step
+identifiers without message content. Definition loading rejects credential-shaped fields and common
+plaintext token formats before execution.
+
 ## State and ownership
 
 | State | Default location | Owner |

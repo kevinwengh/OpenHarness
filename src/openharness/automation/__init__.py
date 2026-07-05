@@ -22,7 +22,12 @@ from openharness.automation.models import (
     definition_revision,
 )
 from openharness.automation.state import RunError, TransitionError, WorkflowRun
-from openharness.automation.store import AutomationStore, AutomationStoreError, ReservationResult
+from openharness.automation.store import (
+    AutomationStore,
+    AutomationStoreError,
+    ReservationResult,
+    RetentionResult,
+)
 from openharness.automation.runner import AgentStepResult, RunnerResult, WorkflowRunner
 from openharness.automation.templates import TemplateRenderError, render_template
 
@@ -43,6 +48,7 @@ __all__ = [
     "MatchTrace",
     "GovernedToolAction",
     "ReservationResult",
+    "RetentionResult",
     "RunnerResult",
     "RunError",
     "TemplateRenderError",

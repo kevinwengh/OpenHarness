@@ -285,12 +285,15 @@ async def test_runner_can_leave_interrupted_run_for_startup_recovery(
     runner = WorkflowRunner(
         store=store,
         actions=registry,
-        cancel_on_task_cancel=False,
     )
     reservation = await runner.submit(definition, channel_event)
     task = asyncio.create_task(runner.execute(reservation.run.id))
     await started.wait()
 
+    runner.prepare_cancellation(
+        reservation.run.id,
+        preserve_for_recovery=True,
+    )
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -493,3 +496,102 @@ async def test_submit_rejects_nonmatching_event(tmp_path, workflow, channel_even
     )
     with pytest.raises(WorkflowNotMatchedError):
         await runner_for(tmp_path, action).submit(workflow, event)
+
+
+@pytest.mark.asyncio
+async def test_runner_fails_workflow_that_exceeds_total_duration(tmp_path, channel_event) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime(2026, 7, 5, tzinfo=timezone.utc)
+    current = [now]
+    store = AutomationStore(tmp_path / "automation", clock=lambda: current[0])
+    action = RecordingAction()
+    registry = ActionRegistry()
+    registry.register(action)
+    definition = action_definition(
+        steps=[
+            {"id": "notify", "type": "action", "action": "record", "with": {"message": "x"}}
+        ],
+        defaults={"max_run_seconds": 1},
+    )
+    runner = WorkflowRunner(store=store, actions=registry)
+    reservation = await runner.submit(definition, channel_event)
+    current[0] = now + timedelta(milliseconds=750)
+    remaining, duration_limited = await runner._remaining_timeout(
+        reservation.run,
+        120,
+    )
+    assert remaining == pytest.approx(0.25)
+    assert duration_limited is True
+    current[0] = now + timedelta(seconds=2)
+
+    run = await runner.execute(reservation.run.id)
+
+    assert run.status == "failed"
+    assert run.error.category == "run_duration_exceeded"
+    assert action.calls == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_previous_checkpoints_replaced_run_as_cancelled(
+    tmp_path,
+    channel_event,
+) -> None:
+    first_started = asyncio.Event()
+    calls = 0
+
+    class ReplacingAction(RecordingAction):
+        async def execute(self, arguments, context):
+            nonlocal calls
+            del arguments, context
+            calls += 1
+            if calls == 1:
+                first_started.set()
+                await asyncio.Future()
+            return ActionResult(output={"ok": True})
+
+    action = ReplacingAction(retry_safe=False)
+    definition = action_definition(
+        steps=[
+            {"id": "notify", "type": "action", "action": "record", "with": {"message": "x"}}
+        ],
+        concurrency={"key": "shared", "policy": "cancel_previous"},
+    )
+    store = AutomationStore(tmp_path / "automation")
+    registry = ActionRegistry()
+    registry.register(action)
+    runner = WorkflowRunner(store=store, actions=registry)
+
+    first_task = asyncio.create_task(runner.run_event(definition, channel_event))
+    await first_started.wait()
+    second_event = channel_event.model_copy(update={"id": "replacement-event"})
+    second = await runner.run_event(definition, second_event)
+    with pytest.raises(asyncio.CancelledError):
+        await first_task
+
+    first_run = next(run for run in store.list_runs() if run.event.id == channel_event.id)
+    assert first_run.status == "cancelled"
+    assert first_run.error.outcome_unknown is True
+    assert second.run.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_runner_audit_logs_carry_workflow_run_event_and_step_ids(
+    tmp_path,
+    channel_event,
+    caplog,
+) -> None:
+    action = RecordingAction()
+    definition = action_definition(
+        steps=[
+            {"id": "notify", "type": "action", "action": "record", "with": {"message": "x"}}
+        ]
+    )
+
+    with caplog.at_level("INFO", logger="openharness.automation.runner"):
+        result = await runner_for(tmp_path, action).run_event(definition, channel_event)
+
+    assert f"workflow_id={definition.id}" in caplog.text
+    assert f"run_id={result.run.id}" in caplog.text
+    assert f"event_id={channel_event.id}" in caplog.text
+    assert "step_id=notify" in caplog.text

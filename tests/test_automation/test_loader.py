@@ -79,3 +79,26 @@ def test_loader_rejects_duplicate_yaml_keys_and_aliases(tmp_path) -> None:
     assert all("cannot parse YAML" in item.message for item in result.diagnostics)
     assert any("duplicate key" in item.message for item in result.diagnostics)
     assert any("aliases are not supported" in item.message for item in result.diagnostics)
+
+
+def test_loader_rejects_plaintext_credentials_but_allows_aliases(tmp_path) -> None:
+    root = tmp_path / "automations"
+    root.mkdir()
+    secret_key = workflow_payload(id="secret-key")
+    secret_key["steps"][1]["with"]["api_key"] = "plaintext-value"
+    token_value = workflow_payload(id="token-value")
+    token_value["steps"][1]["with"]["content"] = "xoxb-1234567890-secret"
+    alias = workflow_payload(id="alias")
+    alias["steps"][1]["with"]["credential_alias"] = "slack-primary"
+    _write(root / "secret-key.yaml", secret_key)
+    _write(root / "token-value.yaml", token_value)
+    _write(root / "alias.yaml", alias)
+
+    result = load_workflow_definitions(root)
+
+    assert [definition.id for definition in result.definitions] == ["alias"]
+    assert len(result.diagnostics) == 2
+    assert all(
+        "plaintext credentials are not allowed" in item.message
+        for item in result.diagnostics
+    )

@@ -243,6 +243,36 @@ def test_recovery_expires_waiting_approval(tmp_path, channel_event) -> None:
     assert expired.approvals[-1].status == "expired"
 
 
+def test_waiting_run_expires_when_total_duration_elapses(tmp_path, channel_event) -> None:
+    payload = workflow_payload(source_behavior="consume")
+    payload["policy"] = {}
+    payload["defaults"] = {"max_run_seconds": 1}
+    payload["steps"] = [
+        {
+            "id": "approve",
+            "type": "approval",
+            "prompt": "Approve escalation?",
+            "approver_ids": ["U_COMMANDER"],
+            "expires_seconds": 30,
+        }
+    ]
+    definition = WorkflowDefinition.model_validate(payload)
+    now = datetime(2026, 7, 5, tzinfo=timezone.utc)
+    current = [now]
+    store = AutomationStore(tmp_path / "automation", clock=lambda: current[0])
+    run = store.reserve(definition, channel_event).run
+    store.wait_for_approval(run.id, "approve")
+    current[0] = now + timedelta(seconds=1)
+
+    expired = store.expire_waiting_runs()
+
+    assert expired == (run.id,)
+    failed = store.load_run(run.id)
+    assert failed.status == "failed"
+    assert failed.error.category == "run_duration_exceeded"
+    assert failed.approvals[-1].status == "expired"
+
+
 def test_recovery_retries_safe_attempt_but_marks_unsafe_outcome_unknown(
     tmp_path,
     channel_event,
@@ -340,3 +370,24 @@ def test_store_rejects_oversized_run_on_read(store, monkeypatch) -> None:
     path.write_text("x" * 11, encoding="utf-8")
     with pytest.raises(AutomationStoreError, match="exceeds 10 bytes"):
         store.load_run("run-oversized")
+
+
+def test_retention_bounds_live_and_archived_terminal_history(tmp_path, workflow, channel_event) -> None:
+    store = AutomationStore(tmp_path / "automation", clock=Clock())
+    runs = []
+    for index in range(4):
+        run = store.reserve(
+            workflow,
+            channel_event.model_copy(update={"id": f"retention-{index}"}),
+        ).run
+        runs.append(store.cancel_run(run.id))
+
+    result = store.prune(max_live_runs=2, max_archived_runs=1)
+
+    assert result.archived_run_ids == (runs[0].id, runs[1].id)
+    assert result.deleted_archive_run_ids == (runs[0].id,)
+    assert len(store.list_runs()) == 2
+    assert [path.stem for path in store.archive_dir.glob("run-*.json")] == [runs[1].id]
+    assert store.load_run(runs[1].id).status == "cancelled"
+    index = json.loads(store.index_path.read_text(encoding="utf-8"))
+    assert set(index["runs"]) == {runs[2].id, runs[3].id}

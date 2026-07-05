@@ -46,7 +46,7 @@ sessions, plugins, cron, or autopilot.
 | `memory/` and `MEMORY.md` | Markdown/frontmatter | lock + atomic entry/index updates |
 | `skills/`, `plugins/` | instruction and extension trees | private workspace roots injected into runtime |
 | `automations/*.yaml` | versioned declarative workflow definitions | bounded safe-YAML loading; user-authored configuration |
-| `automation/runs/*.json`, `automation/index.json` | workflow checkpoints, approvals, and reservation index | mode-0600 atomic writes under a shared lock; startup recovery rebuilds the index, preserves approval-delivery state, and classifies interrupted effects |
+| `automation/runs/*.json`, `automation/index.json`, `automation/archive/` | workflow checkpoints, approvals, reservation index, and retained terminal history | mode-0600 atomic writes under a shared lock; startup recovery rebuilds the index, preserves approval-delivery state, classifies interrupted effects, and bounds live/archive history to 1,000 files each by default |
 | `sessions/` | JSON snapshots + transcript export | latest, per-key latest, and named files written atomically one at a time |
 | `attachments/` | arbitrary media | copied/downloaded content; operator retention |
 | `groups/` | JSON records | managed-group metadata |

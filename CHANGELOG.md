@@ -12,7 +12,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
   matching, durable/idempotent runs, restricted named-skill agent steps, conditional multi-step
   actions, cross-channel delivery, namespaced personal-knowledge upserts, crash recovery, and
   trusted plugin automation actions, plus durable actor-authorized approvals and local validation,
-  dry-run, submission, inspection, retry, cancellation, and approval commands.
+  dry-run, submission, inspection, retry, cancellation, and approval commands. Workflow-wide
+  duration, retained-history, plaintext-credential, and structured audit-log bounds are enforced.
 - A source-level `oh` versus `ohmo` concept comparison covering memory recall and evolution,
   compaction, sessions, providers, tools, permissions, extensions, UI, tasks, current isolation
   gaps, and a complete multi-channel gateway coordination workflow.

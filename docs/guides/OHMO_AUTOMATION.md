@@ -21,13 +21,18 @@ generic events and checkpoints every step.
   directory. `knowledge.upsert` writes through the personal-memory schema and index.
 - User/workspace plugins are executable trusted code. Project plugins remain disabled unless
   `allow_project_plugins` is enabled.
-- External message delivery is at-least-once when a platform has no idempotency API. An interrupted
-  non-retry-safe effect is recorded as `outcome_unknown` and is not replayed automatically.
+- `channel.send` records successful local queueing, not confirmed remote delivery. The current
+  channel abstraction has no delivery acknowledgement, so process/platform failures can lose or
+  duplicate a message. The action is non-retry-safe; an interrupted in-flight effect is recorded as
+  `outcome_unknown` and is not replayed automatically.
 
 ## Files and lifecycle
 
 Definitions are safe, strict YAML files under `<workspace>/automations/*.yaml`. Generated state is
 separate under `<workspace>/automation/`; do not edit run JSON while the gateway is active.
+Definitions containing credential-shaped fields or common plaintext token formats are rejected;
+use a trusted action's credential alias instead. Each workflow has a bounded
+`defaults.max_run_seconds` (seven days by default).
 
 The gateway loads definitions and resumes safe pending work at startup. Invalid definitions and
 missing actions/skills are logged and excluded. A matched workflow can set:
@@ -99,6 +104,11 @@ ohmo automation retry RUN_ID --allow-unknown-outcome --workspace ~/.ohmo
 `inspect` bounds large strings and redacts credential-shaped fields and common token formats.
 `--allow-unknown-outcome` is deliberately explicit because an external effect may already have
 happened.
+
+The store keeps at most 1,000 live run files and 1,000 archived terminal files by default. Oldest
+terminal runs move to `automation/archive/`; the oldest archives are then deleted. Reservation
+deduplication covers retained live history, so an event older than the retention window can create a
+new run if a source redelivers it.
 
 ## Approvals
 

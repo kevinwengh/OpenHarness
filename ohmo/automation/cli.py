@@ -58,6 +58,9 @@ def _definition(root: Path, workflow_id: str):
     for definition in loaded.definitions:
         if definition.id == workflow_id:
             return definition
+    for diagnostic in loaded.diagnostics:
+        if diagnostic.workflow_id == workflow_id:
+            typer.echo(f"{diagnostic.path}: {diagnostic.message}", err=True)
     typer.echo(f"Automation workflow not found: {workflow_id}", err=True)
     raise typer.Exit(1)
 

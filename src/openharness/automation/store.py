@@ -49,6 +49,13 @@ class RecoveryResult:
     diagnostics: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class RetentionResult:
+    archived_run_ids: tuple[str, ...]
+    deleted_archive_run_ids: tuple[str, ...]
+    diagnostics: tuple[str, ...]
+
+
 class AutomationStore:
     """Own atomic run checkpoints and workflow/event idempotency reservations."""
 
@@ -68,6 +75,9 @@ class AutomationStore:
         self._id_factory = id_factory or self._new_run_id
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.archive_dir.mkdir(parents=True, exist_ok=True)
+
+    def now(self) -> datetime:
+        return _utc(self._clock())
 
     def reserve(
         self,
@@ -111,6 +121,8 @@ class AutomationStore:
 
     def load_run(self, run_id: str) -> WorkflowRun:
         path = self._run_path(run_id)
+        if not path.exists():
+            path = self.archive_dir / path.name
         try:
             raw = json.loads(self._read_bounded(path, MAX_RUN_BYTES, "workflow run"))
             return WorkflowRun.model_validate(raw)
@@ -368,12 +380,35 @@ class AutomationStore:
             ensure_step_transition(step.status, "waiting_approval")
             definition_step = approval_step_for(run, step_id)
             now = _utc(self._clock())
+            run_deadline = run.created_at + timedelta(
+                seconds=run.definition.defaults.max_run_seconds
+            )
+            if run_deadline <= now:
+                error = RunError(
+                    category="run_duration_exceeded",
+                    message="workflow exceeded its maximum duration",
+                )
+                failed_step = step.model_copy(
+                    update={"status": "failed", "completed_at": now, "error": error}
+                )
+                failed = _replace_step(run, index, failed_step).model_copy(
+                    update={
+                        "status": "failed",
+                        "updated_at": now,
+                        "completed_at": now,
+                        "error": error,
+                    }
+                )
+                return self._checkpoint_locked(failed)
             approval = ApprovalRecord(
                 step_id=step_id,
                 prompt=prompt or definition_step.prompt,
                 approver_ids=definition_step.approver_ids,
                 requested_at=now,
-                expires_at=now + timedelta(seconds=definition_step.expires_seconds),
+                expires_at=min(
+                    now + timedelta(seconds=definition_step.expires_seconds),
+                    run_deadline,
+                ),
             )
             updated_step = step.model_copy(
                 update={"status": "waiting_approval", "started_at": now}
@@ -468,6 +503,63 @@ class AutomationStore:
                 }
             )
             return self._checkpoint_locked(updated)
+
+    def expire_waiting_runs(self) -> tuple[str, ...]:
+        """Fail waiting approvals whose approval or total-run deadline has elapsed."""
+
+        expired_run_ids: list[str] = []
+        with exclusive_file_lock(self.lock_path):
+            now = _utc(self._clock())
+            for path in sorted(self.runs_dir.glob("run-*.json")):
+                try:
+                    run = WorkflowRun.model_validate_json(
+                        self._read_bounded(path, MAX_RUN_BYTES, "workflow run")
+                    )
+                except (OSError, ValidationError, AutomationStoreError):
+                    continue
+                if run.status != "waiting_approval" or not run.approvals:
+                    continue
+                approval = run.approvals[-1]
+                run_expired = (
+                    now - run.created_at
+                ).total_seconds() >= run.definition.defaults.max_run_seconds
+                approval_expired = now >= approval.expires_at
+                if not run_expired and not approval_expired:
+                    continue
+                category = (
+                    "run_duration_exceeded" if run_expired else "approval_expired"
+                )
+                message = (
+                    "workflow exceeded its maximum duration"
+                    if run_expired
+                    else "approval expired"
+                )
+                error = RunError(category=category, message=message)
+                resolved = approval.model_copy(
+                    update={
+                        "status": "expired",
+                        "resolved_at": now,
+                        "reason": message,
+                    }
+                )
+                step = run.steps[run.current_step].model_copy(
+                    update={"status": "failed", "completed_at": now, "error": error}
+                )
+                updated = _replace_step(run, run.current_step, step).model_copy(
+                    update={
+                        "status": "failed",
+                        "approvals": [*run.approvals[:-1], resolved],
+                        "updated_at": now,
+                        "completed_at": now,
+                        "error": error,
+                    }
+                )
+                self._write_run_locked(updated)
+                expired_run_ids.append(run.id)
+            if expired_run_ids:
+                index, _ = self._rebuild_index_locked()
+                self._write_index_locked(index)
+        return tuple(expired_run_ids)
 
     def retry_run(self, run_id: str, *, allow_unknown_outcome: bool = False) -> WorkflowRun:
         with exclusive_file_lock(self.lock_path):
@@ -573,10 +665,25 @@ class AutomationStore:
                 now = _utc(self._clock())
                 if run.status == "waiting_approval":
                     approval = run.approvals[-1]
-                    if approval.expires_at <= now:
-                        error = RunError(category="approval_expired", message="approval expired")
+                    run_expired = (
+                        now - run.created_at
+                    ).total_seconds() >= run.definition.defaults.max_run_seconds
+                    if approval.expires_at <= now or run_expired:
+                        category = (
+                            "run_duration_exceeded" if run_expired else "approval_expired"
+                        )
+                        message = (
+                            "workflow exceeded its maximum duration"
+                            if run_expired
+                            else "approval expired"
+                        )
+                        error = RunError(category=category, message=message)
                         resolved = approval.model_copy(
-                            update={"status": "expired", "resolved_at": now}
+                            update={
+                                "status": "expired",
+                                "resolved_at": now,
+                                "reason": message,
+                            }
                         )
                         step = run.steps[run.current_step].model_copy(
                             update={"status": "failed", "completed_at": now, "error": error}
@@ -683,6 +790,60 @@ class AutomationStore:
             index, diagnostics = self._rebuild_index_locked()
             self._write_index_locked(index)
         return RecoveryResult((), (), tuple(diagnostics))
+
+    def prune(
+        self,
+        *,
+        max_live_runs: int = 1000,
+        max_archived_runs: int = 1000,
+    ) -> RetentionResult:
+        """Bound retained history by archiving oldest terminal runs and deleting old archives."""
+
+        if max_live_runs < 1 or max_archived_runs < 0:
+            raise ValueError("automation retention limits are invalid")
+        archived: list[str] = []
+        deleted: list[str] = []
+        diagnostics: list[str] = []
+        with exclusive_file_lock(self.lock_path):
+            live: list[tuple[Path, WorkflowRun]] = []
+            for path in sorted(self.runs_dir.glob("run-*.json")):
+                try:
+                    run = WorkflowRun.model_validate_json(
+                        self._read_bounded(path, MAX_RUN_BYTES, "workflow run")
+                    )
+                except (OSError, ValidationError, AutomationStoreError) as exc:
+                    diagnostics.append(f"{path.name}: {exc}")
+                    continue
+                live.append((path, run))
+            excess = max(0, len(live) - max_live_runs)
+            terminal = sorted(
+                (
+                    item
+                    for item in live
+                    if item[1].status in {"completed", "failed", "cancelled"}
+                ),
+                key=lambda item: (item[1].completed_at or item[1].updated_at, item[1].id),
+            )
+            for path, run in terminal[:excess]:
+                path.replace(self.archive_dir / path.name)
+                archived.append(run.id)
+            if excess > len(archived):
+                diagnostics.append(
+                    f"live run limit exceeded by {excess - len(archived)} non-terminal run(s)"
+                )
+
+            archives = sorted(
+                self.archive_dir.glob("run-*.json"),
+                key=lambda path: (path.stat().st_mtime_ns, path.name),
+            )
+            for path in archives[: max(0, len(archives) - max_archived_runs)]:
+                deleted.append(path.stem)
+                path.unlink()
+
+            index, rebuild_diagnostics = self._rebuild_index_locked()
+            diagnostics.extend(rebuild_diagnostics)
+            self._write_index_locked(index)
+        return RetentionResult(tuple(archived), tuple(deleted), tuple(diagnostics))
 
     def _checkpoint_locked(self, run: WorkflowRun) -> WorkflowRun:
         validated = WorkflowRun.model_validate(run.model_dump(mode="python"))

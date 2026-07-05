@@ -286,6 +286,7 @@ class RetryPolicy(AutomationModel):
 class WorkflowDefaults(AutomationModel):
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    max_run_seconds: int = Field(default=604800, ge=1, le=604800)
 
 
 class WorkflowConcurrency(AutomationModel):

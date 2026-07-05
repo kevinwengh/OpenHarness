@@ -1,11 +1,11 @@
 # Automation workflows technical specification
 
-Status: **Proposed for implementation on `kevin/automation-workflows`**
+Status: **Implemented on `kevin/automation-workflows`**
 
 This document specifies a local-first automation subsystem for OpenHarness and its `ohmo`
 application. It is intentionally implementation-facing: every required behavior has a stable
-identifier, an owning boundary, and verification evidence. Until the corresponding code lands,
-statements marked **Proposed** are not claims about current behavior.
+identifier, an owning boundary, and verification evidence. The user-facing workflow and operator
+commands are documented in the [Ohmo automation guide](../guides/OHMO_AUTOMATION.md).
 
 ## Problem statement
 
@@ -126,8 +126,10 @@ continues.
   `<workspace>/automations/`. Definitions are data, parsed with `yaml.safe_load`, bounded in size,
   validated with Pydantic, and never evaluated as Python or shell.
 - **AUT-FR-005 — Skill binding.** A workflow may explicitly name a discovered skill for an agent
-  step. A `SKILL.md` alone never activates automation. Missing, disabled-for-model, or ambiguous
-  skills fail validation before the run starts.
+  step. A `SKILL.md` alone never activates automation. Missing or disabled-for-model skills fail
+  validation before the run starts. Normal skill-registry precedence resolves duplicate names
+  deterministically, so automation uses the same unambiguous selected definition as an interactive
+  runtime rather than inventing a second precedence rule.
 - **AUT-FR-006 — Generic event shape.** Matching and running depend on event type and JSON paths,
   not Slack classes. Future cron, webhook, GitHub, email, or filesystem adapters can emit the same
   envelope without changing the runner.
@@ -197,8 +199,10 @@ continues.
   Startup recovery can rebuild a corrupt or missing reservation index by scanning run files.
 - **AUT-FR-034 — Action idempotency.** The runner supplies
   `<run_id>:<step_id>:<attempt>` plus a stable logical step key. Actions capable of server-side
-  idempotency use the stable key. The system documents that platforms without such support remain
-  at-least-once.
+  idempotency use the stable key. `channel.send` is deliberately non-retry-safe and records local
+  queue acceptance, not remote delivery: the existing channel bus/adapter contract has no delivery
+  acknowledgement, so a process or platform failure can still lose or duplicate a remote message.
+  The system must not report such queue acceptance as exactly-once or confirmed delivery.
 - **AUT-FR-035 — Retry and timeout.** Workflow defaults and step overrides define attempts,
   bounded exponential backoff, timeout, and retryable error categories. Validation, policy denial,
   and approval rejection are not retried.
@@ -309,6 +313,7 @@ defaults:
     attempts: 3
     backoff_seconds: [1, 5, 30]
   timeout_seconds: 120
+  max_run_seconds: 604800
 
 steps:
   - id: assess
@@ -578,15 +583,14 @@ next increment.
 
 | Requirement area | Minimum evidence |
 | --- | --- |
-| Models and loader | planned `test_automation.test_models` and `test_loader` modules |
-| Matching/templates | planned `test_automation.test_matcher` and `test_templates` modules |
-| Store/recovery | planned `test_automation.test_store` module with temporary roots |
-| Runner/retry/concurrency | planned `test_automation.test_runner` module using deterministic fakes |
+| Models and loader | `tests/test_automation/test_models.py`, `test_loader.py` |
+| Matching/templates | `tests/test_automation/test_matcher.py`, `test_templates.py` |
+| Store/recovery | `tests/test_automation/test_store.py` with temporary roots |
+| Runner/retry/concurrency | `tests/test_automation/test_runner.py` using deterministic fakes |
 | Governed tools | focused engine/permission/hook/tool tests plus automation integration |
 | Skill agent | fake provider, filtered registry, invalid JSON, timeout and cleanup tests |
-| Ohmo actions | planned `test_ohmo.test_automation_actions` module |
-| Gateway path | planned `test_ohmo.test_automation_gateway` module and channel security tests |
-| Approval and CLI | planned `test_ohmo.test_automation_cli` module and gateway actor-denial tests |
+| Ohmo actions and gateway path | `tests/test_ohmo/test_automation_service.py` plus channel security tests |
+| Approval and CLI | `tests/test_ohmo/test_automation_cli.py`, service actor-denial/restart tests |
 | Persisted compatibility | state-format docs plus malformed/unknown-version tests |
 | End-to-end | admitted Slack-shaped event → condition → skill/fake agent → cross-chat message + memory |
 | Regression | `uv run ruff check src tests scripts`, `uv run pytest -q`, docs checker |

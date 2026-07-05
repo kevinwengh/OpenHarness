@@ -75,7 +75,7 @@ Pre-hooks are trusted policy code because they run before validation and permiss
 | Session-key collision/leakage | router includes channel/chat/thread/sender dimensions | key-shape changes can merge or split histories without migration |
 | Bridge secret disclosure | required fields/version validation | encoding is base64url, not encryption; disclosure exposes ingress token material |
 | Autopilot unsafe mutation | worktree default, verification policy, draft/mode/label merge checks | full-auto execution remains powerful; declared release human-gate fields are not currently enforced |
-| Automation prompt injection or overreach | deterministic admission/matching; exact action/tool/destination/namespace policy; structured agent output; sensitive-path rules | trusted definitions/plugins remain powerful; external effects are not exactly-once when a platform lacks idempotency |
+| Automation prompt injection or overreach | deterministic admission/matching; exact action/tool/destination/namespace policy; structured agent output; sensitive-path rules | trusted definitions/plugins remain powerful; channel queue acceptance is not confirmed remote delivery and crash/platform failures can lose or duplicate messages |
 | Sandbox confusion | explicit enablement, path/network validation, resource settings | one module-global Docker session slot; not every tool runs in the container |
 | Sensitive logs/artifacts | bounded output and config redaction in selected paths | tool inputs, child output, sessions, and attachments may contain private data |
 

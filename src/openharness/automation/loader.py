@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,24 @@ from openharness.automation.models import WorkflowDefinition
 
 MAX_DEFINITION_BYTES = 256 * 1024
 MAX_DEFINITIONS = 100
+_SECRET_KEY_PARTS = (
+    "api_key",
+    "apikey",
+    "app_token",
+    "access_token",
+    "auth_token",
+    "bot_token",
+    "github_token",
+    "refresh_token",
+    "authorization",
+    "credential",
+    "password",
+    "private_key",
+    "secret",
+)
+_SECRET_VALUE_RE = re.compile(
+    r"(?i)(?:sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[A-Z0-9]{16})"
+)
 
 
 class _WorkflowSafeLoader(yaml.SafeLoader):
@@ -129,6 +148,16 @@ def load_workflow_definitions(
         if not isinstance(raw, dict):
             diagnostics.append(DefinitionDiagnostic(path, "definition must be a YAML object"))
             continue
+        secret_path = _plaintext_secret_path(raw)
+        if secret_path is not None:
+            diagnostics.append(
+                DefinitionDiagnostic(
+                    path,
+                    f"plaintext credentials are not allowed at {secret_path}",
+                    str(raw.get("id") or "") or None,
+                )
+            )
+            continue
         try:
             definition = WorkflowDefinition.model_validate(raw)
         except ValidationError as exc:
@@ -167,3 +196,28 @@ def _validation_message(exc: ValidationError) -> str:
     remaining = len(errors) - 1
     suffix = f" (+{remaining} more errors)" if remaining else ""
     return f"validation failed at {location}: {message}{suffix}"
+
+
+def _plaintext_secret_path(value, *, path: str = "definition") -> str | None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = str(key).lower().replace("-", "_")
+            if (
+                any(part in normalized for part in _SECRET_KEY_PARTS)
+                and not normalized.endswith(("_alias", "_reference", "_ref"))
+                and item not in (None, "", [], {})
+            ):
+                return f"{path}.{key}"
+            found = _plaintext_secret_path(item, path=f"{path}.{key}")
+            if found is not None:
+                return found
+        return None
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            found = _plaintext_secret_path(item, path=f"{path}[{index}]")
+            if found is not None:
+                return found
+        return None
+    if isinstance(value, str) and _SECRET_VALUE_RE.search(value):
+        return path
+    return None

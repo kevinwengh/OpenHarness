@@ -61,6 +61,7 @@ class OhmoAutomationService:
         provider_profile: str | None = None,
         actions: ActionRegistry | None = None,
         agent_executor: AgentStepExecutor | None = None,
+        maintenance_interval_seconds: float = 5.0,
     ) -> None:
         self.workspace = initialize_workspace(workspace)
         self.cwd = Path(cwd).expanduser().resolve()
@@ -96,11 +97,14 @@ class OhmoAutomationService:
             store=self.store,
             actions=self.actions,
             agent_executor=self.agent_executor,
-            cancel_on_task_cancel=False,
         )
         self.definitions: tuple[WorkflowDefinition, ...] = ()
         self.diagnostics: tuple[DefinitionDiagnostic, ...] = ()
         self._tasks: dict[str, asyncio.Task] = {}
+        if maintenance_interval_seconds <= 0:
+            raise ValueError("maintenance interval must be positive")
+        self._maintenance_interval_seconds = maintenance_interval_seconds
+        self._maintenance_task: asyncio.Task | None = None
         self._started = False
 
     async def start(self) -> None:
@@ -118,7 +122,15 @@ class OhmoAutomationService:
         recovery = await asyncio.to_thread(self.store.recover)
         for diagnostic in recovery.diagnostics:
             logger.warning("ohmo automation recovery diagnostic: %s", diagnostic)
+        await asyncio.to_thread(self.store.expire_waiting_runs)
+        retention = await asyncio.to_thread(self.store.prune)
+        for diagnostic in retention.diagnostics:
+            logger.warning("ohmo automation retention diagnostic: %s", diagnostic)
         self._started = True
+        self._maintenance_task = asyncio.create_task(
+            self._maintenance_loop(),
+            name="ohmo-automation-maintenance",
+        )
         pending = await asyncio.to_thread(self.store.list_runs, status="pending")
         waiting = await asyncio.to_thread(self.store.list_runs, status="waiting_approval")
         for run in (*pending, *waiting):
@@ -136,13 +148,34 @@ class OhmoAutomationService:
         self.diagnostics = (*loaded.diagnostics, *preflight)
 
     async def stop(self) -> None:
+        maintenance = self._maintenance_task
+        self._maintenance_task = None
+        if maintenance is not None:
+            maintenance.cancel()
+            await asyncio.gather(maintenance, return_exceptions=True)
         tasks = list(self._tasks.values())
-        for task in tasks:
+        for run_id, task in list(self._tasks.items()):
+            if task.done():
+                continue
+            self.runner.prepare_cancellation(run_id, preserve_for_recovery=True)
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
         self._started = False
+
+    async def _maintenance_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self._maintenance_interval_seconds)
+            try:
+                expired = await asyncio.to_thread(self.store.expire_waiting_runs)
+                for run_id in expired:
+                    logger.info("automation waiting run expired run_id=%s", run_id)
+                await asyncio.to_thread(self.store.prune)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("ohmo automation maintenance failed")
 
     async def dispatch_message(self, message: InboundMessage) -> AutomationDispatch:
         return await self.dispatch_event(channel_message_event(message))
@@ -213,8 +246,12 @@ class OhmoAutomationService:
     async def cancel_run(self, run_id: str, *, reason: str):
         task = self._tasks.get(run_id)
         if task is not None and not task.done():
+            self.runner.prepare_cancellation(run_id, reason=reason)
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            run = await asyncio.to_thread(self.store.load_run, run_id)
+            if run.status == "cancelled":
+                return run
         return await asyncio.to_thread(self.store.cancel_run, run_id, reason=reason)
 
     async def resolve_approval(
@@ -352,6 +389,9 @@ class OhmoAutomationService:
         if run.status == "waiting_approval":
             await self._deliver_approval(run)
             run = await asyncio.to_thread(self.store.load_run, run.id)
+        retention = await asyncio.to_thread(self.store.prune)
+        for diagnostic in retention.diagnostics:
+            logger.warning("ohmo automation retention diagnostic: %s", diagnostic)
         return run
 
     async def _deliver_approval(self, run) -> None:
