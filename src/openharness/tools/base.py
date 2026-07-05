@@ -202,6 +202,16 @@ class ToolRegistry:
         """
         return list(self._tools.values())
 
+    def filtered(self, names: set[str] | list[str] | tuple[str, ...]) -> "ToolRegistry":
+        """Return a registry exposing only the requested installed tool names."""
+
+        selected = ToolRegistry()
+        for name in names:
+            tool = self.get(name)
+            if tool is not None:
+                selected.register(tool)
+        return selected
+
     def to_api_schema(self) -> list[dict[str, Any]]:
         """Return all tool schemas in API format.
 

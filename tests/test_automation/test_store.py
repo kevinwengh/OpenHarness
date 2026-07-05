@@ -152,7 +152,7 @@ def test_skip_and_cancel_update_current_state(store, workflow, channel_event) ->
     run = store.cancel_run(run.id, reason="operator stopped it")
     assert run.status == "cancelled"
     assert run.steps[1].status == "failed"
-    assert run.steps[1].attempts[-1].status == "failed"
+    assert run.steps[1].attempts[-1].status == "outcome_unknown"
 
 
 def test_approval_authorization_resolution_and_expiry(store, channel_event) -> None:

@@ -50,7 +50,7 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 STEP_TRANSITIONS: dict[str, frozenset[str]] = {
-    "pending": frozenset({"running", "skipped", "waiting_approval"}),
+    "pending": frozenset({"running", "skipped", "waiting_approval", "failed"}),
     "running": frozenset({"pending", "completed", "failed"}),
     "waiting_approval": frozenset({"pending", "completed", "failed"}),
     "skipped": frozenset(),

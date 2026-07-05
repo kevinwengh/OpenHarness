@@ -53,6 +53,7 @@ from openharness.permissions.checker import PermissionChecker
 from openharness.services.tool_outputs import tool_output_inline_chars, tool_output_preview_chars
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.base import ToolRegistry
+from openharness.tools.executor import GovernedToolExecutor
 
 AUTO_COMPACT_STATUS_MESSAGE = "Auto-compacting conversation memory to keep things fast and focused."
 REACTIVE_COMPACT_STATUS_MESSAGE = "Prompt too long; compacting conversation memory and retrying."
@@ -1277,198 +1278,36 @@ async def _execute_tool_call(
     the event loop and update permission, hooks, sandbox, persistence, and engine
     tests whenever this sequence changes.
     """
-    if context.hook_executor is not None:
-        pre_hooks = await context.hook_executor.execute(
-            HookEvent.PRE_TOOL_USE,
-            {"tool_name": tool_name, "tool_input": tool_input, "event": HookEvent.PRE_TOOL_USE.value},
-        )
-        if pre_hooks.blocked:
-            return ToolResultBlock(
-                tool_use_id=tool_use_id,
-                content=pre_hooks.reason or f"pre_tool_use hook blocked {tool_name}",
-                is_error=True,
-            )
-
-    log.debug("tool_call start: %s id=%s", tool_name, tool_use_id)
-
-    tool = context.tool_registry.get(tool_name)
-    if tool is None:
-        log.warning("unknown tool: %s", tool_name)
-        return ToolResultBlock(
-            tool_use_id=tool_use_id,
-            content=f"Unknown tool: {tool_name}",
-            is_error=True,
-        )
-
-    try:
-        parsed_input = tool.input_model.model_validate(tool_input)
-    except Exception as exc:
-        log.warning("invalid input for %s: %s", tool_name, exc)
-        return ToolResultBlock(
-            tool_use_id=tool_use_id,
-            content=f"Invalid input for {tool_name}: {exc}",
-            is_error=True,
-        )
-
-    # Normalize common tool inputs before permission checks so path rules apply
-    # consistently across built-in tools that use `file_path`, `path`, or
-    # directory-scoped roots such as `glob`/`grep`.
-    _file_path = _resolve_permission_file_path(context.cwd, tool_input, parsed_input)
-    _command = _extract_permission_command(tool_input, parsed_input)
-    log.debug("permission check: %s read_only=%s path=%s cmd=%s",
-              tool_name, tool.is_read_only(parsed_input), _file_path, _command and _command[:80])
-    decision = context.permission_checker.evaluate(
-        tool_name,
-        is_read_only=tool.is_read_only(parsed_input),
-        file_path=_file_path,
-        command=_command,
-    )
-    if not decision.allowed:
-        if decision.requires_confirmation and context.permission_prompt is not None:
-            log.debug("permission prompt for %s: %s", tool_name, decision.reason)
-            if context.hook_executor is not None:
-                await context.hook_executor.execute(
-                    HookEvent.NOTIFICATION,
-                    {
-                        "event": HookEvent.NOTIFICATION.value,
-                        "notification_type": "permission_prompt",
-                        "tool_name": tool_name,
-                        "reason": decision.reason,
-                    },
-                )
-            confirmed = await context.permission_prompt(tool_name, decision.reason)
-            if not confirmed:
-                log.debug("permission denied by user for %s", tool_name)
-                return ToolResultBlock(
-                    tool_use_id=tool_use_id,
-                    content=decision.reason or f"Permission denied for {tool_name}",
-                    is_error=True,
-                )
-        else:
-            log.debug("permission blocked for %s: %s", tool_name, decision.reason)
-            return ToolResultBlock(
-                tool_use_id=tool_use_id,
-                content=decision.reason or f"Permission denied for {tool_name}",
-                is_error=True,
-            )
-
-    log.debug("executing %s ...", tool_name)
-    t0 = time.monotonic()
-    result = await tool.execute(
-        parsed_input,
-        ToolExecutionContext(
-            cwd=context.cwd,
-            metadata={
-                "tool_registry": context.tool_registry,
-                "ask_user_prompt": context.ask_user_prompt,
-                **(context.tool_metadata or {}),
-            },
-            hook_executor=context.hook_executor,
+    executor = GovernedToolExecutor(
+        registry=context.tool_registry,
+        permission_checker=context.permission_checker,
+        cwd=context.cwd,
+        hook_executor=context.hook_executor,
+        permission_prompt=context.permission_prompt,
+        ask_user_prompt=context.ask_user_prompt,
+        metadata=dict(context.tool_metadata or {}),
+        output_transform=lambda name, invocation, output: _offload_tool_output_if_needed(
+            tool_name=name,
+            tool_use_id=invocation,
+            output=output,
         ),
     )
-    elapsed = time.monotonic() - t0
-    log.debug("executed %s in %.2fs err=%s output_len=%d",
-              tool_name, elapsed, result.is_error, len(result.output or ""))
-    inline_output, artifact_path = _offload_tool_output_if_needed(
-        tool_name=tool_name,
-        tool_use_id=tool_use_id,
-        output=result.output,
-    )
-    if artifact_path is not None:
-        _remember_active_artifact(context.tool_metadata, str(artifact_path))
+    outcome = await executor.execute(tool_name, tool_input, invocation_id=tool_use_id)
+    if outcome.artifact_path is not None:
+        _remember_active_artifact(context.tool_metadata, str(outcome.artifact_path))
     tool_result = ToolResultBlock(
         tool_use_id=tool_use_id,
-        content=inline_output,
-        is_error=result.is_error,
-        result_metadata=dict(result.metadata or {}),
+        content=outcome.output,
+        is_error=outcome.is_error,
+        result_metadata=outcome.metadata,
     )
     _record_tool_carryover(
         context,
         tool_name=tool_name,
         tool_input=tool_input,
         tool_output=tool_result.content,
-        tool_result_metadata=result.metadata,
+        tool_result_metadata=outcome.metadata,
         is_error=tool_result.is_error,
-        resolved_file_path=_file_path,
+        resolved_file_path=outcome.resolved_file_path,
     )
-    if context.hook_executor is not None:
-        await context.hook_executor.execute(
-            HookEvent.POST_TOOL_USE,
-            {
-                "tool_name": tool_name,
-                "tool_input": tool_input,
-                "tool_output": tool_result.content,
-                "tool_is_error": tool_result.is_error,
-                "event": HookEvent.POST_TOOL_USE.value,
-            },
-        )
     return tool_result
-
-
-def _resolve_permission_file_path(
-    cwd: Path,
-    raw_input: dict[str, object],
-    parsed_input: object,
-) -> str | None:
-    """Resolve the file-like input used for permission-policy evaluation.
-
-    Raw model input is checked before the validated model for compatibility with
-    built-in and plugin schemas. Relative paths are anchored to the runtime cwd;
-    adding aliases must not bypass sensitive-path checks or change tool inputs.
-
-    Integration: Called by ``_execute_tool_call`` and collaborates with ``raw_input.get``,
-    ``value.strip``, ``expanduser``.
-
-    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
-    and non-blocking.
-
-    Change safety: Preserve the signature, return value, and side-effect contract expected by
-    callers.
-    """
-    for key in ("file_path", "path", "root"):
-        value = raw_input.get(key)
-        if isinstance(value, str) and value.strip():
-            path = Path(value).expanduser()
-            if not path.is_absolute():
-                path = cwd / path
-            return str(path.resolve())
-
-    for attr in ("file_path", "path", "root"):
-        value = getattr(parsed_input, attr, None)
-        if isinstance(value, str) and value.strip():
-            path = Path(value).expanduser()
-            if not path.is_absolute():
-                path = cwd / path
-            return str(path.resolve())
-
-    return None
-
-
-def _extract_permission_command(
-    raw_input: dict[str, object],
-    parsed_input: object,
-) -> str | None:
-    """Extract a shell command string for permission-policy evaluation.
-
-    This normalizes raw and validated tool inputs without executing or rewriting
-    the command. Keep it aligned with command-bearing tool schemas so sandbox and
-    deny rules see the same value the tool will execute.
-
-    Integration: Called by ``_execute_tool_call`` and collaborates with ``raw_input.get``,
-    ``value.strip``.
-
-    Event loop: Async callers invoke this synchronous helper inline, so keep its work bounded
-    and non-blocking.
-
-    Change safety: Preserve the signature, return value, and side-effect contract expected by
-    callers.
-    """
-    value = raw_input.get("command")
-    if isinstance(value, str) and value.strip():
-        return value
-
-    value = getattr(parsed_input, "command", None)
-    if isinstance(value, str) and value.strip():
-        return value
-
-    return None

@@ -320,7 +320,44 @@ class AutomationStore:
             )
             return self._checkpoint_locked(updated)
 
-    def wait_for_approval(self, run_id: str, step_id: str) -> WorkflowRun:
+    def fail_pending_step(
+        self,
+        run_id: str,
+        step_id: str,
+        *,
+        error: RunError,
+    ) -> WorkflowRun:
+        """Fail the current step before an external action attempt starts."""
+
+        with exclusive_file_lock(self.lock_path):
+            run = self._load_run_locked(run_id)
+            if run.status not in {"pending", "running"}:
+                raise TransitionError(f"cannot fail a pending step while run is {run.status}")
+            index, step = _step_by_id(run, step_id)
+            if index != run.current_step:
+                raise TransitionError(f"step {step_id!r} is not the current step")
+            ensure_step_transition(step.status, "failed")
+            now = _utc(self._clock())
+            failed_step = step.model_copy(
+                update={"status": "failed", "completed_at": now, "error": error}
+            )
+            failed_run = _replace_step(run, index, failed_step).model_copy(
+                update={
+                    "status": "failed",
+                    "updated_at": now,
+                    "completed_at": now,
+                    "error": error,
+                }
+            )
+            return self._checkpoint_locked(failed_run)
+
+    def wait_for_approval(
+        self,
+        run_id: str,
+        step_id: str,
+        *,
+        prompt: str | None = None,
+    ) -> WorkflowRun:
         with exclusive_file_lock(self.lock_path):
             run = self._load_run_locked(run_id)
             if run.status not in {"pending", "running"}:
@@ -333,7 +370,7 @@ class AutomationStore:
             now = _utc(self._clock())
             approval = ApprovalRecord(
                 step_id=step_id,
-                prompt=definition_step.prompt,
+                prompt=prompt or definition_step.prompt,
                 approver_ids=definition_step.approver_ids,
                 requested_at=now,
                 expires_at=now + timedelta(seconds=definition_step.expires_seconds),
@@ -447,18 +484,33 @@ class AutomationStore:
             if run.current_step < len(run.steps):
                 step = run.steps[run.current_step]
                 if step.status == "running":
-                    attempt = _active_attempt(step).model_copy(
-                        update={"status": "failed", "completed_at": now, "error": error}
+                    active_attempt = _active_attempt(step)
+                    outcome_unknown = not active_attempt.retry_safe
+                    attempt_error = error.model_copy(
+                        update={
+                            "category": (
+                                "cancelled_outcome_unknown" if outcome_unknown else "cancelled"
+                            ),
+                            "outcome_unknown": outcome_unknown,
+                        }
+                    )
+                    attempt = active_attempt.model_copy(
+                        update={
+                            "status": "outcome_unknown" if outcome_unknown else "failed",
+                            "completed_at": now,
+                            "error": attempt_error,
+                        }
                     )
                     step = step.model_copy(
                         update={
                             "status": "failed",
                             "attempts": [*step.attempts[:-1], attempt],
                             "completed_at": now,
-                            "error": error,
+                            "error": attempt_error,
                         }
                     )
                     updated = _replace_step(run, run.current_step, step)
+                    error = attempt_error
                 elif step.status == "waiting_approval":
                     step = step.model_copy(
                         update={"status": "failed", "completed_at": now, "error": error}
