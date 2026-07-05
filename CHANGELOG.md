@@ -8,6 +8,9 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- A source-level `oh` versus `ohmo` concept comparison covering memory recall and evolution,
+  compaction, sessions, providers, tools, permissions, extensions, UI, tasks, current isolation
+  gaps, and a complete multi-channel gateway coordination workflow.
 - A detailed VS Code development/debugging and local source-release workflow, including
   non-overwriting editor templates, isolated validation state, inspected/checksummed artifacts,
   versioned installations, dedicated launchers, activation, and executable rollback.

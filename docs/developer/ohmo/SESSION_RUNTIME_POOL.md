@@ -51,8 +51,11 @@ flowchart TD
 ```
 
 The dynamic prompt path deliberately uses core `build_runtime_system_prompt()` after initial
-composition so current settings, skills, plugins, and memory are reflected without enabling project
-memory ([`runtime.py:861`](../../../ohmo/gateway/runtime.py#L861)).
+composition so current settings, environment, skills, plugins, and project instruction files are
+reflected without enabling project memory ([`runtime.py:861`](../../../ohmo/gateway/runtime.py#L861)).
+The ohmo persona and personal-memory section remain inside the custom system-prompt base captured
+when the bundle was constructed; this per-turn path does not re-read personal memory. Refresh or
+rebuild a cached bundle to pick up later personal-memory changes.
 
 ## Message dispatch: command or agent turn
 

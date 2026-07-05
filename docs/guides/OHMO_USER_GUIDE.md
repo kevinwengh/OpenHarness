@@ -304,7 +304,14 @@ Keep memories concise and stable. Project-specific facts belong in project docum
 preferences and recurring context belong in ohmo memory. ohmo intentionally does not load ordinary
 project memory into its prompt by default. The prompt includes the memory index and bodies from at
 most five active memory files, so consolidate overlapping entries instead of accumulating many tiny
-files.
+files. Entries are selected by filename order rather than relevance, and a running/cached runtime
+keeps the personal-memory snapshot captured when it was built. Restart or refresh long-lived
+sessions after important edits.
+
+The project-memory exclusion applies to normal prompt reads. Leave global automatic memory
+extraction disabled when strict separation matters: the shared engine's optional auto-extraction
+path currently writes project memory for the effective cwd. `/memory validate`, `session`, `team`,
+and `agent` also use core paths rather than the personal backend.
 
 ### Personal skills and plugins
 
@@ -727,6 +734,8 @@ Do not rely on manually setting `session_routing`, `permission_mode`, or `sandbo
 - Shared-chat participants are intentionally isolated from one another's agent history.
 - Channel access and model tool permissions are separate controls; passing `allow_from` does not
   automatically grant every mutating tool.
-- Project memory is disabled in ohmo by default; use personal memory or explicit project files.
+- Normal project-memory prompt recall is disabled in ohmo by default; use personal memory or
+  explicit project files. Optional auto-extraction and several advanced `/memory` subcommands still
+  use core paths as noted in the memory section above.
 - Some CLI/config fields exist ahead of complete runtime wiring; this guide calls out the user-visible
   cases rather than treating schema presence as proof of support.

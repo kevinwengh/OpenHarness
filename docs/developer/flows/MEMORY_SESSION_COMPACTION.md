@@ -160,7 +160,17 @@ backend and works. Do not diagnose this known React handoff gap as corrupted sna
 `ohmo` uses `OhmoSessionBackend` rooted in its workspace. Gateway snapshots are additionally indexed
 by a hash of the chat/thread session key so the runtime pool can restore the correct conversation.
 `ohmo` injects personal memory through its custom prompt/backend and normally sets
-`include_project_memory=False`, preventing repository memory from leaking into personal sessions.
+`include_project_memory=False`, preventing normal repository-memory prompt recall in personal
+sessions.
+
+That last switch governs normal project-memory prompt reads, not every memory-related write/path.
+The shared `QueryEngine` still creates session-memory checkpoints under the core cwd-hashed data
+directory. Optional automatic extraction calls the project-memory extractor even inside ohmo,
+although manual `/memory extract` rejects the personal backend. Several shared `/memory`
+subcommands (`validate`, `session`, `team`, and `agent`) also use core path helpers. Personal memory
+is read as a bounded runtime-construction snapshot rather than relevance-selected on each prompt.
+See the [full `oh`/`ohmo` concepts comparison](../OH_AND_OHMO_SHARED_CONCEPTS.md) for the exact
+boundaries and current limitations.
 
 See [`ohmo` integration](OHMO_INTEGRATION.md) for the application composition path.
 
@@ -172,7 +182,9 @@ See [`ohmo` integration](OHMO_INTEGRATION.md) for the application composition pa
 - Memory writes are locked and atomic.
 - Compaction must preserve valid assistant tool-use/user tool-result ordering.
 - Extraction/consolidation is best-effort and cannot invalidate a completed user turn.
-- Plain OpenHarness and `ohmo` memory/session roots remain isolated by default.
+- Plain OpenHarness project-memory prompt reads and ohmo personal-memory prompt reads remain
+  isolated by default; session-memory and optional automatic-extraction exceptions are documented
+  above.
 
 ## Source and symbol reference
 

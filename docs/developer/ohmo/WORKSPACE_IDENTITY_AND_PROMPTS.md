@@ -104,7 +104,9 @@ ohmo skill/plugin roots, and `include_project_memory=False` at
 [`gateway/runtime.py:861`](../../../ohmo/gateway/runtime.py#L861).
 
 This means the base persona is not the only prompt content. Core runtime assembly can add current
-skills/plugins and other runtime context around the ohmo base prompt.
+skills/plugins and other runtime context around the ohmo base prompt. The base itself—including the
+personal-memory bodies read during bundle construction—is retained rather than rebuilt from the
+workspace on every turn; refresh/rebuild the bundle to observe later persona or memory edits.
 
 ## Private skills and plugins
 

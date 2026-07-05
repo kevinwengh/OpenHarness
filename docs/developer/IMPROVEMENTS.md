@@ -37,6 +37,7 @@ also combine registration/composition with multiple domain responsibilities.
 | --- | --- | --- |
 | P1 | Enforce or remove declared autopilot policy gates | Prevents operators relying on non-enforced merge/retry controls |
 | P1 | Remove reverse `openharness` → `ohmo` dependencies | Restores the declared reusable-runtime/application boundary |
+| P1 | Complete the ohmo memory-backend boundary | Prevents personal sessions from reading/writing unexpected core memory paths |
 | P1 | Decompose responsibility hotspots | Reduces regression radius and makes ownership discoverable |
 | P1 | Establish an incremental static-typing gate | Turns an existing strict configuration into usable feedback |
 | P2 | Add automated frontend behavior tests | Typechecks do not verify terminal interactions or rendering |
@@ -87,6 +88,40 @@ fallback core behavior explicit and cover the no-`ohmo` installation path.
 **Done when.** `rg -n 'from ohmo|import ohmo' src/openharness --glob '*.py'` returns no runtime
 imports; core tests pass without importing `ohmo`; `ohmo` integration tests prove equivalent media,
 group-policy, and notification behavior.
+
+## P1: complete the ohmo memory-backend boundary
+
+**Evidence.** ohmo injects a personal `MemoryCommandBackend` and disables normal project-memory
+prompt reads, but the adapter is not used throughout the lifecycle:
+
+- `QueryEngine._extract_durable_memories()` calls the project-memory extractor using the effective
+  cwd even when an ohmo backend is active;
+- shared `/memory validate`, `session`, `team`, and `agent` handlers call core path helpers;
+- automatic session-memory files are stored under the core cwd-hashed data directory;
+- personal recall selects the first five filenames without query relevance or usage accounting;
+- cached runtimes retain the personal-memory prompt captured at construction; and
+- auto-dream's core runner uses broad full-auto permissions with prompt-only path constraints,
+  while the ohmo runner does not force a permission mode and may be unable to apply changes under
+  default non-interactive permissions.
+
+**Risk.** “Project memory disabled” can be interpreted as a complete isolation guarantee when it is
+currently only the normal prompt-read behavior. Opting into automatic extraction can persist
+personal-channel content in project memory. Diagnostics may inspect the wrong store, session
+continuity is split across roots, personal-memory changes can remain stale in cached channels, and
+dream safety/effectiveness differs by runner.
+
+**Recommended direction.** Replace the command-only adapter with one core-owned memory context that
+defines durable store, prompt recall, extraction writes, validation/migration, usage accounting,
+session-memory location, consolidation directories, and runner permission/tool policy. Pass that
+context into `QueryEngine` and commands. Make runtime refresh invalidate/rebuild personal prompt
+content, add relevance/usage behavior appropriate to personal memory, and enforce dream filesystem
+scope at a tool/permission boundary rather than only in the model prompt.
+
+**Done when.** Tests prove every ohmo memory read/write stays in explicitly documented roots,
+automatic extraction writes personal memory or is disabled by construction, every `/memory`
+subcommand reports the same active store semantics, cached bundles observe a defined refresh model,
+personal recall/staleness is deterministic, and both project/personal dream runners can edit only
+the selected memory directory under equivalent tested permissions.
 
 ## P1: decompose responsibility hotspots
 

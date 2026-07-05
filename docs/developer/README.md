@@ -56,12 +56,16 @@ standalone answer to a common “how does this actually work?” question and li
 
 ### `ohmo` work
 
-1. [`ohmo` developer reference](ohmo/README.md) for dedicated source-level guides to workspace,
+1. [`oh` and `ohmo` shared concepts](OH_AND_OHMO_SHARED_CONCEPTS.md) to distinguish memory,
+   compaction, sessions, settings, extensions, tools, automation, UI, and channels across products
+2. [`ohmo` developer reference](ohmo/README.md) for dedicated source-level guides to workspace,
    local runtime, memory, persistence, gateway, routing, runtime pooling, media, and groups
-2. The shorter [`ohmo` integration flow](flows/OHMO_INTEGRATION.md)
-3. [Codebase guide: OpenHarness and ohmo boundary](CODEBASE_GUIDE.md#openharness-and-ohmo-boundary)
-4. `ohmo/runtime.py`, `ohmo/gateway/`, and `ohmo/workspace.py`
-5. `tests/test_ohmo/` plus affected core tests
+3. [Channel coordination workflow](ohmo/CHANNEL_COORDINATION_WORKFLOW.md) for multi-adapter ingress,
+   routing, concurrency, runtime, persistence, and outbound delivery
+4. The shorter [`ohmo` integration flow](flows/OHMO_INTEGRATION.md)
+5. [Codebase guide: OpenHarness and ohmo boundary](CODEBASE_GUIDE.md#openharness-and-ohmo-boundary)
+6. `ohmo/runtime.py`, `ohmo/gateway/`, and `ohmo/workspace.py`
+7. `tests/test_ohmo/` plus affected core tests
 
 ### Memory, sessions, or background agents
 

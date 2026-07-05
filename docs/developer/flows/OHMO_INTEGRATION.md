@@ -70,8 +70,9 @@ user profile, first-run bootstrap, workspace description, and ohmo personal memo
 is only included when explicitly requested; normal local and gateway composition disables it again
 when calling the shared runtime prompt builder.
 
-This avoids accidental mixing of a user's personal memory with the current repository's durable
-memory.
+This prevents normal project-memory prompt recall from mixing with personal memory. It is not a
+universal storage sandbox: shared session-memory, automatic extraction, and some `/memory`
+subcommands still use core cwd/config paths.
 
 ## Gateway process topology
 
@@ -200,9 +201,12 @@ preventing the application-specific capability from leaking into unrelated promp
 workspace. It stores `app: "ohmo"`, session key, cwd, model, prompt, sanitized messages, usage, and
 whitelisted tool metadata. It also maintains `latest-<session-key-hash>.json` for gateway restoration.
 
-The custom memory backend makes `/memory` operate on personal memory. The shared engine's session
-memory, extraction, compaction, and auto-dream paths receive ohmo workspace context rather than plain
-project defaults.
+The custom memory backend redirects the common `/memory` status/list/show/add/remove/edit/migrate
+operations and `/dream` store selection to personal memory. Compaction remains shared and
+application-neutral. Auto-dream receives ohmo memory/session directories, but session-memory
+checkpoints and optional automatic extraction still use core cwd/project paths; manual extraction
+is rejected for the custom backend. See
+[`oh` and `ohmo` shared concepts](../OH_AND_OHMO_SHARED_CONCEPTS.md#current-memory-boundary-exceptions).
 
 ## Failure and security boundaries
 
@@ -216,7 +220,8 @@ project defaults.
   longer-lived process.
 - Image rejection can strip image history and continue pending once, while preserving an error/progress
   trail.
-- Personal and project memory remain separated by default.
+- Normal personal/project prompt recall remains separated by default; shared write/path exceptions
+  are documented in the comparative memory reference.
 
 ## Where to change behavior
 

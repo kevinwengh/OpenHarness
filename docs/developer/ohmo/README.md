@@ -21,12 +21,17 @@ For task-oriented installation and usage, start with the
 | How are local and channel conversations persisted and restored? | [Session persistence and isolation](SESSION_PERSISTENCE.md) |
 | How are gateway config, channels, process state, start/stop, and restart managed? | [Gateway configuration and service lifecycle](GATEWAY_CONFIG_AND_SERVICE.md) |
 | How are inbound messages authorized, routed, interrupted, and published? | [Routing, bridge, and concurrency](ROUTING_BRIDGE_AND_CONCURRENCY.md) |
+| How do all enabled channels share the bus while isolating conversations and runtimes? | [Channel coordination workflow](CHANNEL_COORDINATION_WORKFLOW.md) |
 | How does each chat acquire and refresh an OpenHarness runtime? | [Per-conversation runtime pool](SESSION_RUNTIME_POOL.md) |
 | How are inbound attachments, generated media, and image rejection handled? | [Attachments and media flow](ATTACHMENTS_AND_MEDIA.md) |
 | How do remote commands, provider changes, managed groups, and notifications work? | [Commands, groups, and notifications](COMMANDS_GROUPS_AND_NOTIFICATIONS.md) |
 
 For the shorter lifecycle overview, see the existing
 [`ohmo` integration flow](../flows/OHMO_INTEGRATION.md).
+
+For a cross-product comparison of memory, compaction, sessions, providers, tools, permissions,
+extensions, UI, tasks, and channels, see
+[`oh` and `ohmo`: shared concepts, different ownership](../OH_AND_OHMO_SHARED_CONCEPTS.md).
 
 ## System map
 
@@ -53,8 +58,11 @@ flowchart TD
   [`ohmo/workspace.py:174`](../../../ohmo/workspace.py#L174).
 - Gateway session keys isolate shared-chat senders. Routing is implemented at
   [`ohmo/gateway/router.py:19`](../../../ohmo/gateway/router.py#L19).
-- Project memory is disabled in local and gateway runtime construction; personal memory is injected
-  explicitly. See [`ohmo/runtime.py:77`](../../../ohmo/runtime.py#L77) and
+- Normal project-memory prompt recall is disabled in local and gateway runtime construction;
+  personal memory is injected explicitly. Shared session-memory, automatic-extraction, and command
+  path exceptions are cataloged in the
+  [cross-product comparison](../OH_AND_OHMO_SHARED_CONCEPTS.md#current-memory-boundary-exceptions).
+  See [`ohmo/runtime.py:77`](../../../ohmo/runtime.py#L77) and
   [`ohmo/gateway/runtime.py:273`](../../../ohmo/gateway/runtime.py#L273).
 - Remote commands remain subject to `remote_invocable` and explicit administrator opt-in. See
   [`ohmo/gateway/runtime.py:179`](../../../ohmo/gateway/runtime.py#L179).

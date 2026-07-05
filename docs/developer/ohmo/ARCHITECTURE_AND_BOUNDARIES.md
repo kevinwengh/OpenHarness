@@ -69,6 +69,11 @@ pass `include_project_memory=False`; tests lock this down at
 [`test_prompts.py:40`](../../../tests/test_ohmo/test_prompts.py#L40) and
 [`test_gateway.py:1520`](../../../tests/test_ohmo/test_gateway.py#L1520).
 
+This proves the normal prompt-read boundary, not universal write-path isolation. Shared session
+memory, automatic extraction, and some `/memory` subcommands still use core cwd/config paths. The
+[shared-concepts comparison](../OH_AND_OHMO_SHARED_CONCEPTS.md#current-memory-boundary-exceptions)
+documents each exception.
+
 ### Conversation isolation
 
 Private chats retain legacy `channel:chat_id` keys. Shared chats add thread and sender identity to
