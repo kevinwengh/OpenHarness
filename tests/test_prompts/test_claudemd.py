@@ -122,6 +122,22 @@ def test_build_runtime_system_prompt_uses_coordinator_prompt_when_enabled(tmp_pa
     assert "Workers spawned via the agent tool have access to these tools" not in prompt
 
 
+def test_build_runtime_system_prompt_can_explicitly_disable_coordinator_prompt(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("CLAUDE_CODE_COORDINATOR_MODE", "1")
+
+    prompt = build_runtime_system_prompt(
+        Settings(system_prompt="Automation procedure"),
+        cwd=tmp_path,
+        coordinator_mode=False,
+    )
+
+    assert "Automation procedure" in prompt
+    assert "You are a **coordinator**." not in prompt
+
+
 def test_build_runtime_system_prompt_skips_coordinator_context_when_disabled(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("CLAUDE_CODE_COORDINATOR_MODE", raising=False)

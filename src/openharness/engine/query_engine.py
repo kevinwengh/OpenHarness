@@ -57,6 +57,7 @@ class QueryEngine:
         hook_executor: HookExecutor | None = None,
         tool_metadata: dict[str, object] | None = None,
         settings: Settings | None = None,
+        post_turn_memory_enabled: bool = True,
     ) -> None:
         """Bind runtime services and initialize empty per-session state.
 
@@ -81,6 +82,7 @@ class QueryEngine:
         self._hook_executor = hook_executor
         self._tool_metadata = tool_metadata or {}
         self._settings = settings
+        self._post_turn_memory_enabled = post_turn_memory_enabled
         self._messages: list[ConversationMessage] = []
         self._cost_tracker = CostTracker()
 
@@ -386,7 +388,7 @@ class QueryEngine:
         Change safety: Preserve the signature, return value, and side-effect contract expected
         by callers.
         """
-        if self._settings is None:
+        if not self._post_turn_memory_enabled or self._settings is None:
             return
         context = self._tool_metadata.get("autodream_context")
         kwargs = dict(context) if isinstance(context, dict) else {}
@@ -406,6 +408,8 @@ class QueryEngine:
         must stay aligned with session memory and snapshot restoration.
         """
 
+        if not self._post_turn_memory_enabled:
+            return
         if self._settings is None or not self._settings.memory.session_memory_enabled:
             return
         if not self._settings.memory.enabled:
@@ -427,6 +431,8 @@ class QueryEngine:
         before increasing I/O so the event loop is not stalled.
         """
 
+        if not self._post_turn_memory_enabled:
+            return
         if self._settings is None or not self._settings.memory.session_memory_enabled:
             return
         if not self._settings.memory.enabled:
@@ -449,6 +455,8 @@ class QueryEngine:
         traffic to the conversation history.
         """
 
+        if not self._post_turn_memory_enabled:
+            return
         if self._settings is None or not self._settings.memory.auto_extract_enabled:
             return
         if not self._settings.memory.enabled:

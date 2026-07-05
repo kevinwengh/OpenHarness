@@ -196,6 +196,9 @@ class RuntimeBundle:
     memory_backend: MemoryCommandBackend | None = None
     include_project_memory: bool = True
     autodream_context: dict[str, object] | None = None
+    tool_allowlist: tuple[str, ...] | None = None
+    post_turn_memory_enabled: bool = True
+    session_lifecycle_enabled: bool = True
 
     def current_settings(self):
         """Return the effective settings for this session.
@@ -461,6 +464,10 @@ async def build_runtime(
     memory_backend: MemoryCommandBackend | None = None,
     include_project_memory: bool = True,
     autodream_context: dict[str, object] | None = None,
+    tool_allowlist: Iterable[str] | None = None,
+    post_turn_memory_enabled: bool = True,
+    session_lifecycle_enabled: bool = True,
+    coordinator_mode: bool | None = None,
 ) -> RuntimeBundle:
     """Compose a complete, not-yet-started OpenHarness runtime session.
 
@@ -487,6 +494,11 @@ async def build_runtime(
     cwd = str(Path(cwd).expanduser().resolve()) if cwd else str(Path.cwd())
     normalized_skill_dirs = tuple(str(Path(path).expanduser().resolve()) for path in (extra_skill_dirs or ()))
     normalized_plugin_roots = tuple(str(Path(path).expanduser().resolve()) for path in (extra_plugin_roots or ()))
+    normalized_tool_allowlist = (
+        tuple(dict.fromkeys(str(name).strip() for name in tool_allowlist if str(name).strip()))
+        if tool_allowlist is not None
+        else None
+    )
     plugins = load_plugins(settings, cwd, extra_roots=normalized_plugin_roots)
     if api_client:
         resolved_api_client = api_client
@@ -500,6 +512,20 @@ async def build_runtime(
         if plugin.enabled and plugin.tools:
             for tool in plugin.tools:
                 tool_registry.register(tool)
+    if normalized_tool_allowlist is not None:
+        installed_names = {tool.name for tool in tool_registry.list_tools()}
+        missing_tools = sorted(set(normalized_tool_allowlist) - installed_names)
+        if missing_tools:
+            await mcp_manager.close()
+            if api_client is None:
+                close_api_client = getattr(resolved_api_client, "close", None)
+                if close_api_client is not None:
+                    await close_api_client()
+            raise ValueError(
+                "Requested tool allowlist contains unavailable tools: "
+                + ", ".join(missing_tools)
+            )
+        tool_registry = tool_registry.filtered(normalized_tool_allowlist)
     provider = detect_provider(settings)
     bridge_manager = get_bridge_manager()
     app_state = AppStateStore(
@@ -544,6 +570,7 @@ async def build_runtime(
         extra_skill_dirs=normalized_skill_dirs,
         extra_plugin_roots=normalized_plugin_roots,
         include_project_memory=include_project_memory,
+        coordinator_mode=coordinator_mode,
     )
     from uuid import uuid4
 
@@ -588,6 +615,7 @@ async def build_runtime(
         ask_user_prompt=ask_user_prompt,
         hook_executor=hook_executor,
         settings=settings,
+        post_turn_memory_enabled=post_turn_memory_enabled,
         tool_metadata={
             "mcp_manager": mcp_manager,
             "bridge_manager": bridge_manager,
@@ -641,6 +669,9 @@ async def build_runtime(
         memory_backend=memory_backend,
         include_project_memory=include_project_memory,
         autodream_context=autodream_context,
+        tool_allowlist=normalized_tool_allowlist,
+        post_turn_memory_enabled=post_turn_memory_enabled,
+        session_lifecycle_enabled=session_lifecycle_enabled,
     )
 
 
@@ -650,10 +681,11 @@ async def start_runtime(bundle: RuntimeBundle) -> None:
     UI hosts await this before announcing readiness. Keep hook execution on the
     owning event loop and do not emit ready state if startup fails.
     """
-    await bundle.hook_executor.execute(
-        HookEvent.SESSION_START,
-        {"cwd": bundle.cwd, "event": HookEvent.SESSION_START.value},
-    )
+    if bundle.session_lifecycle_enabled:
+        await bundle.hook_executor.execute(
+            HookEvent.SESSION_START,
+            {"cwd": bundle.cwd, "event": HookEvent.SESSION_START.value},
+        )
 
 
 async def close_runtime(bundle: RuntimeBundle) -> None:
@@ -667,18 +699,20 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
     from openharness.sandbox.session import stop_docker_sandbox
 
     await stop_docker_sandbox()
-    # Extract local environment rules from session before closing
-    try:
-        from openharness.personalization.session_hook import update_rules_from_session
-        update_rules_from_session(bundle.engine.messages)
-    except Exception:
-        pass  # personalization is best-effort, never block session end
+    if bundle.session_lifecycle_enabled:
+        # Extract local environment rules from interactive sessions before closing.
+        try:
+            from openharness.personalization.session_hook import update_rules_from_session
+            update_rules_from_session(bundle.engine.messages)
+        except Exception:
+            pass  # personalization is best-effort, never block session end
 
     await bundle.mcp_manager.close()
-    await bundle.hook_executor.execute(
-        HookEvent.SESSION_END,
-        {"cwd": bundle.cwd, "event": HookEvent.SESSION_END.value},
-    )
+    if bundle.session_lifecycle_enabled:
+        await bundle.hook_executor.execute(
+            HookEvent.SESSION_END,
+            {"cwd": bundle.cwd, "event": HookEvent.SESSION_END.value},
+        )
     close_api_client = getattr(bundle.api_client, "close", None)
     if close_api_client is not None:
         await close_api_client()

@@ -141,6 +141,7 @@ def build_runtime_system_prompt(
     extra_skill_dirs: Iterable[str | Path] | None = None,
     extra_plugin_roots: Iterable[str | Path] | None = None,
     include_project_memory: bool = True,
+    coordinator_mode: bool | None = None,
 ) -> str:
     """Build the runtime system prompt with project instructions and memory.
 
@@ -154,12 +155,13 @@ def build_runtime_system_prompt(
     Change safety: Preserve path isolation, encoding, and persistence side effects; preserve
     exception and fallback behavior expected by callers.
     """
-    if is_coordinator_mode():
+    coordinator_active = is_coordinator_mode() if coordinator_mode is None else coordinator_mode
+    if coordinator_active:
         sections = [get_coordinator_system_prompt()]
     else:
         sections = [build_system_prompt(custom_prompt=settings.system_prompt, cwd=str(cwd))]
 
-    if not is_coordinator_mode() and settings.system_prompt is None:
+    if not coordinator_active and settings.system_prompt is None:
         sections[0] = build_system_prompt(cwd=str(cwd))
 
     sections.append(_build_permission_mode_section(settings))
@@ -182,10 +184,10 @@ def build_runtime_system_prompt(
         extra_plugin_roots=extra_plugin_roots,
         settings=settings,
     )
-    if skills_section and not is_coordinator_mode():
+    if skills_section and not coordinator_active:
         sections.append(skills_section)
 
-    if not is_coordinator_mode():
+    if not coordinator_active:
         sections.append(_build_delegation_section())
 
     claude_md = load_claude_md_prompt(cwd)
