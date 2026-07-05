@@ -22,6 +22,7 @@ All claims use one of these confidence labels:
 | Where can extensions execute, and which trust checks apply? | [Extensions and trust boundaries](EXTENSIONS_AND_TRUST.md) | plugins, skills, hooks, MCP, permissions, sandbox |
 | Why are `openharness` and `ohmo` separate? | [Product boundaries and deployment shapes](PRODUCT_BOUNDARIES.md) | package entrypoints, runtime injection, gateway pool |
 | How does the React terminal talk to Python? | [Frontend/backend IPC](frontend_backend_ipc.md) | launcher, backend host, protocol, Ink session hook |
+| How will the local browser UI cover the main `oh` workflows? | [Local web UI specification](WEB_UI_SPEC.md) | proposed loopback host, shared runtime protocol, responsive information architecture, staged review gates |
 | What systematic event-driven automation is proposed? | [Automation workflows technical specification](AUTOMATION_WORKFLOWS_SPEC.md) | proposed typed rules, skill steps, governed actions, durability, and ohmo integration |
 | Which implemented decisions should changes preserve or supersede? | [Architecture decision records](decisions/README.md) | seven accepted current-state decisions and revisit triggers |
 | Where are security and privacy boundaries enforced? | [Threat model](../security/THREAT_MODEL.md) | engine, permissions, plugins, channels, sandbox, persistence |
