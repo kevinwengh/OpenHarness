@@ -17,10 +17,12 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from aiohttp import WSMsgType, web
+from pydantic import ValidationError
 
 from openharness.ui.backend_host import BackendHostConfig, EventSink, ReactBackendHost, RequestSource
 from openharness.ui.protocol import BackendEvent, FrontendRequest
 from openharness.ui.web_models import WebBootstrap, build_web_bootstrap
+from openharness.ui.web_resources import WebResourceService
 
 log = logging.getLogger(__name__)
 
@@ -187,6 +189,7 @@ class WebRuntimeSession:
         self._buffered_events: deque[BackendEvent] = deque(maxlen=256)
         self._socket: web.WebSocketResponse | None = None
         self._controller_task: asyncio.Task[int] | None = None
+        self._controller: RuntimeController | None = None
         self._grace_task: asyncio.Task[None] | None = None
         self._socket_lock = asyncio.Lock()
 
@@ -201,6 +204,10 @@ class WebRuntimeSession:
     @property
     def done(self) -> bool:
         return self._controller_task is not None and self._controller_task.done()
+
+    @property
+    def runtime_bundle(self) -> Any | None:
+        return getattr(self._controller, "runtime_bundle", None)
 
     async def attach(self, socket: web.WebSocketResponse) -> bool:
         """Attach the sole controlling socket and replay bounded missed events."""
@@ -223,6 +230,7 @@ class WebRuntimeSession:
                     self.read_request,
                     self.emit_event,
                 )
+                self._controller = controller
                 self._controller_task = asyncio.create_task(self._run_controller(controller))
             return reconnecting
 
@@ -334,6 +342,7 @@ class WebUiServer:
         self._bootstrap_factory = bootstrap_factory
         self._backend_config = backend_config or BackendHostConfig(cwd=str(config.cwd))
         self._controller_factory = controller_factory
+        self._resource_service = WebResourceService(config.cwd)
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._port: int | None = None
@@ -377,6 +386,8 @@ class WebUiServer:
         app.router.add_get("/api/bootstrap", self._handle_bootstrap)
         app.router.add_get("/api/health", self._handle_health)
         app.router.add_get("/api/session", self._handle_session)
+        app.router.add_get("/api/{area:capabilities|work|knowledge|autopilot}", self._handle_resource)
+        app.router.add_post("/api/actions/{name}", self._handle_action)
         app.router.add_static("/assets", self._assets_dir / "assets", show_index=False)
         app.router.add_get("/{path:.*}", self._handle_index)
         return app
@@ -440,6 +451,12 @@ class WebUiServer:
                 )
             return await handler(request)
 
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and origin is None:
+            return web.json_response(
+                {"error": {"code": "origin_required", "message": "Mutation Origin is required"}},
+                status=403,
+            )
+
         supplied = request.headers.get("Authorization", "")
         expected = f"Bearer {self.token}"
         if not secrets.compare_digest(supplied, expected):
@@ -452,11 +469,63 @@ class WebUiServer:
     async def _handle_bootstrap(self, request: web.Request) -> web.Response:
         del request
         snapshot = await asyncio.to_thread(self._bootstrap_factory, self.config.cwd)
-        return web.json_response(snapshot.model_dump(mode="json"))
+        return web.json_response(_redact_web_value(snapshot.model_dump(mode="json")))
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         del request
         return web.json_response({"status": "ok", "schema_version": 1})
+
+    async def _handle_resource(self, request: web.Request) -> web.Response:
+        area = request.match_info["area"]
+        async with self._runtime_session_lock:
+            bundle = self._runtime_session.runtime_bundle if self._runtime_session is not None else None
+        try:
+            snapshot = await asyncio.to_thread(
+                self._resource_service.snapshot,
+                area,
+                runtime_bundle=bundle,
+            )
+        except Exception:
+            log.exception("Failed to build web resource snapshot for %s", area)
+            return web.json_response(
+                {"error": {"code": "resource_unavailable", "message": f"Could not load {area}"}},
+                status=500,
+            )
+        return web.json_response(snapshot.model_dump(mode="json"))
+
+    async def _handle_action(self, request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        try:
+            payload = await request.json()
+        except (TypeError, ValueError):
+            return web.json_response(
+                {"error": {"code": "invalid_json", "message": "Action body must be JSON"}},
+                status=400,
+            )
+        try:
+            result = await self._resource_service.action(name, payload)
+        except KeyError:
+            return web.json_response(
+                {"error": {"code": "unknown_action", "message": "Action is not allowed"}},
+                status=404,
+            )
+        except ValidationError:
+            return web.json_response(
+                {"error": {"code": "invalid_action", "message": "Action input is invalid"}},
+                status=400,
+            )
+        except ValueError as exc:
+            return web.json_response(
+                {"error": {"code": "invalid_action", "message": _bounded_web_text(str(exc))}},
+                status=400,
+            )
+        except Exception:
+            log.exception("Web action %s failed", name)
+            return web.json_response(
+                {"error": {"code": "action_failed", "message": "The action could not be completed"}},
+                status=500,
+            )
+        return web.json_response(_redact_web_value(result.model_dump(mode="json")))
 
     async def _handle_session(self, request: web.Request) -> web.StreamResponse:
         socket = web.WebSocketResponse(max_msg_size=10 * 1024 * 1024, heartbeat=30)

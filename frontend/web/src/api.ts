@@ -1,4 +1,4 @@
-import type { WebBootstrap } from "./types";
+import type { ActionResult, ResourceArea, ResourceSnapshot, WebBootstrap } from "./types";
 
 const TOKEN_KEY = "openharness.web.launch-token";
 
@@ -48,4 +48,47 @@ export async function fetchBootstrap(signal?: AbortSignal): Promise<WebBootstrap
     throw new WebApiError(message, response.status);
   }
   return (await response.json()) as WebBootstrap;
+}
+
+async function authorizedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const token = getLaunchToken();
+  if (!token) throw new WebApiError("The local launch token is unavailable.", 401);
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...init.headers,
+    },
+  });
+  if (!response.ok) {
+    let message = `The local host returned ${response.status}.`;
+    try {
+      const payload = (await response.json()) as { error?: { message?: string } };
+      message = payload.error?.message ?? message;
+    } catch {
+      // Status-only fallback avoids rendering an arbitrary response body.
+    }
+    throw new WebApiError(message, response.status);
+  }
+  return response;
+}
+
+export async function fetchResource<T = Record<string, unknown>>(
+  area: ResourceArea,
+  signal?: AbortSignal,
+): Promise<ResourceSnapshot<T>> {
+  const response = await authorizedFetch(`/api/${area}`, { signal });
+  return (await response.json()) as ResourceSnapshot<T>;
+}
+
+export async function postAction(
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<ActionResult> {
+  const response = await authorizedFetch(`/api/actions/${encodeURIComponent(action)}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return (await response.json()) as ActionResult;
 }

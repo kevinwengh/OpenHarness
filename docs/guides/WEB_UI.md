@@ -19,7 +19,7 @@ oh web --no-open --port 8765
 Use `--cwd /path/to/project` to select a different workspace. Non-loopback `--host` values are
 rejected in the initial release.
 
-## Current Stage 2 behavior
+## Current behavior
 
 The current implementation provides:
 
@@ -36,7 +36,7 @@ The current implementation provides:
 - Runtime controls for provider profile, model, permission mode, effort, turn limit, fast mode,
   reasoning passes, and output style through the same command owners used by the terminal;
 - direct deep links to each area, with honest staged placeholders for Capabilities, Work,
-  Knowledge, and Autopilot while their resource APIs are built.
+  Knowledge, and Autopilot while their operational screens are wired to the bounded resource API.
 
 Overview, Workbench, Sessions, and Runtime are operational now. Capabilities, Work, Knowledge, and
 Autopilot still establish the stable information architecture without pretending their resource
@@ -46,6 +46,13 @@ coverage and review gates.
 Images are limited to four per turn, 2 MB each, and 6 MB total before base64 encoding. The browser
 renders model output as selectable plain text during this stage; rich Markdown is deferred until the
 link/HTML sanitizer gate is complete.
+
+The Stage 3 transport foundation now exposes launch-token-protected, bounded snapshots for
+Capabilities, Work, Knowledge, and Autopilot. It also provides only these state-changing actions:
+stop a task, stop a bridge, enable or disable a cron job, run a cron job now, and enqueue a manual
+Autopilot idea. Every action has a strict request model and delegates to the existing subsystem
+owner; there is no generic command, Python, tool, or plugin dispatch endpoint. The corresponding
+resource screens are still staged placeholders in this increment.
 
 ## Local security boundary
 
@@ -62,6 +69,10 @@ The host also:
 - serves no third-party scripts, fonts, telemetry, or images;
 - returns a typed bootstrap snapshot rather than serializing settings, credential files, environment
   values, API keys, tokens, or provider endpoint URLs.
+- requires an exact same-origin header for state-changing requests and rejects action names or
+  fields outside the explicit allowlist;
+- bounds resource lists and presentation strings, omits command/prompt/output bodies from Work,
+  and does not import disabled project-plugin Python when Capabilities is inspected.
 
 Static bundle files are public on the loopback port, but every `/api/` request requires the launch
 token. Treat the launch URL as a short-lived local secret and stop the process with Ctrl+C when the

@@ -25,6 +25,9 @@ The format is based on Keep a Changelog, and this project currently tracks chang
   streamed transcript and tools, bounded images, interrupt, fail-closed permission/edit/question
   dialogs, one-tab reconnect semantics, session resume/new-session flows, and live provider, model,
   permission, effort, turn, fast-mode, pass, and output-style selectors.
+- Bounded local-web resource APIs for Capabilities, Work, Knowledge, and Autopilot, plus a strict
+  same-origin action allowlist for stopping tasks/bridges, toggling or running cron jobs, and
+  enqueueing manual Autopilot ideas through their existing subsystem owners.
 - Declarative Ohmo automation workflows with safe YAML rules, deterministic channel-event
   matching, durable/idempotent runs, restricted named-skill agent steps, conditional multi-step
   actions, cross-channel delivery, namespaced personal-knowledge upserts, crash recovery, and

@@ -139,6 +139,12 @@ class ReactBackendHost:
         self._last_tool_inputs: dict[str, dict] = {}
         self._edit_always_approved = False
 
+    @property
+    def runtime_bundle(self) -> Any | None:
+        """Expose the owned bundle for read-only host-level presentation adapters."""
+
+        return self._bundle
+
     async def run(self) -> int:
         """Build the runtime, serve frontend requests, and close all resources.
 

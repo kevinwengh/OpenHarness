@@ -108,3 +108,18 @@ export interface BackendEvent {
   is_error?: boolean;
   todo_markdown?: string;
 }
+
+export type ResourceArea = "capabilities" | "work" | "knowledge" | "autopilot";
+
+export interface ResourceSnapshot<T = Record<string, unknown>> {
+  schema_version: 1;
+  area: ResourceArea;
+  data: T;
+}
+
+export interface ActionResult {
+  schema_version: 1;
+  action: string;
+  message: string;
+  resource?: Record<string, unknown>;
+}

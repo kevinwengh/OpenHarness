@@ -347,6 +347,14 @@ plain text until the release-hardening sanitizer gate is implemented.
 - **Review gate:** lists are bounded and lazy; disabled project plugins remain unexecuted; every
   mutation has an explicit allowlist, validation, authorization, failure state, and test.
 
+The first Stage 3 increment establishes the transport boundary before replacing the staged screens:
+four bounded resource snapshots now adapt the existing subsystem owners, and the mutation surface
+contains only task stop, bridge stop, cron toggle/run, and manual Autopilot enqueue. Review added
+same-origin enforcement for all mutation requests, Pydantic models that reject extra fields,
+status-only client error fallbacks, response redaction, and a regression fixture proving that a
+disabled project plugin is counted without importing its Python. Screen state, confirmation, and
+responsive review remain open for the next Stage 3 increment.
+
 ### Stage 4 — hardening and release readiness
 
 - Accessibility audit, responsive/browser verification, CSP/Markdown review, packaging validation,

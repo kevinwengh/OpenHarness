@@ -426,6 +426,68 @@ async def test_websocket_runs_shared_runtime_end_to_end(
         await socket.close()
 
 
+@pytest.mark.asyncio
+async def test_resource_and_action_routes_require_auth_origin_and_allowlist(
+    assets_dir: Path,
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OPENHARNESS_LOGS_DIR", str(tmp_path / "logs"))
+    server = WebUiServer(
+        WebServerConfig(
+            cwd=tmp_path,
+            assets_dir=assets_dir,
+            token="resource-token",
+            open_browser=False,
+        )
+    )
+
+    async with server, aiohttp.ClientSession() as client:
+        headers = {"Authorization": "Bearer resource-token"}
+        knowledge = await client.get(f"{server.origin}/api/knowledge", headers=headers)
+        assert knowledge.status == 200
+        assert (await knowledge.json())["area"] == "knowledge"
+
+        missing_origin = await client.post(
+            f"{server.origin}/api/actions/autopilot.enqueue",
+            headers=headers,
+            json={"title": "Browser task"},
+        )
+        assert missing_origin.status == 403
+
+        mutation_headers = {**headers, "Origin": server.origin}
+        unknown = await client.post(
+            f"{server.origin}/api/actions/python.call",
+            headers=mutation_headers,
+            json={"name": "anything"},
+        )
+        assert unknown.status == 404
+        assert (await unknown.json())["error"]["code"] == "unknown_action"
+
+        invalid = await client.post(
+            f"{server.origin}/api/actions/autopilot.enqueue",
+            headers=mutation_headers,
+            json={"title": "", "api_key": "must-not-echo"},
+        )
+        assert invalid.status == 400
+        invalid_payload = await invalid.text()
+        assert "must-not-echo" not in invalid_payload
+
+        created = await client.post(
+            f"{server.origin}/api/actions/autopilot.enqueue",
+            headers=mutation_headers,
+            json={"title": "Browser task", "body": "Review resource screens"},
+        )
+        assert created.status == 200
+        assert (await created.json())["resource"]["status"] == "queued"
+
+        autopilot = await client.get(f"{server.origin}/api/autopilot", headers=headers)
+        assert autopilot.status == 200
+        assert (await autopilot.json())["data"]["initialized"] is True
+
+
 def test_cli_rejects_remote_web_binding_before_launch():
     result = CliRunner().invoke(app, ["web", "--host", "0.0.0.0", "--no-open"])
 
