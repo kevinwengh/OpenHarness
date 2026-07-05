@@ -48,6 +48,26 @@ def test_capabilities_are_bounded_and_do_not_import_blocked_project_plugins(tmp_
     assert len(snapshot.data["tools"]) <= 200
 
 
+def test_capabilities_degrade_when_credential_status_is_unavailable(tmp_path: Path, monkeypatch):
+    project = tmp_path / "repo"
+    project.mkdir()
+
+    class _UnavailableAuth:
+        def __init__(self, settings):
+            del settings
+
+        def get_profile_statuses(self):
+            raise RuntimeError("credential-store-secret")
+
+    monkeypatch.setattr("openharness.ui.web_resources.AuthManager", _UnavailableAuth)
+
+    snapshot = WebResourceService(project).snapshot("capabilities")
+
+    assert snapshot.data["tools"]
+    assert snapshot.data["providers"]
+    assert all(profile["auth_state"] == "unknown" for profile in snapshot.data["providers"])
+
+
 def test_knowledge_returns_metadata_not_raw_paths(tmp_path: Path):
     project = tmp_path / "repo"
     project.mkdir()

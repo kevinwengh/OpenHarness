@@ -347,13 +347,27 @@ plain text until the release-hardening sanitizer gate is implemented.
 - **Review gate:** lists are bounded and lazy; disabled project plugins remain unexecuted; every
   mutation has an explicit allowlist, validation, authorization, failure state, and test.
 
-The first Stage 3 increment establishes the transport boundary before replacing the staged screens:
-four bounded resource snapshots now adapt the existing subsystem owners, and the mutation surface
-contains only task stop, bridge stop, cron toggle/run, and manual Autopilot enqueue. Review added
-same-origin enforcement for all mutation requests, Pydantic models that reject extra fields,
-status-only client error fallbacks, response redaction, and a regression fixture proving that a
-disabled project plugin is counted without importing its Python. Screen state, confirmation, and
-responsive review remain open for the next Stage 3 increment.
+Stage 3 now provides searchable/filterable screens for capability inventory, task/bridge/cron work,
+memory previews, and Autopilot intake/activity. Lists expose counts, bounded details, retained-data
+refresh errors, and useful empty states; immediate execution and stop/toggle operations require
+consequence-specific confirmation. The only mutations are task stop, bridge stop, cron toggle/run,
+and manual Autopilot enqueue.
+
+Stage 3 review found and corrected these issues before publication:
+
+- resource responses now pass through the final browser redactor instead of relying solely on each
+  adapter's field selection;
+- a locked or unavailable credential store degrades provider status to `unknown` without taking
+  down the rest of Capabilities or exposing exception details;
+- invalid owner targets return a non-reflective error instead of echoing caller-controlled text;
+- Work and Autopilot mutation controls visibly lock while the shared runtime is processing an
+  active turn, preventing a resource action from competing with in-flight agent work;
+- disabled project plugins are counted without importing Python, lists and previews are bounded,
+  all mutation bodies reject extra fields, and frontend tests cover search/filter, confirmation,
+  success, failure, and manual intake behavior.
+
+Rendered desktop/mobile browser evidence and the global cross-area command palette remain Stage 4
+release gates; they are not claimed by component tests or responsive source review.
 
 ### Stage 4 — hardening and release readiness
 

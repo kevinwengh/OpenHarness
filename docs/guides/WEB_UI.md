@@ -35,24 +35,30 @@ The current implementation provides:
   runtime;
 - Runtime controls for provider profile, model, permission mode, effort, turn limit, fast mode,
   reasoning passes, and output style through the same command owners used by the terminal;
-- direct deep links to each area, with honest staged placeholders for Capabilities, Work,
-  Knowledge, and Autopilot while their operational screens are wired to the bounded resource API.
+- a searchable Capabilities inventory for tools, commands, skills, plugins, hooks, MCP connections,
+  provider status, and the project-plugin trust boundary;
+- Work views for tasks, bridge sessions, cron schedules, and bounded run history, with confirmed
+  stop, enable/disable, and run-now actions;
+- searchable Knowledge previews with disabled-memory filtering and no raw local paths; and
+- Autopilot registry statistics, queued cards, recent journal entries, and manual idea intake.
 
-Overview, Workbench, Sessions, and Runtime are operational now. Capabilities, Work, Knowledge, and
-Autopilot still establish the stable information architecture without pretending their resource
-screens are complete. See the [web UI specification](../architecture/WEB_UI_SPEC.md) for staged
-coverage and review gates.
+All eight main navigation areas are operational. Less common configuration and destructive
+operations remain intentionally CLI/Workbench-first instead of being exposed through a generic web
+dispatcher. See the [web UI specification](../architecture/WEB_UI_SPEC.md) for support depth and
+review gates.
 
 Images are limited to four per turn, 2 MB each, and 6 MB total before base64 encoding. The browser
 renders model output as selectable plain text during this stage; rich Markdown is deferred until the
 link/HTML sanitizer gate is complete.
 
-The Stage 3 transport foundation now exposes launch-token-protected, bounded snapshots for
-Capabilities, Work, Knowledge, and Autopilot. It also provides only these state-changing actions:
+The Stage 3 resource surface exposes launch-token-protected, bounded snapshots for Capabilities,
+Work, Knowledge, and Autopilot. It provides only these state-changing actions:
 stop a task, stop a bridge, enable or disable a cron job, run a cron job now, and enqueue a manual
 Autopilot idea. Every action has a strict request model and delegates to the existing subsystem
-owner; there is no generic command, Python, tool, or plugin dispatch endpoint. The corresponding
-resource screens are still staged placeholders in this increment.
+owner; there is no generic command, Python, tool, or plugin dispatch endpoint. Immediate cron runs
+and stop/toggle actions require a consequence-specific browser confirmation. Manual Autopilot
+intake queues a card but does not start an agent run. Work and Autopilot mutations are temporarily
+disabled while the shared Workbench runtime is processing an active turn.
 
 ## Local security boundary
 
@@ -95,7 +101,7 @@ npm test
 npm run build
 
 cd ../..
-uv run pytest -q tests/test_ui/test_web_server.py
+uv run pytest -q tests/test_ui/test_web_server.py tests/test_ui/test_web_resources.py
 ```
 
 The production build is written to `src/openharness/_web` and included in the Python wheel. CI

@@ -4,7 +4,6 @@ import {
   BrainCircuit,
   Boxes,
   CalendarClock,
-  Check,
   ChevronRight,
   CircleHelp,
   Command,
@@ -29,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchBootstrap, type WebApiError } from "./api";
 import { RuntimePage, SessionsPage } from "./components/RuntimePages";
+import { AutopilotPage, CapabilitiesPage, KnowledgePage, WorkPage } from "./components/ResourcePages";
 import { SessionDialogs } from "./components/SessionDialogs";
 import { Workbench } from "./components/Workbench";
 import type { NavigationId, NavigationItem, WebBootstrap } from "./types";
@@ -217,7 +217,7 @@ function Overview({ bootstrap, onSelect }: { bootstrap: WebBootstrap; onSelect: 
           <p>One local surface for conversations, runtime controls, capabilities, scheduled work, memory, and repository autopilot.</p>
           <div className="hero-actions">
             {workbench ? <button className="button button--primary" onClick={() => onSelect(workbench)}>Open workbench <ChevronRight /></button> : null}
-            <span className="stage-label">Stage 1 · shell online</span>
+            <span className="stage-label">Local workspace online</span>
           </div>
         </div>
         <div className="runtime-orbit" aria-label={`Runtime ${authReady ? "ready" : "needs attention"}`}>
@@ -257,19 +257,6 @@ function Overview({ bootstrap, onSelect }: { bootstrap: WebBootstrap; onSelect: 
           })}
         </div>
       </section>
-    </div>
-  );
-}
-
-function AreaPreview({ item }: { item: NavigationItem }) {
-  const Icon = iconById[item.id];
-  return (
-    <div className="page area-preview">
-      <div className="preview-icon"><Icon aria-hidden="true" /></div>
-      <p className="eyebrow">{item.depth} surface · next delivery stage</p>
-      <h1>{item.label}</h1>
-      <p>{item.description}. This route is wired into the application shell; its authoritative data and actions arrive in the next staged increment.</p>
-      <div className="preview-note"><Check aria-hidden="true" /><span>Navigation, responsive layout, route state, and accessibility semantics are active now.</span></div>
     </div>
   );
 }
@@ -432,8 +419,14 @@ export function App({ loadBootstrap = fetchBootstrap, connectSession = true }: A
     />
   ) : activeId === "runtime" ? (
     <RuntimePage session={webSession.state} onSelect={webSession.requestSelect} />
-  ) : activeItem ? (
-    <AreaPreview item={activeItem} />
+  ) : activeId === "capabilities" ? (
+    <CapabilitiesPage />
+  ) : activeId === "work" ? (
+    <WorkPage mutationsDisabled={webSession.state.busy} />
+  ) : activeId === "knowledge" ? (
+    <KnowledgePage />
+  ) : activeId === "autopilot" ? (
+    <AutopilotPage mutationsDisabled={webSession.state.busy} />
   ) : null;
 
   return (

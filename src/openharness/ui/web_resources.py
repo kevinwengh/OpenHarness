@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +24,8 @@ from openharness.services.cron_scheduler import execute_job, is_scheduler_runnin
 from openharness.skills.loader import load_skill_registry
 from openharness.tasks import get_task_manager
 from openharness.tools import create_default_tool_registry
+
+log = logging.getLogger(__name__)
 
 
 WebResourceArea = Literal["capabilities", "work", "knowledge", "autopilot"]
@@ -91,6 +94,30 @@ def _plugin_source(path: Path, cwd: Path) -> str:
         return "project"
     except ValueError:
         return "user"
+
+
+def _safe_profile_statuses(settings: Any) -> dict[str, dict[str, Any]]:
+    """Return presentation-only profile state even if credential inspection fails."""
+
+    try:
+        return AuthManager(settings).get_profile_statuses()
+    except Exception:
+        # Credential backends may be locked or unavailable. Capabilities must
+        # degrade to an unknown status without returning the exception detail
+        # or suppressing unrelated tools, skills, and connection inventory.
+        log.warning("Provider credential status is unavailable for the web capability snapshot")
+        active, _ = settings.resolve_profile()
+        return {
+            name: {
+                "label": name,
+                "provider": profile.provider,
+                "model": None,
+                "configured": False,
+                "auth_state": "unknown",
+                "active": name == active,
+            }
+            for name, profile in settings.merged_profiles().items()
+        }
 
 
 class WebResourceService:
@@ -192,7 +219,7 @@ class WebResourceService:
             extra_plugin_roots=extra_plugin_roots,
         ).list_skills()
         hooks = load_hook_registry(settings, plugins)
-        auth_profiles = AuthManager(settings).get_profile_statuses()
+        auth_profiles = _safe_profile_statuses(settings)
         project_plugins_dir = get_project_plugins_dir(self.cwd)
         blocked_project_plugins = (
             sum(1 for child in project_plugins_dir.iterdir() if child.is_dir())
@@ -264,6 +291,7 @@ class WebResourceService:
                     "provider": status.get("provider"),
                     "model": status.get("model"),
                     "configured": bool(status.get("configured")),
+                    "auth_state": status.get("auth_state", "unknown"),
                     "active": bool(status.get("active")),
                 }
                 for name, status in list(auth_profiles.items())[:100]

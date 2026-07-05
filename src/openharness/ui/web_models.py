@@ -121,7 +121,7 @@ _NAVIGATION = (
         description="Tools, skills, plugins, hooks, and MCP",
         path="/capabilities",
         depth="inspect",
-        availability="coming_soon",
+        availability="available",
     ),
     WebNavigationItem(
         id="work",
@@ -129,7 +129,7 @@ _NAVIGATION = (
         description="Background tasks, bridges, and schedules",
         path="/work",
         depth="operate",
-        availability="coming_soon",
+        availability="available",
     ),
     WebNavigationItem(
         id="knowledge",
@@ -137,7 +137,7 @@ _NAVIGATION = (
         description="Project and session memory",
         path="/knowledge",
         depth="inspect",
-        availability="coming_soon",
+        availability="available",
     ),
     WebNavigationItem(
         id="autopilot",
@@ -145,7 +145,7 @@ _NAVIGATION = (
         description="Repository work intake and run health",
         path="/autopilot",
         depth="operate",
-        availability="coming_soon",
+        availability="available",
     ),
 )
 

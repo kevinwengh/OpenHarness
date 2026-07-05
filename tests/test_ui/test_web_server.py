@@ -19,6 +19,7 @@ from openharness.engine.messages import ConversationMessage, TextBlock
 from openharness.ui.backend_host import BackendHostConfig
 from openharness.ui.protocol import BackendEvent, FrontendRequest
 from openharness.ui.web_models import build_web_bootstrap
+from openharness.ui.web_resources import WebResourceSnapshot
 from openharness.ui.web_server import (
     WebServerConfig,
     WebServerConfigurationError,
@@ -145,6 +146,7 @@ def test_bootstrap_is_versioned_and_credential_redacted(tmp_path: Path):
         "label": "local_token",
     }
     assert len(payload["navigation"]) == 8
+    assert all(item["availability"] == "available" for item in payload["navigation"])
     assert "top-secret-api-key" not in serialized
     assert "secret-endpoint" not in serialized
     assert "api_key" not in serialized
@@ -443,12 +445,26 @@ async def test_resource_and_action_routes_require_auth_origin_and_allowlist(
             open_browser=False,
         )
     )
+    original_snapshot = server._resource_service.snapshot
+
+    def resource_snapshot(area, *, runtime_bundle=None):
+        if area == "knowledge":
+            return WebResourceSnapshot(
+                area="knowledge",
+                data={"api_key": "resource-secret", "preview": "Bearer inline-secret"},
+            )
+        return original_snapshot(area, runtime_bundle=runtime_bundle)
+
+    server._resource_service.snapshot = resource_snapshot
 
     async with server, aiohttp.ClientSession() as client:
         headers = {"Authorization": "Bearer resource-token"}
         knowledge = await client.get(f"{server.origin}/api/knowledge", headers=headers)
         assert knowledge.status == 200
-        assert (await knowledge.json())["area"] == "knowledge"
+        knowledge_payload = await knowledge.text()
+        assert '"area": "knowledge"' in knowledge_payload
+        assert "resource-secret" not in knowledge_payload
+        assert "inline-secret" not in knowledge_payload
 
         missing_origin = await client.post(
             f"{server.origin}/api/actions/autopilot.enqueue",
@@ -474,6 +490,14 @@ async def test_resource_and_action_routes_require_auth_origin_and_allowlist(
         assert invalid.status == 400
         invalid_payload = await invalid.text()
         assert "must-not-echo" not in invalid_payload
+
+        missing_target = await client.post(
+            f"{server.origin}/api/actions/cron.run",
+            headers=mutation_headers,
+            json={"name": "api-key-that-must-not-echo"},
+        )
+        assert missing_target.status == 400
+        assert "api-key-that-must-not-echo" not in await missing_target.text()
 
         created = await client.post(
             f"{server.origin}/api/actions/autopilot.enqueue",

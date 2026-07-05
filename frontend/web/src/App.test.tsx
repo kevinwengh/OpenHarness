@@ -9,10 +9,10 @@ const navigation: NavigationItem[] = [
   { id: "workbench", label: "Workbench", description: "Conversation", path: "/workbench", depth: "operate", availability: "coming_soon" },
   { id: "sessions", label: "Sessions", description: "History", path: "/sessions", depth: "operate", availability: "coming_soon" },
   { id: "runtime", label: "Runtime", description: "Controls", path: "/runtime", depth: "configure", availability: "coming_soon" },
-  { id: "capabilities", label: "Capabilities", description: "Tools", path: "/capabilities", depth: "inspect", availability: "coming_soon" },
-  { id: "work", label: "Work", description: "Tasks", path: "/work", depth: "operate", availability: "coming_soon" },
-  { id: "knowledge", label: "Knowledge", description: "Memory", path: "/knowledge", depth: "inspect", availability: "coming_soon" },
-  { id: "autopilot", label: "Autopilot", description: "Repository", path: "/autopilot", depth: "operate", availability: "coming_soon" },
+  { id: "capabilities", label: "Capabilities", description: "Tools", path: "/capabilities", depth: "inspect", availability: "available" },
+  { id: "work", label: "Work", description: "Tasks", path: "/work", depth: "operate", availability: "available" },
+  { id: "knowledge", label: "Knowledge", description: "Memory", path: "/knowledge", depth: "inspect", availability: "available" },
+  { id: "autopilot", label: "Autopilot", description: "Repository", path: "/autopilot", depth: "operate", availability: "available" },
 ];
 
 const bootstrap: WebBootstrap = {

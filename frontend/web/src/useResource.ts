@@ -3,11 +3,12 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchResource, postAction } from "./api";
 import type { ResourceArea } from "./types";
 
-export function useResource<T extends Record<string, unknown>>(area: ResourceArea) {
+export function useResource<T extends object>(area: ResourceArea) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
 
   const refresh = useCallback(() => setGeneration((value) => value + 1), []);
@@ -28,6 +29,7 @@ export function useResource<T extends Record<string, unknown>>(area: ResourceAre
   const action = useCallback(async (name: string, payload: Record<string, unknown>) => {
     setNotice(null);
     setError(null);
+    setPendingAction(name);
     try {
       const result = await postAction(name, payload);
       setNotice(result.message);
@@ -36,8 +38,10 @@ export function useResource<T extends Record<string, unknown>>(area: ResourceAre
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The action could not be completed");
       return false;
+    } finally {
+      setPendingAction(null);
     }
   }, [refresh]);
 
-  return { data, loading, error, notice, refresh, action };
+  return { data, loading, error, notice, pendingAction, refresh, action };
 }

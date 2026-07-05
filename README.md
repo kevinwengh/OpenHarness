@@ -669,11 +669,11 @@ oh web --no-open --port 8765
 ```
 
 The current interface provides a responsive overview, streaming Workbench with tool and decision
-visibility, session resume/new-session actions, and live provider/model/policy/runtime selectors.
-Capabilities, Work, Knowledge, and Autopilot resource screens are being added in the following
-increment. The server rejects non-loopback binds, does not return credentials or provider endpoints
-in browser payloads, permits one controlling tab with bounded reconnection, and requires the
-generated launch token for every data API request and WebSocket. See the
+visibility, session resume/new-session actions, live provider/model/policy/runtime selectors,
+searchable capability and memory inventories, background task/bridge/cron operations, and
+Autopilot intake and activity views. The server rejects non-loopback binds, does not return
+credentials or provider endpoints in browser payloads, permits one controlling tab with bounded
+reconnection, and requires the generated launch token for every data API request and WebSocket. See the
 [local web UI guide](docs/guides/WEB_UI.md) for current behavior and limitations.
 
 ### 📡 CLI

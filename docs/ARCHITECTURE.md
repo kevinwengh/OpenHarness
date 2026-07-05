@@ -70,7 +70,7 @@ flowchart LR
 | ohmo | Adds workspace identity, memory, session storage, gateway configuration, per-conversation runtimes, and channel commands | `~/.ohmo` by default and OpenHarness runtime | **Observed:** `ohmo/` and `tests/test_ohmo/` |
 | Autopilot | Maintains a per-repository task registry, policies, journals, run artifacts, verification, and dashboard export | `.openharness/autopilot` and `docs/autopilot` | **Observed:** `src/openharness/autopilot/`, workflows, tests |
 | Terminal UI | React/Ink frontend connected to a Python backend protocol; Textual fallback also exists | Node.js process and Python backend | **Observed:** `frontend/terminal/`, `src/openharness/ui/` |
-| Local web UI | Loopback-only aiohttp host, token-protected status API and controlling WebSocket, responsive React workbench, sessions, and runtime controls | One shared structured backend controller, one controlling socket, bounded reconnect state, and packaged Vite assets | **Observed:** `src/openharness/ui/web_server.py`, `backend_host.py`, `frontend/web/` |
+| Local web UI | Loopback-only aiohttp host, token-protected resource/action APIs and controlling WebSocket, responsive React workbench, sessions, runtime controls, capability/work/knowledge/autopilot screens | One shared structured backend controller, bounded presentation adapters, one controlling socket, bounded reconnect state, and packaged Vite assets | **Observed:** `src/openharness/ui/web_server.py`, `web_resources.py`, `backend_host.py`, `frontend/web/` |
 
 ## Main runtime flows
 

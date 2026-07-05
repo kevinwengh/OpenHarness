@@ -491,7 +491,7 @@ class WebUiServer:
                 {"error": {"code": "resource_unavailable", "message": f"Could not load {area}"}},
                 status=500,
             )
-        return web.json_response(snapshot.model_dump(mode="json"))
+        return web.json_response(_redact_web_value(snapshot.model_dump(mode="json")))
 
     async def _handle_action(self, request: web.Request) -> web.Response:
         name = request.match_info["name"]
@@ -514,9 +514,14 @@ class WebUiServer:
                 {"error": {"code": "invalid_action", "message": "Action input is invalid"}},
                 status=400,
             )
-        except ValueError as exc:
+        except ValueError:
             return web.json_response(
-                {"error": {"code": "invalid_action", "message": _bounded_web_text(str(exc))}},
+                {
+                    "error": {
+                        "code": "invalid_action",
+                        "message": "Action target is invalid or unavailable",
+                    }
+                },
                 status=400,
             )
         except Exception:
