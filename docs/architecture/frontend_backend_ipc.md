@@ -34,8 +34,8 @@ transport EOF, which denies permission/edit prompts, cancels questions, interrup
 and closes the runtime. Browser copies of events remove endpoint fields, redact credential-shaped
 values, and cap large presentation strings without changing terminal events.
 
-Four REST routes adapt existing subsystem owners into bounded presentation snapshots:
-`/api/capabilities`, `/api/work`, `/api/knowledge`, and `/api/autopilot`. They are lazy (the active
+Five REST routes adapt existing subsystem owners into bounded presentation snapshots:
+`/api/sessions`, `/api/capabilities`, `/api/work`, `/api/knowledge`, and `/api/autopilot`. They are lazy (the active
 screen requests only its own route), versioned, no-store, and passed through the browser redactor.
 `POST /api/actions/{name}` is not general dispatch: it accepts only task stop, bridge stop, cron
 toggle/run, and manual Autopilot enqueue, with Pydantic bodies and an exact same-origin header.
@@ -43,6 +43,11 @@ toggle/run, and manual Autopilot enqueue, with Pydantic bodies and an exact same
 **Key browser evidence:** `src/openharness/ui/web_server.py`, `src/openharness/ui/web_resources.py`,
 `frontend/web/src/useWebSession.ts`, `frontend/web/src/useResource.ts`,
 `tests/test_ui/test_web_server.py`, and `tests/test_ui/test_web_resources.py`.
+
+The session resource returns at most 20 canonical identifiers with summary, model, message count,
+and timestamp. It never returns messages, system prompts, tool metadata, or backing paths. Global
+search uses this route plus Capabilities; command results populate the Workbench composer and do not
+execute until the user submits them through the normal typed runtime request path.
 
 ## The launch chain
 

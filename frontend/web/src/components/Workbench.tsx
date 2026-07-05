@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { FrontendImageAttachment, TranscriptItem } from "../types";
 import type { WebSessionState } from "../useWebSession";
+import { SafeMarkdown } from "./SafeMarkdown";
 
 interface PendingImage extends FrontendImageAttachment {
   name: string;
@@ -27,6 +28,7 @@ interface WorkbenchProps {
   onSubmit: (line: string, images: FrontendImageAttachment[]) => boolean;
   onInterrupt: () => void;
   onRequestSelect: (command: string) => void;
+  draftRequest?: { id: number; value: string } | null;
 }
 
 function TranscriptRow({ item }: { item: TranscriptItem }) {
@@ -44,7 +46,7 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
   return (
     <article className={`message message--${item.role}${item.is_error ? " message--error" : ""}`}>
       <div className="message-avatar" aria-hidden="true">{assistant ? <Bot /> : user ? <User /> : <Sparkles />}</div>
-      <div className="message-body"><p className="message-role">{assistant ? "OpenHarness" : user ? "You" : item.role}</p><div className="message-text">{item.text}</div></div>
+      <div className="message-body"><p className="message-role">{assistant ? "OpenHarness" : user ? "You" : item.role}</p><div className="message-text">{assistant ? <SafeMarkdown>{item.text}</SafeMarkdown> : item.text}</div></div>
     </article>
   );
 }
@@ -61,7 +63,7 @@ async function readImage(file: File): Promise<PendingImage> {
   return { name: file.name, media_type: file.type, data: dataUrl.split(",", 2)[1] ?? "" };
 }
 
-export function Workbench({ session, onSubmit, onInterrupt, onRequestSelect }: WorkbenchProps) {
+export function Workbench({ session, onSubmit, onInterrupt, onRequestSelect, draftRequest }: WorkbenchProps) {
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<PendingImage[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -69,7 +71,14 @@ export function Workbench({ session, onSubmit, onInterrupt, onRequestSelect }: W
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const connected = session.connection === "ready";
 
-  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [session.transcript, session.streamingText]);
+  useEffect(() => {
+    if (typeof endRef.current?.scrollIntoView === "function") endRef.current.scrollIntoView({ block: "end" });
+  }, [session.transcript, session.streamingText]);
+  useEffect(() => {
+    if (!draftRequest) return;
+    setDraft(draftRequest.value);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }, [draftRequest]);
 
   const submit = () => {
     const text = draft.trim();
@@ -145,7 +154,7 @@ export function Workbench({ session, onSubmit, onInterrupt, onRequestSelect }: W
           <p>Quick controls</p>
           {[ ["model", "Model"], ["provider", "Provider"], ["permissions", "Permissions"], ["effort", "Effort"], ["turns", "Turn limit"] ].map(([command, label]) => <button key={command} onClick={() => onRequestSelect(command)} disabled={!connected || session.busy}>{label}<span>Change</span></button>)}
         </div>
-        {session.todoMarkdown ? <div className="todo-panel"><p>Current plan</p><pre>{session.todoMarkdown}</pre></div> : null}
+        {session.todoMarkdown ? <div className="todo-panel"><p>Current plan</p><SafeMarkdown compact>{session.todoMarkdown}</SafeMarkdown></div> : null}
       </aside>
     </div>
   );

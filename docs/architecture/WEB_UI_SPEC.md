@@ -366,8 +366,8 @@ Stage 3 review found and corrected these issues before publication:
   all mutation bodies reject extra fields, and frontend tests cover search/filter, confirmation,
   success, failure, and manual intake behavior.
 
-Rendered desktop/mobile browser evidence and the global cross-area command palette remain Stage 4
-release gates; they are not claimed by component tests or responsive source review.
+Rendered desktop/mobile browser evidence remains a Stage 4 release gate; it is not claimed by
+component tests or responsive source review.
 
 ### Stage 4 — hardening and release readiness
 
@@ -375,6 +375,26 @@ release gates; they are not claimed by component tests or responsive source revi
   docs/runbook, frontend build/type/test gates, and full Python regression suite.
 - **Review gate:** requirement-by-requirement completion audit with rendered evidence; no stage is
   considered complete because a narrower unit test passed.
+
+Stage 4 implementation now includes:
+
+- a focus-trapped `Cmd/Ctrl+K` palette across navigation, canonical session summaries, slash
+  commands, and installed capabilities; command choices prepare a draft instead of silently
+  executing it, while session resume is explicitly labelled;
+- the specified `/api/sessions` snapshot with at most 20 canonical IDs and no messages, system
+  prompts, tool metadata, or local paths;
+- GFM rendering for completed assistant messages and plans with raw HTML disabled, unsafe link
+  protocols rendered as inert text, external links isolated, and model-authored images prevented
+  from causing network requests;
+- automated axe checks for the shell, palette, Sessions, Runtime, and all four operational resource
+  screens; keyboard focus restoration, arrow-key tabs/results, reduced motion, and mobile layouts
+  remain covered by components and responsive CSS;
+- a zero-finding full npm audit after upgrading to fixed Node-20-compatible Vite and Vitest
+  versions, plus production bundle regeneration.
+
+The in-app browser connector was unavailable again during Stage 4, so actual desktop/mobile paint,
+contrast, and overflow screenshots remain unverified and must not be inferred from jsdom, axe, or
+responsive-source checks.
 
 ## Test strategy
 

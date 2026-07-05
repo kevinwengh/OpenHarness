@@ -386,7 +386,7 @@ class WebUiServer:
         app.router.add_get("/api/bootstrap", self._handle_bootstrap)
         app.router.add_get("/api/health", self._handle_health)
         app.router.add_get("/api/session", self._handle_session)
-        app.router.add_get("/api/{area:capabilities|work|knowledge|autopilot}", self._handle_resource)
+        app.router.add_get("/api/{area:sessions|capabilities|work|knowledge|autopilot}", self._handle_resource)
         app.router.add_post("/api/actions/{name}", self._handle_action)
         app.router.add_static("/assets", self._assets_dir / "assets", show_index=False)
         app.router.add_get("/{path:.*}", self._handle_index)

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import { AutopilotPage, CapabilitiesPage, KnowledgePage, WorkPage } from "./ResourcePages";
+import { expectNoAccessibilityViolations } from "../test/accessibility";
 
 const api = vi.hoisted(() => ({
   fetchResource: vi.fn(),
@@ -67,7 +68,7 @@ beforeEach(() => {
 
 test("capabilities exposes trust state, category counts, and searchable inventory", async () => {
   const user = userEvent.setup();
-  render(<CapabilitiesPage />);
+  render(<main><CapabilitiesPage /></main>);
 
   expect(await screen.findByRole("heading", { name: "Capabilities" })).toBeVisible();
   expect(screen.getByText(/1 project plugin directory is blocked/)).toBeVisible();
@@ -82,12 +83,13 @@ test("capabilities exposes trust state, category counts, and searchable inventor
   await user.click(screen.getByRole("tab", { name: /MCP 1/ }));
   await user.type(screen.getByRole("searchbox", { name: "Search capabilities" }), "missing");
   expect(screen.getByRole("heading", { name: "No matching capabilities" })).toBeVisible();
+  await expectNoAccessibilityViolations();
 });
 
 test("work requires confirmation and sends only the selected allowlisted action", async () => {
   const user = userEvent.setup();
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-  render(<WorkPage />);
+  render(<main><WorkPage /></main>);
   await screen.findByRole("heading", { name: "Work" });
 
   await user.click(screen.getByRole("tab", { name: /Schedules 1/ }));
@@ -97,11 +99,12 @@ test("work requires confirmation and sends only the selected allowlisted action"
   expect(confirm).toHaveBeenCalledWith("Run digest now? This executes the saved job immediately.");
   await waitFor(() => expect(api.postAction).toHaveBeenCalledWith("cron.run", { name: "digest" }));
   expect(await screen.findByText("Action complete")).toBeVisible();
+  await expectNoAccessibilityViolations();
 });
 
 test("knowledge hides disabled memory by default and supports search", async () => {
   const user = userEvent.setup();
-  render(<KnowledgePage />);
+  render(<main><KnowledgePage /></main>);
 
   expect(await screen.findByText("Python preference")).toBeVisible();
   expect(screen.queryByText("Retired note")).not.toBeInTheDocument();
@@ -110,12 +113,13 @@ test("knowledge hides disabled memory by default and supports search", async () 
   await user.type(screen.getByRole("searchbox", { name: "Search memory" }), "python");
   expect(screen.getByText("Python preference")).toBeVisible();
   expect(screen.queryByText("Retired note")).not.toBeInTheDocument();
+  await expectNoAccessibilityViolations();
 });
 
 test("autopilot queues a bounded manual idea without starting a run", async () => {
   const user = userEvent.setup();
   api.postAction.mockResolvedValue({ schema_version: 1, action: "autopilot.enqueue", message: "Added card" });
-  render(<AutopilotPage />);
+  render(<main><AutopilotPage /></main>);
   await screen.findByRole("heading", { name: "Autopilot" });
 
   await user.type(screen.getByRole("textbox", { name: "Title" }), "Audit the API");
@@ -128,6 +132,7 @@ test("autopilot queues a bounded manual idea without starting a run", async () =
   }));
   expect(await screen.findByText("Added card")).toBeVisible();
   expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("");
+  await expectNoAccessibilityViolations();
 });
 
 test("a resource failure is announced without rendering an unsafe response body", async () => {

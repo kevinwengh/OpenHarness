@@ -163,12 +163,16 @@ See [EXTENDING.md](EXTENDING.md) for implementation checklists.
   runtime; bounded events are retained during a five-second reclaim window, after which prompts are
   denied, the active turn is interrupted, and the runtime closes.
 - **Observed.** `ui/web_resources.py` is the browser presentation adapter for Capabilities, Work,
-  Knowledge, and Autopilot. It reads bounded snapshots through existing subsystem owners and never
+  Knowledge, Autopilot, and recent session summaries. It reads bounded snapshots through existing subsystem owners and never
   treats browser JSON as a persistence format. Browser mutations are limited to five named,
   Pydantic-validated actions (`task.stop`, `bridge.stop`, `cron.toggle`, `cron.run`, and
   `autopilot.enqueue`); they require the launch token and same-origin mutation request and delegate
   to the task, bridge, cron, or autopilot owner. Disabled project plugins remain undiscovered by
   executable plugin loading when the Capabilities snapshot is opened.
+- **Observed.** Browser Markdown uses `react-markdown` with raw HTML disabled, an explicit
+  relative/HTTP(S)/email protocol allowlist, external-link isolation, and inert rendering for
+  model-authored images. The `Cmd/Ctrl+K` palette searches bounded local snapshots; selecting a
+  slash command only prepares the Workbench draft, while session resume remains an explicit action.
 - **Observed.** Unit/CI tests are designed to run without real model credentials; live evaluations are separate.
 - **Observed.** The intended product dependency direction is `ohmo` to `openharness`, but core currently has optional reverse imports for ohmo attachment paths, managed Feishu group lookup, and cron notification/config integration. Treat these as boundary debt rather than extension precedent; see [the developer improvement backlog](developer/IMPROVEMENTS.md#p1-remove-reverse-dependencies-from-core-into-ohmo).
 

@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { App } from "./App";
+import { expectNoAccessibilityViolations } from "./test/accessibility";
 import type { NavigationItem, WebBootstrap } from "./types";
 
 const navigation: NavigationItem[] = [
@@ -46,6 +47,7 @@ test("renders the redacted runtime overview after bootstrap", async () => {
   expect(screen.getByText("local-model")).toBeVisible();
   expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
   expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+  await expectNoAccessibilityViolations();
 });
 
 test("supports keyboard navigation to every staged product area", async () => {
@@ -87,4 +89,19 @@ test("opens and closes the complete mobile navigation drawer", async () => {
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog", { name: "Navigate" })).not.toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole("button", { name: "Open navigation" })).toHaveFocus());
+});
+
+test("opens global search from the top bar and restores focus on Escape", async () => {
+  const user = userEvent.setup();
+  render(<App loadBootstrap={async () => bootstrap} connectSession={false} />);
+  await screen.findByRole("heading", { name: /Your agent workspace/i });
+  const launcher = screen.getByRole("button", { name: /Search/ });
+
+  await user.click(launcher);
+  expect(screen.getByRole("dialog", { name: "OpenHarness search" })).toBeVisible();
+  await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search OpenHarness" })).toHaveFocus());
+  await user.keyboard("{Escape}");
+
+  expect(screen.queryByRole("dialog", { name: "OpenHarness search" })).not.toBeInTheDocument();
+  await waitFor(() => expect(launcher).toHaveFocus());
 });

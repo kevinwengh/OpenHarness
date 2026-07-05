@@ -109,7 +109,7 @@ export interface BackendEvent {
   todo_markdown?: string;
 }
 
-export type ResourceArea = "capabilities" | "work" | "knowledge" | "autopilot";
+export type ResourceArea = "sessions" | "capabilities" | "work" | "knowledge" | "autopilot";
 
 export interface ResourceSnapshot<T = Record<string, unknown>> {
   schema_version: 1;

@@ -15,6 +15,7 @@ import {
   Orbit,
   PanelLeftClose,
   RefreshCw,
+  Search,
   ServerCog,
   Settings2,
   ShieldCheck,
@@ -27,6 +28,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchBootstrap, type WebApiError } from "./api";
+import { CommandPalette } from "./components/CommandPalette";
 import { RuntimePage, SessionsPage } from "./components/RuntimePages";
 import { AutopilotPage, CapabilitiesPage, KnowledgePage, WorkPage } from "./components/ResourcePages";
 import { SessionDialogs } from "./components/SessionDialogs";
@@ -61,6 +63,10 @@ function initialTheme(): "light" | "dark" {
   const saved = window.localStorage.getItem("openharness.web.theme");
   if (saved === "light" || saved === "dark") return saved;
   return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function searchShortcutLabel() {
+  return /Mac|iPhone|iPad/.test(window.navigator.platform) ? "⌘ K" : "Ctrl K";
 }
 
 function routeId(navigation: NavigationItem[]): NavigationId {
@@ -172,11 +178,13 @@ function Topbar({
   theme,
   onTheme,
   onMenu,
+  onSearch,
 }: {
   bootstrap: WebBootstrap;
   theme: "light" | "dark";
   onTheme: () => void;
   onMenu: () => void;
+  onSearch: () => void;
 }) {
   return (
     <header className="topbar">
@@ -186,6 +194,7 @@ function Topbar({
         <span className="workspace-path">{bootstrap.workspace.path}</span>
       </div>
       <div className="topbar-actions">
+        <button className="search-launch" onClick={onSearch}><Search aria-hidden="true" /><span>Search</span><kbd>{searchShortcutLabel()}</kbd></button>
         <StatusPill state={bootstrap.runtime.auth.state} />
         <button className="icon-button" onClick={onTheme} aria-label={`Use ${theme === "dark" ? "light" : "dark"} theme`}>
           {theme === "dark" ? <Sun /> : <Moon />}
@@ -346,8 +355,11 @@ export function App({ loadBootstrap = fetchBootstrap, connectSession = true }: A
   const [activeId, setActiveId] = useState<NavigationId>("overview");
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [draftRequest, setDraftRequest] = useState<{ id: number; value: string } | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(initialTheme);
   const drawerReturnFocus = useRef<HTMLElement | null>(null);
+  const paletteReturnFocus = useRef<HTMLElement | null>(null);
   const webSession = useWebSession({ enabled: connectSession && bootstrap !== null });
 
   useEffect(() => {
@@ -392,6 +404,27 @@ export function App({ loadBootstrap = fetchBootstrap, connectSession = true }: A
     window.requestAnimationFrame(() => drawerReturnFocus.current?.focus());
   }, []);
 
+  const openPalette = useCallback(() => {
+    paletteReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPaletteOpen(true);
+  }, []);
+
+  const closePalette = useCallback(() => {
+    setPaletteOpen(false);
+    window.requestAnimationFrame(() => paletteReturnFocus.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (paletteOpen) closePalette(); else openPalette();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closePalette, openPalette, paletteOpen]);
+
   const selectFromDrawer = useCallback((item: NavigationItem) => {
     select(item);
     window.requestAnimationFrame(() => document.getElementById("main-content")?.focus());
@@ -410,15 +443,17 @@ export function App({ loadBootstrap = fetchBootstrap, connectSession = true }: A
       onSubmit={webSession.submit}
       onInterrupt={webSession.interrupt}
       onRequestSelect={webSession.requestSelect}
+      draftRequest={draftRequest}
     />
   ) : activeId === "sessions" ? (
     <SessionsPage
       session={webSession.state}
       onBrowse={() => webSession.requestSelect("resume")}
+      onResume={(sessionId) => { webSession.applySelect("resume", sessionId); }}
       onNew={() => { if (window.confirm("Start a new runtime session? The current active turn must be idle.")) webSession.newSession(); }}
     />
   ) : activeId === "runtime" ? (
-    <RuntimePage session={webSession.state} onSelect={webSession.requestSelect} />
+    <RuntimePage session={webSession.state} sandbox={bootstrap.runtime} onSelect={webSession.requestSelect} />
   ) : activeId === "capabilities" ? (
     <CapabilitiesPage />
   ) : activeId === "work" ? (
@@ -434,7 +469,7 @@ export function App({ loadBootstrap = fetchBootstrap, connectSession = true }: A
       <a className="skip-link" href="#main-content">Skip to content</a>
       <DesktopRail navigation={bootstrap.navigation} activeId={activeId} collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} onSelect={select} />
       <div className="workspace-shell">
-        <Topbar bootstrap={bootstrap} theme={theme} onTheme={() => setTheme((value) => value === "dark" ? "light" : "dark")} onMenu={openDrawer} />
+        <Topbar bootstrap={bootstrap} theme={theme} onTheme={() => setTheme((value) => value === "dark" ? "light" : "dark")} onMenu={openDrawer} onSearch={openPalette} />
         <main id="main-content" tabIndex={-1}>
           {content}
         </main>
@@ -442,6 +477,24 @@ export function App({ loadBootstrap = fetchBootstrap, connectSession = true }: A
       </div>
       <MobileNavigation navigation={bootstrap.navigation} activeId={activeId} onSelect={select} onMore={openDrawer} />
       <NavigationDrawer open={drawerOpen} navigation={bootstrap.navigation} activeId={activeId} onClose={closeDrawer} onSelect={selectFromDrawer} />
+      <CommandPalette
+        open={paletteOpen}
+        navigation={bootstrap.navigation}
+        runtimeCommands={webSession.state.commands}
+        onClose={closePalette}
+        onNavigate={select}
+        onPrepareCommand={(command) => {
+          const workbench = bootstrap.navigation.find((item) => item.id === "workbench");
+          setDraftRequest((current) => ({ id: (current?.id ?? 0) + 1, value: command }));
+          if (workbench) select(workbench);
+        }}
+        onResume={(sessionId) => {
+          const accepted = webSession.applySelect("resume", sessionId);
+          const workbench = bootstrap.navigation.find((item) => item.id === "workbench");
+          if (accepted && workbench) select(workbench);
+          return accepted;
+        }}
+      />
       <SessionDialogs
         modal={webSession.state.modal}
         selectRequest={webSession.state.selectRequest}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,6 +22,7 @@ from openharness.plugins import load_plugins
 from openharness.plugins.loader import get_project_plugins_dir
 from openharness.services.cron import get_cron_job, load_cron_jobs, set_job_enabled
 from openharness.services.cron_scheduler import execute_job, is_scheduler_running, load_history
+from openharness.services.session_backend import DEFAULT_SESSION_BACKEND
 from openharness.skills.loader import load_skill_registry
 from openharness.tasks import get_task_manager
 from openharness.tools import create_default_tool_registry
@@ -28,7 +30,7 @@ from openharness.tools import create_default_tool_registry
 log = logging.getLogger(__name__)
 
 
-WebResourceArea = Literal["capabilities", "work", "knowledge", "autopilot"]
+WebResourceArea = Literal["sessions", "capabilities", "work", "knowledge", "autopilot"]
 
 
 class WebResourceSnapshot(BaseModel):
@@ -96,6 +98,11 @@ def _plugin_source(path: Path, cwd: Path) -> str:
         return "user"
 
 
+def _safe_session_id(value: object) -> str | None:
+    session_id = str(value or "")
+    return session_id if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", session_id) else None
+
+
 def _safe_profile_statuses(settings: Any) -> dict[str, dict[str, Any]]:
     """Return presentation-only profile state even if credential inspection fails."""
 
@@ -127,7 +134,9 @@ class WebResourceService:
         self.cwd = Path(cwd).expanduser().resolve()
 
     def snapshot(self, area: WebResourceArea, *, runtime_bundle: Any | None = None) -> WebResourceSnapshot:
-        if area == "capabilities":
+        if area == "sessions":
+            data = self._sessions(runtime_bundle)
+        elif area == "capabilities":
             data = self._capabilities(runtime_bundle)
         elif area == "work":
             data = self._work()
@@ -138,6 +147,28 @@ class WebResourceService:
         else:  # pragma: no cover - Literal and router constrain this
             raise ValueError(f"Unknown web resource area: {area}")
         return WebResourceSnapshot(area=area, data=data)
+
+    def _sessions(self, runtime_bundle: Any | None) -> dict[str, Any]:
+        backend = runtime_bundle.session_backend if runtime_bundle is not None else DEFAULT_SESSION_BACKEND
+        snapshots = backend.list_snapshots(self.cwd, limit=20)
+        sessions = []
+        for snapshot in snapshots[:20]:
+            session_id = _safe_session_id(snapshot.get("session_id"))
+            if session_id is None:
+                continue
+            sessions.append(
+                {
+                    "id": session_id,
+                    "summary": _short(snapshot.get("summary"), 240) or "(no summary)",
+                    "message_count": snapshot.get("message_count", 0),
+                    "model": _short(snapshot.get("model"), 120),
+                    "created_at": snapshot.get("created_at"),
+                }
+            )
+        return {
+            "sessions": sessions,
+            "limits": {"returned": len(sessions), "maximum": 20},
+        }
 
     async def action(self, name: str, payload: object) -> WebActionResult:
         model = _ACTION_MODELS.get(name)

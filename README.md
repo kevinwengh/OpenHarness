@@ -671,7 +671,9 @@ oh web --no-open --port 8765
 The current interface provides a responsive overview, streaming Workbench with tool and decision
 visibility, session resume/new-session actions, live provider/model/policy/runtime selectors,
 searchable capability and memory inventories, background task/bridge/cron operations, and
-Autopilot intake and activity views. The server rejects non-loopback binds, does not return
+Autopilot intake and activity views. Global search (`Cmd/Ctrl+K`) covers areas, bounded session
+summaries, slash commands, and installed capabilities without silently executing commands; final
+assistant output uses raw-HTML-free Markdown with restricted links. The server rejects non-loopback binds, does not return
 credentials or provider endpoints in browser payloads, permits one controlling tab with bounded
 reconnection, and requires the generated launch token for every data API request and WebSocket. See the
 [local web UI guide](docs/guides/WEB_UI.md) for current behavior and limitations.

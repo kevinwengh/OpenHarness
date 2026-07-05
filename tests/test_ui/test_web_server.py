@@ -466,6 +466,10 @@ async def test_resource_and_action_routes_require_auth_origin_and_allowlist(
         assert "resource-secret" not in knowledge_payload
         assert "inline-secret" not in knowledge_payload
 
+        sessions = await client.get(f"{server.origin}/api/sessions", headers=headers)
+        assert sessions.status == 200
+        assert (await sessions.json())["area"] == "sessions"
+
         missing_origin = await client.post(
             f"{server.origin}/api/actions/autopilot.enqueue",
             headers=headers,
