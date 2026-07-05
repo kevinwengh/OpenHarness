@@ -30,7 +30,7 @@ class AutomationModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
 
-def _validate_json_value(value: Any, *, path: str = "value", depth: int = 0) -> Any:
+def validate_json_value(value: Any, *, path: str = "value", depth: int = 0) -> Any:
     if depth > 24:
         raise ValueError(f"{path} exceeds the maximum JSON nesting depth")
     if isinstance(value, float) and not math.isfinite(value):
@@ -39,7 +39,7 @@ def _validate_json_value(value: Any, *, path: str = "value", depth: int = 0) -> 
         return value
     if isinstance(value, list):
         return [
-            _validate_json_value(item, path=f"{path}[{index}]", depth=depth + 1)
+            validate_json_value(item, path=f"{path}[{index}]", depth=depth + 1)
             for index, item in enumerate(value)
         ]
     if isinstance(value, dict):
@@ -47,7 +47,7 @@ def _validate_json_value(value: Any, *, path: str = "value", depth: int = 0) -> 
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ValueError(f"{path} contains a non-string object key")
-            normalized[key] = _validate_json_value(
+            normalized[key] = validate_json_value(
                 item,
                 path=f"{path}.{key}",
                 depth=depth + 1,
@@ -162,7 +162,7 @@ class AutomationEvent(AutomationModel):
     @field_validator("payload", "metadata")
     @classmethod
     def _validate_json_mapping(cls, value: dict[str, Any]) -> dict[str, Any]:
-        normalized = _validate_json_value(value)
+        normalized = validate_json_value(value)
         encoded = json.dumps(
             normalized,
             ensure_ascii=False,
@@ -261,7 +261,7 @@ class Condition(AutomationModel):
                     raise ValueError("exists condition value must be a boolean when provided")
             elif self.value is None:
                 raise ValueError(f"{self.op} condition requires a value")
-            _validate_json_value(self.value)
+            validate_json_value(self.value)
         else:
             if self.value is not None:
                 raise ValueError("condition groups cannot define a value")
@@ -358,7 +358,7 @@ class ActionStep(StepBase):
     @field_validator("arguments")
     @classmethod
     def _validate_arguments(cls, value: dict[str, Any]) -> dict[str, Any]:
-        return _validate_json_value(value)
+        return validate_json_value(value)
 
 
 class AgentStep(StepBase):
