@@ -44,6 +44,12 @@ The current implementation provides:
 - searchable Knowledge previews with disabled-memory filtering and no raw local paths; and
 - Autopilot registry statistics, queued cards, recent journal entries, and manual idea intake.
 
+Capability, task, schedule, bridge, history, memory, and Autopilot rows open a focus-trapped detail
+drawer that presents only fields already present in the bounded snapshot. On mobile it becomes a
+bottom sheet. Autopilot links to the canonical `oh autopilot tick` and
+`oh autopilot export-dashboard` workflows in guidance; the local host intentionally does not serve
+generated workspace HTML.
+
 All eight main navigation areas are operational. Less common configuration and destructive
 operations remain intentionally CLI/Workbench-first instead of being exposed through a generic web
 dispatcher. See the [web UI specification](../architecture/WEB_UI_SPEC.md) for support depth and

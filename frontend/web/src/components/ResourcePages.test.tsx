@@ -73,6 +73,14 @@ test("capabilities exposes trust state, category counts, and searchable inventor
   expect(await screen.findByRole("heading", { name: "Capabilities" })).toBeVisible();
   expect(screen.getByText(/1 project plugin directory is blocked/)).toBeVisible();
   expect(screen.getByText("read_file")).toBeVisible();
+  const details = screen.getByRole("button", { name: "Details" });
+  await user.click(details);
+  expect(screen.getByRole("dialog", { name: "read_file" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Close details" })).toHaveFocus();
+  await expectNoAccessibilityViolations();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog", { name: "read_file" })).not.toBeInTheDocument();
+  await waitFor(() => expect(details).toHaveFocus());
 
   await user.click(screen.getByRole("tab", { name: /MCP 1/ }));
   expect(screen.getByText("docs")).toBeVisible();

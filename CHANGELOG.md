@@ -31,7 +31,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
   existing subsystem owners.
 - A keyboard-accessible local-web command palette, bounded recent-session browser, safe GFM
   rendering for completed assistant output and plans, automated accessibility checks, and a clean
-  full frontend dependency audit after updating the Vite/Vitest toolchain.
+  full frontend dependency audit after updating the Vite/Vitest toolchain, plus responsive bounded
+  detail drawers across the four operational resource areas.
 - Declarative Ohmo automation workflows with safe YAML rules, deterministic channel-event
   matching, durable/idempotent runs, restricted named-skill agent steps, conditional multi-step
   actions, cross-channel delivery, namespaced personal-knowledge upserts, crash recovery, and

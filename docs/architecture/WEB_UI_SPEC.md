@@ -389,6 +389,9 @@ Stage 4 implementation now includes:
 - automated axe checks for the shell, palette, Sessions, Runtime, and all four operational resource
   screens; keyboard focus restoration, arrow-key tabs/results, reduced motion, and mobile layouts
   remain covered by components and responsive CSS;
+- a shared focus-trapped detail drawer for bounded capability, work, memory, and Autopilot fields,
+  with a mobile bottom-sheet treatment; Autopilot dashboard export remains a canonical CLI workflow
+  because serving generated workspace HTML would widen the local host's file/XSS boundary;
 - a zero-finding full npm audit after upgrading to fixed Node-20-compatible Vite and Vitest
   versions, plus production bundle regeneration.
 

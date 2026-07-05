@@ -23,10 +23,11 @@ import {
   Square,
   TerminalSquare,
   Wrench,
+  X,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-import { type FormEvent, type KeyboardEvent, type ReactNode, useMemo, useState } from "react";
+import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { useResource } from "../useResource";
 
@@ -158,6 +159,40 @@ interface AutopilotData {
 }
 
 type TabDefinition<T extends string> = { id: T; label: string; count: number; icon: LucideIcon };
+type ResourceDetail = { title: string; subtitle: string; fields: Array<[string, unknown]> };
+
+function DetailDrawer({ detail, onClose }: { detail: ResourceDetail | null; onClose: () => void }) {
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!detail) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    drawerRef.current?.querySelector<HTMLElement>("[data-initial-focus]")?.focus();
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+      if (event.key !== "Tab" || !drawerRef.current) return;
+      const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), [tabindex]:not([tabindex='-1'])"));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      window.requestAnimationFrame(() => returnFocus?.focus());
+    };
+  }, [detail, onClose]);
+  if (!detail) return null;
+  return (
+    <div className="detail-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div ref={drawerRef} className="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="resource-detail-title">
+        <div className="detail-drawer-heading"><div><p className="eyebrow">Bounded details</p><h2 id="resource-detail-title">{detail.title}</h2><p>{detail.subtitle}</p></div><button data-initial-focus className="icon-button" onClick={onClose} aria-label="Close details"><X /></button></div>
+        <dl>{detail.fields.filter(([, value]) => value !== undefined && value !== null && value !== "").map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{Array.isArray(value) ? value.join(", ") || "—" : typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)}</dd></div>)}</dl>
+      </div>
+    </div>
+  );
+}
 
 function ResourceHeading({
   icon: Icon,
@@ -280,6 +315,7 @@ export function CapabilitiesPage() {
   const resource = useResource<CapabilitiesData>("capabilities");
   const [active, setActive] = useState<keyof Omit<CapabilitiesData, "trust">>("tools");
   const [query, setQuery] = useState("");
+  const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const data = resource.data;
   const tabs = capabilityTabs.map((tab) => ({ ...tab, count: data?.[tab.id]?.length ?? 0 }));
   const items = useMemo(() => {
@@ -307,7 +343,7 @@ export function CapabilitiesPage() {
               return (
                 <article className="resource-row" key={`${title}-${index}`}>
                   <div className="resource-row-main"><strong>{title}</strong><p>{item.description || item.detail || capabilitySecondary(active, item)}</p><small>{capabilitySecondary(active, item)}</small></div>
-                  {state ? <StatusBadge value={state} positive={state === "active" || state === "connected" || state === "configured"} /> : null}
+                  <div className="resource-row-actions">{state ? <StatusBadge value={state} positive={state === "active" || state === "connected" || state === "configured"} /> : null}<button className="row-action" onClick={() => setDetail({ title, subtitle: capabilitySecondary(active, item), fields: Object.entries(item) })}>Details</button></div>
                 </article>
               );
             })}
@@ -315,6 +351,7 @@ export function CapabilitiesPage() {
           </div>
         </section>
       ) : null}
+      <DetailDrawer detail={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }
@@ -326,6 +363,7 @@ const terminalTaskStates = new Set(["completed", "failed", "cancelled", "cancele
 export function WorkPage({ mutationsDisabled = false }: { mutationsDisabled?: boolean }) {
   const resource = useResource<WorkData>("work");
   const [active, setActive] = useState<WorkTab>("tasks");
+  const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const data = resource.data;
   const tabs: TabDefinition<WorkTab>[] = [
     { id: "tasks", label: "Tasks", count: data?.tasks.length ?? 0, icon: Activity },
@@ -350,28 +388,29 @@ export function WorkPage({ mutationsDisabled = false }: { mutationsDisabled?: bo
             {active === "tasks" ? data.tasks.map((task) => (
               <article className="resource-row" key={task.id}>
                 <div className="resource-row-main"><strong>{task.description || task.id}</strong><p>{task.status_note || `${task.type} task`}</p><small>{task.id} · created {formatWhen(task.created_at)}{task.progress != null ? ` · ${task.progress}%` : ""}</small></div>
-                <div className="resource-row-actions"><StatusBadge value={task.status} positive={task.status === "running" || task.status === "completed"} />{!terminalTaskStates.has(task.status.toLowerCase()) ? <button className="row-action row-action--danger" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`Stop task ${task.id}? Its active work will be interrupted.`, "task.stop", { task_id: task.id })}><Square /> Stop</button> : null}</div>
+                <div className="resource-row-actions"><StatusBadge value={task.status} positive={task.status === "running" || task.status === "completed"} /><button className="row-action" onClick={() => setDetail({ title: task.description || task.id, subtitle: `${task.type} task`, fields: Object.entries(task) })}>Details</button>{!terminalTaskStates.has(task.status.toLowerCase()) ? <button className="row-action row-action--danger" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`Stop task ${task.id}? Its active work will be interrupted.`, "task.stop", { task_id: task.id })}><Square /> Stop</button> : null}</div>
               </article>
             )) : null}
             {active === "cron" ? data.cron.map((job) => (
               <article className="resource-row" key={job.name}>
                 <div className="resource-row-main"><strong>{job.name}</strong><p><code>{job.schedule}</code> · {job.timezone}</p><small>Next {formatWhen(job.next_run)} · Last {formatWhen(job.last_run)}{job.last_status ? ` · ${job.last_status}` : ""}</small></div>
-                <div className="resource-row-actions"><StatusBadge value={job.enabled ? "enabled" : "disabled"} positive={job.enabled} /><button className="row-action" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`${job.enabled ? "Disable" : "Enable"} schedule ${job.name}?`, "cron.toggle", { name: job.name, enabled: !job.enabled })}>{job.enabled ? <Pause /> : <Play />} {job.enabled ? "Disable" : "Enable"}</button><button className="row-action" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`Run ${job.name} now? This executes the saved job immediately.`, "cron.run", { name: job.name })}><Play /> Run now</button></div>
+                <div className="resource-row-actions"><StatusBadge value={job.enabled ? "enabled" : "disabled"} positive={job.enabled} /><button className="row-action" onClick={() => setDetail({ title: job.name, subtitle: "Scheduled job", fields: Object.entries(job) })}>Details</button><button className="row-action" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`${job.enabled ? "Disable" : "Enable"} schedule ${job.name}?`, "cron.toggle", { name: job.name, enabled: !job.enabled })}>{job.enabled ? <Pause /> : <Play />} {job.enabled ? "Disable" : "Enable"}</button><button className="row-action" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`Run ${job.name} now? This executes the saved job immediately.`, "cron.run", { name: job.name })}><Play /> Run now</button></div>
               </article>
             )) : null}
             {active === "bridges" ? data.bridges.map((bridge) => (
               <article className="resource-row" key={bridge.session_id}>
                 <div className="resource-row-main"><strong>{bridge.workspace || bridge.session_id}</strong><p>Bridge session {bridge.session_id}</p><small>PID {bridge.pid ?? "—"} · started {formatWhen(bridge.started_at)}</small></div>
-                <div className="resource-row-actions"><StatusBadge value={bridge.status} positive={bridge.status === "running"} />{bridge.status.toLowerCase() !== "stopped" ? <button className="row-action row-action--danger" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`Stop bridge ${bridge.session_id}? Connected work in that bridge will end.`, "bridge.stop", { session_id: bridge.session_id })}><Square /> Stop</button> : null}</div>
+                <div className="resource-row-actions"><StatusBadge value={bridge.status} positive={bridge.status === "running"} /><button className="row-action" onClick={() => setDetail({ title: bridge.workspace || bridge.session_id, subtitle: "Bridge session", fields: Object.entries(bridge) })}>Details</button>{bridge.status.toLowerCase() !== "stopped" ? <button className="row-action row-action--danger" disabled={mutationsDisabled || resource.pendingAction !== null} onClick={() => void confirmAction(`Stop bridge ${bridge.session_id}? Connected work in that bridge will end.`, "bridge.stop", { session_id: bridge.session_id })}><Square /> Stop</button> : null}</div>
               </article>
             )) : null}
             {active === "history" ? data.cron_history.map((entry, index) => (
-              <article className="resource-row" key={`${entry.name}-${entry.started_at}-${index}`}><div className="resource-row-main"><strong>{entry.name}</strong><p>Started {formatWhen(entry.started_at)}</p><small>Ended {formatWhen(entry.ended_at)} · return code {entry.returncode ?? "—"}</small></div><StatusBadge value={entry.status || "unknown"} positive={entry.status === "completed" || entry.status === "success"} /></article>
+              <article className="resource-row" key={`${entry.name}-${entry.started_at}-${index}`}><div className="resource-row-main"><strong>{entry.name}</strong><p>Started {formatWhen(entry.started_at)}</p><small>Ended {formatWhen(entry.ended_at)} · return code {entry.returncode ?? "—"}</small></div><div className="resource-row-actions"><StatusBadge value={entry.status || "unknown"} positive={entry.status === "completed" || entry.status === "success"} /><button className="row-action" onClick={() => setDetail({ title: entry.name, subtitle: "Scheduled run", fields: Object.entries(entry) })}>Details</button></div></article>
             )) : null}
             {((active === "tasks" && data.tasks.length === 0) || (active === "cron" && data.cron.length === 0) || (active === "bridges" && data.bridges.length === 0) || (active === "history" && data.cron_history.length === 0)) ? <EmptyResource icon={CircleSlash2} title={`No ${tabs.find((tab) => tab.id === active)?.label.toLowerCase()}`}>{active === "cron" ? "Ask the Workbench to create a scheduled job, then use oh cron start when you want the scheduler daemon running." : active === "bridges" ? "Use /bridge spawn in the Workbench when a child command needs a managed bridge session." : active === "history" ? "Run a saved schedule to create the first bounded history entry." : "Delegate background work from the Workbench to populate this queue."}</EmptyResource> : null}
           </div>
         </section>
       ) : null}
+      <DetailDrawer detail={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }
@@ -380,6 +419,7 @@ export function KnowledgePage() {
   const resource = useResource<KnowledgeData>("knowledge");
   const [query, setQuery] = useState("");
   const [showDisabled, setShowDisabled] = useState(false);
+  const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const memories = useMemo(() => {
     const lowered = query.trim().toLowerCase();
     return (resource.data?.memories ?? []).filter((memory) => {
@@ -402,13 +442,14 @@ export function KnowledgePage() {
                 <div className="memory-entry-heading"><div className="memory-icon"><Archive /></div><div><h3>{memory.title || "Untitled memory"}</h3><small>{[memory.type, memory.category, memory.source].filter(Boolean).join(" · ") || "local memory"}</small></div>{memory.disabled ? <StatusBadge value="disabled" /> : null}</div>
                 <p>{memory.description || memory.preview || "No preview is available for this memory."}</p>
                 {memory.description && memory.preview ? <blockquote>{memory.preview}</blockquote> : null}
-                <div className="tag-list">{memory.tags.map((tag) => <span key={tag}>{tag}</span>)}{memory.modified_at ? <time dateTime={memory.modified_at}>Updated {formatWhen(memory.modified_at)}</time> : null}</div>
+                <div className="tag-list">{memory.tags.map((tag) => <span key={tag}>{tag}</span>)}{memory.modified_at ? <time dateTime={memory.modified_at}>Updated {formatWhen(memory.modified_at)}</time> : null}<button className="row-action" onClick={() => setDetail({ title: memory.title || "Untitled memory", subtitle: "Memory metadata and bounded preview", fields: Object.entries(memory) })}>Details</button></div>
               </article>
             ))}
             {memories.length === 0 ? <EmptyResource icon={Search} title={query ? "No matching memory" : "No visible memory"}>{query ? "Try different terms or include disabled entries." : "Use /memory add in the Workbench to create durable project context, or include disabled entries to inspect them."}</EmptyResource> : null}
           </div>
         </section>
       ) : null}
+      <DetailDrawer detail={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }
@@ -424,6 +465,7 @@ export function AutopilotPage({ mutationsDisabled = false }: { mutationsDisabled
   const [active, setActive] = useState<AutopilotTab>("cards");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const data = resource.data;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -454,17 +496,19 @@ export function AutopilotPage({ mutationsDisabled = false }: { mutationsDisabled
               <button className="button button--primary" type="submit" disabled={mutationsDisabled || !title.trim() || resource.pendingAction !== null}>{resource.pendingAction === "autopilot.enqueue" ? <LoaderCircle className="spin" /> : <Plus />} Add to Autopilot</button>
             </form>
           </section>
+          <div className="operational-note"><TerminalSquare /><span><strong>Validation and dashboard export stay explicit</strong><small>Use <code>oh autopilot tick</code> to process the repository queue and <code>oh autopilot export-dashboard</code> to generate the publishable dashboard. This local host does not serve arbitrary workspace HTML.</small></span></div>
           <section className="resource-surface" aria-labelledby="autopilot-activity-title">
             <div className="resource-surface-heading"><div><p className="eyebrow">Registry</p><h2 id="autopilot-activity-title">Autopilot activity</h2></div>{!data.initialized ? <span className="scheduler-state"><span className="dot" /> Initializes on first intake</span> : null}</div>
             <ResourceTabs tabs={tabs} active={active} onChange={setActive} label="Autopilot categories" />
             <div className="resource-list" role="tabpanel">
-              {active === "cards" ? data.cards.map((card) => <article className="resource-row" key={card.id}><div className="resource-row-main"><strong>{card.title}</strong><p>{card.body || "No additional context."}</p><small>{card.source_kind}{card.source_ref ? ` · ${card.source_ref}` : ""} · updated {formatWhen(card.updated_at)}</small><div className="tag-list">{card.labels.map((label) => <span key={label}>{label}</span>)}</div></div><div className="resource-row-actions"><StatusBadge value={card.status} positive={card.status === "queued" || card.status === "completed"} />{card.score != null ? <span className="score">Score {card.score}</span> : null}</div></article>) : null}
-              {active === "journal" ? data.journal.map((entry, index) => <article className="resource-row" key={`${entry.timestamp}-${entry.kind}-${index}`}><div className="resource-row-main"><strong>{entry.kind}</strong><p>{entry.summary}</p><small>{formatWhen(entry.timestamp)}{entry.task_id ? ` · task ${entry.task_id}` : ""}</small></div><Clock3 /></article>) : null}
+              {active === "cards" ? data.cards.map((card) => <article className="resource-row" key={card.id}><div className="resource-row-main"><strong>{card.title}</strong><p>{card.body || "No additional context."}</p><small>{card.source_kind}{card.source_ref ? ` · ${card.source_ref}` : ""} · updated {formatWhen(card.updated_at)}</small><div className="tag-list">{card.labels.map((label) => <span key={label}>{label}</span>)}</div></div><div className="resource-row-actions"><StatusBadge value={card.status} positive={card.status === "queued" || card.status === "completed"} />{card.score != null ? <span className="score">Score {card.score}</span> : null}<button className="row-action" onClick={() => setDetail({ title: card.title, subtitle: "Autopilot work item", fields: Object.entries(card) })}>Details</button></div></article>) : null}
+              {active === "journal" ? data.journal.map((entry, index) => <article className="resource-row" key={`${entry.timestamp}-${entry.kind}-${index}`}><div className="resource-row-main"><strong>{entry.kind}</strong><p>{entry.summary}</p><small>{formatWhen(entry.timestamp)}{entry.task_id ? ` · task ${entry.task_id}` : ""}</small></div><div className="resource-row-actions"><Clock3 /><button className="row-action" onClick={() => setDetail({ title: entry.kind, subtitle: "Autopilot journal event", fields: Object.entries(entry) })}>Details</button></div></article>) : null}
               {((active === "cards" && data.cards.length === 0) || (active === "journal" && data.journal.length === 0)) ? <EmptyResource icon={active === "cards" ? ListFilter : History} title={active === "cards" ? "No work intake yet" : "No journal activity yet"}>{active === "cards" ? "Use the manual intake form to create the first queued idea." : "Journal events appear after Autopilot processes repository work."}</EmptyResource> : null}
             </div>
           </section>
         </>
       ) : null}
+      <DetailDrawer detail={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }
