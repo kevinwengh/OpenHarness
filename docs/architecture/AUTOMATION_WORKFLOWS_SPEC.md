@@ -404,18 +404,17 @@ under the lock. Atomic file replacement does not claim a cross-file transaction.
 
 | Component | Owner | Input | Output / interface |
 | --- | --- | --- | --- |
-| Event and definition models | planned core module `openharness.automation.models` | untrusted JSON/YAML | validated immutable models |
-| Definition loader | planned core module `openharness.automation.loader` | trusted roots | valid definitions plus per-file diagnostics |
-| Matcher | planned core module `openharness.automation.matcher` | definition + event/context | traced boolean outcome |
-| Template resolver | planned core module `openharness.automation.templates` | typed data + string/object template | rendered JSON-safe arguments |
-| Store | planned core module `openharness.automation.store` | events and transitions | reservations, atomic run checkpoints, recovery |
-| Action registry | planned core module `openharness.automation.actions` | typed action registrations | exact-name validated dispatch |
+| Event and definition models | `openharness.automation.models` | untrusted JSON/YAML | validated immutable models |
+| Definition loader | `openharness.automation.loader` | trusted roots | valid definitions plus per-file diagnostics |
+| Matcher | `openharness.automation.matcher` | definition + event/context | traced boolean outcome |
+| Template resolver | `openharness.automation.templates` | typed data + string/object template | rendered JSON-safe arguments |
+| Store | `openharness.automation.store` | events and transitions | reservations, atomic run checkpoints, recovery |
+| Action registry | `openharness.automation.actions` | typed action registrations | exact-name validated dispatch |
 | Governed executor | extracted core tool lifecycle boundary | tool name/input/policy | normalized governed `ToolResult` |
-| Runner | planned core module `openharness.automation.runner` | definition, event, injected executors | durable terminal/waiting run |
-| Ohmo automation service | planned application module `ohmo.automation.service` | admitted messages and CLI requests | background run tasks/status |
-| Channel action | planned application module `ohmo.automation.channel_action` | allowed outbound arguments | `OutboundMessage` publication |
-| Knowledge action | planned application module `ohmo.automation.knowledge_action` | allowed personal knowledge | schema-aware memory upsert |
-| Agent executor | planned application module `ohmo.automation.agent` | skill, event, limits, restricted tools | validated JSON object |
+| Runner | `openharness.automation.runner` | definition, event, injected executors | durable terminal/waiting run |
+| Ohmo automation service | `ohmo.automation.service` | admitted messages and CLI requests | background run tasks/status |
+| Channel and knowledge actions | `ohmo.automation.actions` | policy-allowed destinations/knowledge | bus publication and schema-aware memory upsert |
+| Agent executor | `ohmo.automation.agent` | skill, event, limits, restricted tools | validated JSON object |
 | Gateway integration | `ohmo/gateway/bridge.py`, `service.py` | admitted `InboundMessage` | event submission and source behavior |
 | Operator commands | `ohmo/cli.py` and gateway command boundary | local/remote commands | validation, inspection, transitions |
 

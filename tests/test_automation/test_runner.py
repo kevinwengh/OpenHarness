@@ -255,6 +255,53 @@ async def test_cancelling_unsafe_running_action_records_unknown_outcome(
 
 
 @pytest.mark.asyncio
+async def test_runner_can_leave_interrupted_run_for_startup_recovery(
+    tmp_path,
+    channel_event,
+) -> None:
+    started = asyncio.Event()
+
+    class BlockingAction(RecordingAction):
+        async def execute(self, arguments, context):
+            del arguments, context
+            started.set()
+            await asyncio.Future()
+
+    action = BlockingAction(retry_safe=True)
+    definition = action_definition(
+        steps=[
+            {
+                "id": "hold",
+                "type": "action",
+                "action": "record",
+                "with": {"message": "x"},
+                "retry": {"attempts": 2},
+            }
+        ]
+    )
+    store = AutomationStore(tmp_path / "automation")
+    registry = ActionRegistry()
+    registry.register(action)
+    runner = WorkflowRunner(
+        store=store,
+        actions=registry,
+        cancel_on_task_cancel=False,
+    )
+    reservation = await runner.submit(definition, channel_event)
+    task = asyncio.create_task(runner.execute(reservation.run.id))
+    await started.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert store.load_run(reservation.run.id).status == "running"
+    recovery = store.recover()
+    assert recovery.recovered_run_ids == (reservation.run.id,)
+    assert store.load_run(reservation.run.id).status == "pending"
+
+
+@pytest.mark.asyncio
 async def test_runner_fails_missing_template_before_action_attempt(tmp_path, channel_event) -> None:
     action = RecordingAction()
     definition = action_definition(

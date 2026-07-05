@@ -8,6 +8,10 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- Declarative Ohmo automation workflows with safe YAML rules, deterministic channel-event
+  matching, durable/idempotent runs, restricted named-skill agent steps, conditional multi-step
+  actions, cross-channel delivery, namespaced personal-knowledge upserts, crash recovery, and
+  trusted plugin automation actions.
 - A source-level `oh` versus `ohmo` concept comparison covering memory recall and evolution,
   compaction, sessions, providers, tools, permissions, extensions, UI, tasks, current isolation
   gaps, and a complete multi-channel gateway coordination workflow.
@@ -35,6 +39,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Fixed
 
+- Slack gateway admission now consistently enforces the configured common `allow_from` list before
+  optional DM/group policy, including the secure empty-list default.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 

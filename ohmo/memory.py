@@ -14,7 +14,7 @@ and channel contracts, credential redaction, and cleanup of per-session runtimes
 from __future__ import annotations
 
 from pathlib import Path
-from re import sub
+from re import fullmatch, sub
 
 from openharness.commands import MemoryCommandBackend
 from openharness.memory.scan import scan_memory_files
@@ -58,7 +58,14 @@ def list_memory_files(workspace: str | Path | None = None) -> list[Path]:
     )
 
 
-def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> Path:
+def add_memory_entry(
+    workspace: str | Path | None,
+    title: str,
+    content: str,
+    *,
+    namespace: str | None = None,
+    source: str = "manual",
+) -> Path:
     """Create a personal memory file and append it to ``MEMORY.md``.
 
     Integration: Exposed as a public entrypoint for this subsystem and collaborates with
@@ -85,11 +92,29 @@ def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> 
             include_expired=True,
             memory_dir=memory_dir,
         )
-        duplicate = next(
-            (header for header in existing if _effective_signature(header.path, header.signature) == signature),
+        namespace_key = namespace.strip().lower() if namespace else None
+        if namespace_key and not fullmatch(r"[a-z][a-z0-9._-]{0,127}", namespace_key):
+            raise ValueError("memory namespace must be a lowercase identifier")
+        exact = next(
+            (
+                header
+                for header in existing
+                if _memory_identity(header.path) == (namespace_key, title.strip())
+            ),
             None,
         )
-        path = duplicate.path if duplicate is not None else _next_memory_path(memory_dir, slug)
+        duplicate = next(
+            (
+                header
+                for header in existing
+                if _memory_namespace(header.path) == namespace_key
+                and _effective_signature(header.path, header.signature) == signature
+            ),
+            None,
+        )
+        target = exact or duplicate
+        file_slug = f"{namespace_key}_{slug}" if namespace_key else slug
+        path = target.path if target is not None else _next_memory_path(memory_dir, file_slug)
         now = utc_now()
         now_text = format_datetime(now)
         if path.exists():
@@ -99,7 +124,7 @@ def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> 
                 metadata,
                 old_body,
                 now=now,
-                source=str(metadata.get("source") or "manual"),
+                source=str(metadata.get("source") or source),
                 default_type=memory_type,
                 default_category=category,
             )
@@ -118,7 +143,7 @@ def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> 
                 "type": str(metadata.get("type") or memory_type),
                 "category": str(metadata.get("category") or category),
                 "importance": max(coerce_int(metadata.get("importance"), default=0), 1),
-                "source": "manual",
+                "source": source,
                 "signature": signature,
                 "created_at": created_at,
                 "updated_at": now_text,
@@ -127,12 +152,15 @@ def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> 
                 "supersedes": metadata.get("supersedes") or [],
             }
         )
+        if namespace_key:
+            metadata["namespace"] = namespace_key
         atomic_write_text(path, render_memory_file(metadata, body))
 
         index_path = get_memory_index_path(workspace)
         existing_index = index_path.read_text(encoding="utf-8") if index_path.exists() else "# Memory Index\n"
         if path.name not in existing_index:
-            existing_index = existing_index.rstrip() + f"\n- [{title}]({path.name})\n"
+            label = f"{namespace_key}: {title}" if namespace_key else title
+            existing_index = existing_index.rstrip() + f"\n- [{label}]({path.name})\n"
             atomic_write_text(index_path, existing_index)
     return path
 
@@ -307,3 +335,25 @@ def _effective_signature(path: Path, existing_signature: str) -> str:
     memory_type = str(metadata.get("type") or "personal")
     category = str(metadata.get("category") or "preference")
     return compute_memory_signature(body, memory_type, category)
+
+
+def _memory_namespace(path: Path) -> str | None:
+    try:
+        metadata, _, _, _ = split_memory_file(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    value = metadata.get("namespace")
+    return str(value).strip() if value else None
+
+
+def _memory_identity(path: Path) -> tuple[str | None, str]:
+    try:
+        metadata, _, _, _ = split_memory_file(path.read_text(encoding="utf-8"))
+    except OSError:
+        return (None, "")
+    namespace = metadata.get("namespace")
+    name = metadata.get("name")
+    return (
+        str(namespace).strip() if namespace else None,
+        str(name).strip() if name else "",
+    )

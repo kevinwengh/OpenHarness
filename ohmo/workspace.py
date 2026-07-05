@@ -295,6 +295,18 @@ def get_plugins_dir(workspace: str | Path | None = None) -> Path:
     return get_workspace_root(workspace) / "plugins"
 
 
+def get_automations_dir(workspace: str | Path | None = None) -> Path:
+    """Return the user-authored automation workflow definition directory."""
+
+    return get_workspace_root(workspace) / "automations"
+
+
+def get_automation_state_dir(workspace: str | Path | None = None) -> Path:
+    """Return the generated durable automation run-state directory."""
+
+    return get_workspace_root(workspace) / "automation"
+
+
 def get_groups_dir(workspace: str | Path | None = None) -> Path:
     """Return groups directory for the enclosing subsystem.
 
@@ -426,6 +438,8 @@ def ensure_workspace(workspace: str | Path | None = None) -> Path:
     get_memory_dir(root).mkdir(parents=True, exist_ok=True)
     get_skills_dir(root).mkdir(parents=True, exist_ok=True)
     get_plugins_dir(root).mkdir(parents=True, exist_ok=True)
+    get_automations_dir(root).mkdir(parents=True, exist_ok=True)
+    get_automation_state_dir(root).mkdir(parents=True, exist_ok=True)
     get_groups_dir(root).mkdir(parents=True, exist_ok=True)
     get_sessions_dir(root).mkdir(parents=True, exist_ok=True)
     get_logs_dir(root).mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from ohmo.workspace import (
+    get_automation_state_dir,
+    get_automations_dir,
     get_bootstrap_path,
     get_gateway_config_path,
     get_identity_path,
@@ -16,6 +18,8 @@ def test_initialize_workspace_creates_expected_files(tmp_path: Path):
     workspace = tmp_path / ".ohmo-home"
     root = initialize_workspace(workspace)
     assert root == workspace
+    assert get_automations_dir(workspace).is_dir()
+    assert get_automation_state_dir(workspace).is_dir()
     assert get_soul_path(workspace).exists()
     assert get_user_path(workspace).exists()
     assert get_identity_path(workspace).exists()

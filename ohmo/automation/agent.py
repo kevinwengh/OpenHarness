@@ -56,6 +56,21 @@ class RuntimeSkillAgentExecutor:
         # Tool-free judgment steps are safe to repeat; tool-using steps are conservative.
         return not step.allowed_tools
 
+    async def validate_skill(self, name: str) -> str | None:
+        """Return a preflight error for a named skill, or ``None`` when invocable."""
+
+        try:
+            skill = await asyncio.to_thread(self._resolve_skill, name)
+        except Exception as exc:
+            return f"cannot load skill {name!r}: {type(exc).__name__}: {exc}"
+        if skill is None:
+            return f"automation skill not found: {name}"
+        if skill.disable_model_invocation:
+            return f"skill {name!r} cannot be invoked by an automation agent"
+        if len(skill.content.encode("utf-8")) > MAX_SKILL_CONTENT_BYTES:
+            return f"skill {name!r} exceeds {MAX_SKILL_CONTENT_BYTES} bytes"
+        return None
+
     async def execute(
         self,
         step: AgentStep,

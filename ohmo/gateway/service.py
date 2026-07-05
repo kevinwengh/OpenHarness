@@ -31,6 +31,7 @@ from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.manager import ChannelManager
 
+from ohmo.automation.service import OhmoAutomationService
 from ohmo.gateway.bridge import OhmoGatewayBridge
 from ohmo.gateway.config import build_channel_manager_config, load_gateway_config
 from ohmo.gateway.models import GatewayState
@@ -92,6 +93,12 @@ class OhmoGatewayService:
             create_feishu_group=self.create_group_for_user,
             publish_group_welcome=self.publish_group_welcome,
         )
+        self._automation_service = OhmoAutomationService(
+            workspace=root,
+            cwd=self._cwd,
+            bus=self._bus,
+            provider_profile=self._config.provider_profile,
+        )
         self._stop_event: asyncio.Event | None = None
         self._restart_requested = False
         self._bridge = OhmoGatewayBridge(
@@ -102,6 +109,7 @@ class OhmoGatewayService:
             feishu_group_policy=str(
                 self._config.channel_configs.get("feishu", {}).get("group_policy", "managed_or_mention")
             ),
+            automation_service=self._automation_service,
         )
 
     @property
@@ -357,6 +365,7 @@ class OhmoGatewayService:
         """
         self.pid_file.write_text(str(os.getpid()), encoding="utf-8")
         self.write_state(running=True)
+        await self._automation_service.start()
         bridge_task = asyncio.create_task(self._bridge.run(), name="ohmo-gateway-bridge")
         manager_task = asyncio.create_task(self._manager.start_all(), name="ohmo-gateway-channels")
         restart_notice_task = asyncio.create_task(
@@ -416,6 +425,7 @@ class OhmoGatewayService:
                 await bridge_task
             with contextlib.suppress(asyncio.CancelledError):
                 await manager_task
+            await self._automation_service.stop()
             if not state_task.done():
                 state_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

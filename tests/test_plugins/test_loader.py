@@ -103,6 +103,36 @@ def _write_tool_plugin(root: Path, *, enabled_by_default: bool = True) -> Path:
     return plugin_dir
 
 
+def _write_automation_action_plugin(root: Path, *, enabled_by_default: bool = True) -> Path:
+    plugin_dir = root / "automation-plugin"
+    actions_dir = plugin_dir / "automation_actions"
+    actions_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "automation-plugin",
+                "enabled_by_default": enabled_by_default,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (actions_dir / "record.py").write_text(
+        "from pydantic import BaseModel\n"
+        "from openharness.automation.actions import AutomationAction, ActionResult\n\n"
+        "class RecordArgs(BaseModel):\n"
+        "    text: str\n\n"
+        "class RecordAction(AutomationAction):\n"
+        "    name = 'example.record'\n"
+        "    description = 'Record an example value'\n"
+        "    input_model = RecordArgs\n\n"
+        "    async def execute(self, arguments, context):\n"
+        "        del context\n"
+        "        return ActionResult(output={'text': arguments.text})\n",
+        encoding="utf-8",
+    )
+    return plugin_dir
+
+
 def test_load_plugins_from_project_dir(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     project = tmp_path / "repo"
@@ -218,4 +248,38 @@ def test_disabled_plugin_tools_are_not_imported(tmp_path: Path, monkeypatch):
     plugin = plugins[0]
     assert plugin.enabled is False
     assert plugin.tools == []
+    assert not marker.exists()
+
+
+def test_enabled_plugin_automation_actions_are_loaded(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    plugins_root = project / ".openharness" / "plugins"
+    plugins_root.mkdir(parents=True)
+    _write_automation_action_plugin(plugins_root)
+
+    plugins = load_plugins(Settings(allow_project_plugins=True), project)
+
+    assert len(plugins) == 1
+    assert [action.name for action in plugins[0].automation_actions] == ["example.record"]
+
+
+def test_disabled_plugin_automation_actions_are_not_imported(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    plugins_root = project / ".openharness" / "plugins"
+    plugins_root.mkdir(parents=True)
+    plugin_dir = _write_automation_action_plugin(plugins_root, enabled_by_default=False)
+    marker = tmp_path / "action-imported.txt"
+    action_file = plugin_dir / "automation_actions" / "record.py"
+    action_file.write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('loaded', encoding='utf-8')\n"
+        + action_file.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    plugins = load_plugins(Settings(allow_project_plugins=True), project)
+
+    assert plugins[0].enabled is False
+    assert plugins[0].automation_actions == []
     assert not marker.exists()

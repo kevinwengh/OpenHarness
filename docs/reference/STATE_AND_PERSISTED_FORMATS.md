@@ -45,6 +45,8 @@ sessions, plugins, cron, or autopilot.
 | `soul.md`, `identity.md`, `user.md`, `BOOTSTRAP.md` | Markdown | injected into personal prompt according to lifecycle |
 | `memory/` and `MEMORY.md` | Markdown/frontmatter | lock + atomic entry/index updates |
 | `skills/`, `plugins/` | instruction and extension trees | private workspace roots injected into runtime |
+| `automations/*.yaml` | versioned declarative workflow definitions | bounded safe-YAML loading; user-authored configuration |
+| `automation/runs/*.json`, `automation/index.json` | workflow checkpoints and reservation index | mode-0600 atomic writes under a shared lock; startup recovery rebuilds the index and classifies interrupted effects |
 | `sessions/` | JSON snapshots + transcript export | latest, per-key latest, and named files written atomically one at a time |
 | `attachments/` | arbitrary media | copied/downloaded content; operator retention |
 | `groups/` | JSON records | managed-group metadata |
@@ -101,6 +103,7 @@ multi-file transaction, or external-side-effect rollback.
 | Plugin Python API/manifests | validation but no formal semantic-version policy |
 | Terminal OHJSON | typed on both sides but unversioned |
 | Channel/gateway config | Pydantic compatibility models; adapter expectations can diverge |
+| Automation definitions/runs | definition version `1`; strict validation and embedded definition snapshots; no downgrade support |
 
 See [Compatibility policy](../COMPATIBILITY.md) for what maintainers should promise before changing
 a format.

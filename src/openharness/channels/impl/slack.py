@@ -281,16 +281,25 @@ class SlackChannel(BaseChannel):
         Change safety: Preserve the signature, return value, and side-effect contract expected
         by callers.
         """
+        # The common allow_from list is the channel admission boundary configured
+        # by Ohmo. Optional legacy Slack-specific policy can narrow it further,
+        # but may never bypass an empty or non-matching common allowlist.
+        if not self.is_allowed(sender_id):
+            return False
+
         if channel_type == "im":
-            if not self.config.dm.enabled:
+            dm = getattr(self.config, "dm", None)
+            if dm is None:
+                return True
+            if not getattr(dm, "enabled", True):
                 return False
-            if self.config.dm.policy == "allowlist":
-                return sender_id in self.config.dm.allow_from
+            if getattr(dm, "policy", "open") == "allowlist":
+                return sender_id in getattr(dm, "allow_from", [])
             return True
 
         # Group / channel messages
         if self.config.group_policy == "allowlist":
-            return chat_id in self.config.group_allow_from
+            return chat_id in self._group_allowlist()
         return True
 
     def _should_respond_in_channel(self, event_type: str, text: str, chat_id: str) -> bool:
@@ -311,8 +320,12 @@ class SlackChannel(BaseChannel):
                 return True
             return self._bot_user_id is not None and f"<@{self._bot_user_id}>" in text
         if self.config.group_policy == "allowlist":
-            return chat_id in self.config.group_allow_from
+            return chat_id in self._group_allowlist()
         return False
+
+    def _group_allowlist(self) -> list[str]:
+        configured = list(getattr(self.config, "group_allow_from", []) or [])
+        return configured or list(getattr(self.config, "allow_from", []) or [])
 
     def _strip_bot_mention(self, text: str) -> str:
         """Strip bot mention for the enclosing subsystem.

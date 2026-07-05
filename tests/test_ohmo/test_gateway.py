@@ -206,6 +206,19 @@ async def test_slack_thread_messages_use_sender_scoped_router_keys(monkeypatch):
     channel._bot_user_id = "BOT"
     channel._web_client = None
 
+    assert channel._is_allowed("U_ALICE", "C_SHARED", "channel") is True
+    assert channel._is_allowed("U_ATTACKER", "C_SHARED", "channel") is False
+    deny_all = SlackChannel(
+        SlackConfig(
+            bot_token="xoxb-fake",
+            app_token="xapp-fake",
+            allow_from=[],
+            group_policy="open",
+        ),
+        bus,
+    )
+    assert deny_all._is_allowed("U_ALICE", "C_SHARED", "channel") is False
+
     await send_thread_message(channel, user="U_ALICE")
     await send_thread_message(channel, user="U_BOB")
 

@@ -214,6 +214,7 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
     commands = _load_plugin_commands(path, manifest)
     agents = _load_plugin_agents(path, manifest)
     tools = _load_plugin_tools(path, manifest) if enabled else []
+    automation_actions = _load_plugin_automation_actions(path, manifest) if enabled else []
     hooks = _load_plugin_hooks(path / manifest.hooks_file)
     hooks_dir_file = path / "hooks" / "hooks.json"
     if not hooks and hooks_dir_file.exists():
@@ -234,6 +235,7 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
         hooks=hooks,
         mcp_servers=mcp,
         tools=tools,
+        automation_actions=automation_actions,
     )
 
 
@@ -965,3 +967,60 @@ def _load_plugin_tools(path: Path, manifest: PluginManifest) -> list:
                 except Exception:
                     logger.debug("Failed to instantiate tool %s from %s", attr_name, py_file, exc_info=True)
     return tools
+
+
+def _load_plugin_automation_actions(path: Path, manifest: PluginManifest) -> list:
+    """Discover typed AutomationAction subclasses from a trusted plugin directory."""
+
+    from openharness.automation.actions import AutomationAction
+
+    actions_dir = path / manifest.automation_actions_dir
+    if not actions_dir.is_dir():
+        return []
+
+    actions: list[AutomationAction] = []
+    for py_file in sorted(actions_dir.glob("*.py")):
+        if py_file.name.startswith("_"):
+            continue
+        module_name = f"_plugin_automation_actions_{manifest.name}_{py_file.stem}"
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        except Exception:
+            logger.debug(
+                "Failed to load plugin automation action module %s",
+                py_file,
+                exc_info=True,
+            )
+            continue
+
+        for attr_name in dir(module):
+            attr = getattr(module, attr_name, None)
+            if (
+                isinstance(attr, type)
+                and issubclass(attr, AutomationAction)
+                and attr is not AutomationAction
+                and hasattr(attr, "name")
+                and hasattr(attr, "description")
+                and hasattr(attr, "input_model")
+            ):
+                try:
+                    instance = attr()
+                    actions.append(instance)
+                    logger.debug(
+                        "Loaded plugin automation action: %s from %s",
+                        instance.name,
+                        py_file,
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to instantiate automation action %s from %s",
+                        attr_name,
+                        py_file,
+                        exc_info=True,
+                    )
+    return actions

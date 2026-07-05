@@ -12,6 +12,7 @@ OpenHarness has several extension surfaces. Choose the narrowest one that fits:
 | Enforce or observe lifecycle policy | Hook |
 | Add a chat transport | Channel |
 | Add a local slash action | Command registry or plugin command |
+| Add a deterministic workflow effect | Automation action |
 
 ## Add a built-in tool
 
@@ -94,6 +95,8 @@ example-plugin/
 │   └── reviewer.md
 ├── tools/
 │   └── example.py
+├── automation_actions/
+│   └── notify.py
 ├── hooks.json
 └── mcp.json
 ```
@@ -111,7 +114,24 @@ Minimal manifest:
 
 The loader also accepts `.claude-plugin/plugin.json`, `.mcp.json`, and structured `hooks/hooks.json`. Consult `src/openharness/plugins/schemas.py`, `loader.py`, and `tests/test_plugins/` before relying on less common manifest fields.
 
-Python tool files are imported dynamically. Export either tool instances/classes in the forms recognized by `_load_plugin_tools()` and verify with plugin lifecycle tests. Keep plugin imports self-contained and fail with actionable messages when optional dependencies are absent.
+Python tool and automation-action files are imported dynamically. Tool classes use `BaseTool`;
+automation actions use `AutomationAction`, a Pydantic `input_model`, asynchronous `execute()`, and
+JSON-safe `ActionResult`. The manifest fields `tools_dir` and `automation_actions_dir` can override
+their default directories. Ohmo workspace plugins are trusted application extensions; project
+plugins remain disabled unless `allow_project_plugins` is explicitly enabled. Keep imports
+self-contained and verify both enabled and disabled loading paths.
+
+## Add an automation action
+
+Create an `AutomationAction` when a declarative workflow needs a typed host effect that should not
+be selected freely by the model. Register application actions in the host `ActionRegistry`, or put
+a no-argument action class in an enabled plugin's `automation_actions/` directory.
+
+The action must validate every destination or namespace against
+`context.run.definition.policy`, declare retry safety only when repeating the exact invocation is
+safe, and return an `ActionResult`. Channel effects should publish through `MessageBus`; Ohmo
+knowledge effects should use its memory schema/index helpers. Instructions in a skill never grant
+an action or destination.
 
 ## Add or modify a provider
 

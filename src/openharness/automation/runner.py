@@ -92,6 +92,7 @@ class WorkflowRunner:
         concurrency: WorkflowConcurrencyCoordinator | None = None,
         sleeper: Sleep = asyncio.sleep,
         metadata: dict[str, Any] | None = None,
+        cancel_on_task_cancel: bool = True,
     ) -> None:
         self.store = store
         self.actions = actions
@@ -101,6 +102,7 @@ class WorkflowRunner:
         self._run_concurrency = WorkflowConcurrencyCoordinator()
         self.sleeper = sleeper
         self.metadata = metadata or {}
+        self.cancel_on_task_cancel = cancel_on_task_cancel
 
     async def submit(
         self,
@@ -159,13 +161,14 @@ class WorkflowRunner:
                         )
                     return await self._execute_steps(run.id)
         except asyncio.CancelledError:
-            latest = await asyncio.to_thread(self.store.load_run, run_id)
-            if latest.status in {"pending", "running", "waiting_approval"}:
-                await asyncio.to_thread(
-                    self.store.cancel_run,
-                    run_id,
-                    reason="workflow task was cancelled",
-                )
+            if self.cancel_on_task_cancel:
+                latest = await asyncio.to_thread(self.store.load_run, run_id)
+                if latest.status in {"pending", "running", "waiting_approval"}:
+                    await asyncio.to_thread(
+                        self.store.cancel_run,
+                        run_id,
+                        reason="workflow task was cancelled",
+                    )
             raise
 
     async def _execute_steps(self, run_id: str) -> WorkflowRun:

@@ -22,7 +22,11 @@ Primary evidence: `pyproject.toml`, `src/openharness/cli.py`, `ohmo/cli.py`, and
 ```mermaid
 flowchart LR
     User[CLI / Ink TUI / Textual TUI] --> Runtime[Runtime composition]
-    Chat[ohmo chat channels] --> Ohmo[ohmo runtime pool]
+    Chat[ohmo chat channels] --> Admission[Channel admission]
+    Admission --> Ohmo[ohmo runtime pool]
+    Admission --> Automation[Automation service]
+    Automation --> Workflow[Durable workflow runner]
+    Workflow --> Effects[Channel and knowledge actions]
     Ohmo --> Runtime
     Runtime --> Engine[QueryEngine]
     Engine --> Client[Provider API client]
@@ -57,6 +61,7 @@ flowchart LR
 | Session and memory | Persist conversations, tool-loop metadata, project memory, usage, and optional extraction/consolidation | `~/.openharness` by default | **Observed:** `src/openharness/services/session_*`, `memory/`, `services/autodream/` |
 | Tasks and swarm | Run background shell/agent tasks, coordinate teammates, mailboxes, permissions, and Git worktrees | Local processes, filesystem mailboxes, Git, optional tmux/iTerm | **Observed:** `src/openharness/tasks/`, `swarm/`, `coordinator/` |
 | Channels | Normalize inbound/outbound chat messages and bridge them to an engine | In-memory queues plus channel SDKs | **Observed:** `src/openharness/channels/` |
+| Automation | Validate declarative workflows, match generic events, checkpoint sequential runs, execute restricted skill agents, and dispatch typed effects | `<ohmo workspace>/automations` definitions and `<ohmo workspace>/automation` run state | **Observed:** `src/openharness/automation/`, `ohmo/automation/` |
 | ohmo | Adds workspace identity, memory, session storage, gateway configuration, per-conversation runtimes, and channel commands | `~/.ohmo` by default and OpenHarness runtime | **Observed:** `ohmo/` and `tests/test_ohmo/` |
 | Autopilot | Maintains a per-repository task registry, policies, journals, run artifacts, verification, and dashboard export | `.openharness/autopilot` and `docs/autopilot` | **Observed:** `src/openharness/autopilot/`, workflows, tests |
 | Terminal UI | React/Ink frontend connected to a Python backend protocol; Textual fallback also exists | Node.js process and Python backend | **Observed:** `frontend/terminal/`, `src/openharness/ui/` |
@@ -94,6 +99,14 @@ Evidence: `src/openharness/permissions/checker.py`, `src/openharness/engine/quer
 
 **Observed.** `ohmo` creates a separate workspace with identity prompts, user profile, memory, plugins/skills, sessions, attachments, logs, and gateway state. The gateway normalizes channel messages, derives a session key, reuses or creates a runtime per conversation, and emits progress/final responses through channel adapters. Evidence: `ohmo/workspace.py`, `gateway/router.py`, `gateway/runtime.py`, `gateway/bridge.py`.
 
+**Observed.** After a channel adapter admits a message, the gateway also creates a sanitized
+`channel.message` automation event. Matching workflows reserve durable runs before executing in
+background tasks. A workflow can continue to the normal assistant, consume that turn, or remain
+silent. Its named skill agent receives an exact filtered tool registry; external effects occur
+through policy-checked `channel.send`, `knowledge.upsert`, or trusted plugin actions. Gateway
+shutdown leaves active checkpoints for startup recovery rather than blindly replaying uncertain
+effects. Evidence: `ohmo/automation/`, `src/openharness/automation/`, and automation tests.
+
 ## State and ownership
 
 | State | Default location | Owner |
@@ -106,6 +119,7 @@ Evidence: `src/openharness/permissions/checker.py`, `src/openharness/engine/quer
 | Project plugins | `.openharness/plugins` | Plugin loader; opt-in trust |
 | Autopilot | `.openharness/autopilot/` | Autopilot store |
 | ohmo workspace | `~/.ohmo` unless overridden | `ohmo.workspace` |
+| ohmo workflow definitions and runs | `~/.ohmo/automations/*.yaml` and `~/.ohmo/automation/` | `ohmo.automation` and `openharness.automation` |
 | Published dashboard | `docs/autopilot/` | Autopilot export and GitHub workflows |
 
 ## Contracts and extension boundaries
@@ -115,6 +129,7 @@ Evidence: `src/openharness/permissions/checker.py`, `src/openharness/engine/quer
 - **Observed.** Hooks use the event names in `src/openharness/hooks/events.py`.
 - **Observed.** Sessions can replace the default file backend through the `SessionBackend` protocol.
 - **Observed.** Channels implement `BaseChannel` and exchange `InboundMessage` / `OutboundMessage` through `MessageBus`.
+- **Observed.** Automation actions subclass `AutomationAction`, validate Pydantic input, and return JSON-safe `ActionResult`; trusted plugins may contribute them from `automation_actions/`.
 - **Observed.** Plugins are defined by `plugin.json` or `.claude-plugin/plugin.json` and the schema in `plugins/schemas.py`.
 
 See [EXTENDING.md](EXTENDING.md) for implementation checklists.

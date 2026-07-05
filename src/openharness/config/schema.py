@@ -113,6 +113,11 @@ class SlackConfig(BaseChannelConfig):
     bot_token: str = ""
     app_token: str = ""
     signing_secret: str = ""
+    mode: str = "socket"
+    reply_in_thread: bool = True
+    react_emoji: str = "eyes"
+    group_policy: str = "mention"
+    group_allow_from: list[str] = Field(default_factory=list)
 
 
 class DiscordConfig(BaseChannelConfig):

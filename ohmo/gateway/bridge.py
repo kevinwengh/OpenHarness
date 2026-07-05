@@ -17,6 +17,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from openharness.channels.bus.events import InboundMessage
 from openharness.channels.bus.events import OutboundMessage
@@ -25,6 +26,9 @@ from openharness.channels.bus.queue import MessageBus
 from ohmo.group_registry import load_managed_group_record
 from ohmo.gateway.router import session_key_for_message
 from ohmo.gateway.runtime import OhmoSessionRuntimePool
+
+if TYPE_CHECKING:
+    from ohmo.automation.service import OhmoAutomationService
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +108,7 @@ class OhmoGatewayBridge:
         restart_gateway: Callable[[object, str], Awaitable[None] | None] | None = None,
         workspace: str | Path | None = None,
         feishu_group_policy: str = "open",
+        automation_service: OhmoAutomationService | None = None,
     ) -> None:
         """Initialize ``OhmoGatewayBridge`` and bind its runtime dependencies.
 
@@ -121,6 +126,7 @@ class OhmoGatewayBridge:
         self._restart_gateway = restart_gateway
         self._workspace = workspace
         self._feishu_group_policy = _normalize_feishu_group_policy(feishu_group_policy)
+        self._automation_service = automation_service
         self._running = False
         self._session_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_cancel_reasons: dict[str, str] = {}
@@ -165,11 +171,31 @@ class OhmoGatewayBridge:
                 session_key,
                 _content_snippet(message.content),
             )
+            automation_dispatch = None
+            if self._automation_service is not None:
+                try:
+                    automation_dispatch = await self._automation_service.dispatch_message(message)
+                except Exception:
+                    logger.exception(
+                        "ohmo automation dispatch failed channel=%s chat_id=%s sender_id=%s",
+                        message.channel,
+                        message.chat_id,
+                        message.sender_id,
+                    )
             if message.content.strip() == "/stop":
                 await self._handle_stop(message, session_key)
                 continue
             if message.content.strip() == "/restart":
                 await self._handle_restart(message, session_key)
+                continue
+            if automation_dispatch is not None and not automation_dispatch.continue_to_assistant:
+                logger.info(
+                    "ohmo inbound consumed by automation channel=%s chat_id=%s workflows=%s behavior=%s",
+                    message.channel,
+                    message.chat_id,
+                    ",".join(automation_dispatch.workflow_ids),
+                    automation_dispatch.source_behavior,
+                )
                 continue
             group_args = _parse_group_command(message.content)
             if group_args is not None:

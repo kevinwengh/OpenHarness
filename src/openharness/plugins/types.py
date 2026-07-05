@@ -23,6 +23,7 @@ from openharness.plugins.schemas import PluginManifest
 from openharness.skills.types import SkillDefinition
 
 if TYPE_CHECKING:
+    from openharness.automation.actions import AutomationAction
     from openharness.tools.base import BaseTool
 
 
@@ -77,6 +78,7 @@ class LoadedPlugin:
     commands: list[PluginCommandDefinition] = field(default_factory=list)
     agents: list[AgentDefinition] = field(default_factory=list)
     tools: list[BaseTool] = field(default_factory=list)
+    automation_actions: list[AutomationAction] = field(default_factory=list)
     hooks: dict[str, list] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerConfig] = field(default_factory=dict)
 
