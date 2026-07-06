@@ -32,6 +32,8 @@ frontend/terminal/node_modules/
 # React web frontend
 frontend/web/node_modules/
 frontend/web/*.tsbuildinfo
+frontend/web/playwright-report/
+frontend/web/test-results/
 
 # User data (never commit API keys or session data)
 .openharness/

@@ -80,6 +80,7 @@ provider, extension, UI, and `ohmo` work.
 | Change permissions or sandboxing | [Codebase guide](developer/CODEBASE_GUIDE.md#tool-execution-and-safety-path) | `src/openharness/permissions/`, `sandbox/`, and their tests |
 | Change the terminal UI | [Development guide](DEVELOPMENT.md#pythontypescript-ui-protocol) | `src/openharness/ui/`, `frontend/terminal/`, and `tests/test_ui/` |
 | Follow or implement the local browser UI | [Web UI specification](architecture/WEB_UI_SPEC.md) | Main-area coverage, responsive UX, loopback security, shared runtime transport, staged review gates |
+| Reproduce the rendered local-web release gate | [Web UI Playwright audit](testing/WEB_UI_PLAYWRIGHT_AUDIT.md) | Deterministic fixture, viewports, interactions, screenshots, and pass criteria |
 | Understand or change `ohmo` | [`ohmo` developer reference](developer/ohmo/README.md) | Dedicated lifecycle guides, `ohmo/`, and `tests/test_ohmo/` |
 | Compare `oh` and `ohmo` memory and other shared concepts | [`oh` and `ohmo` shared concepts](developer/OH_AND_OHMO_SHARED_CONCEPTS.md) | Durable memory, compaction, extraction, dream consolidation, sessions, providers, tools, extensions, UI, tasks, and current isolation gaps |
 | Understand how all ohmo channels work together | [Channel coordination workflow](developer/ohmo/CHANNEL_COORDINATION_WORKFLOW.md) | Adapter admission, shared bus, session keys, cancellation, runtime pool, snapshots, progress/media, outbound dispatch, and failure behavior |

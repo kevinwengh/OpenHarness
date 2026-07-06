@@ -1,6 +1,6 @@
 # OpenHarness local web UI specification
 
-Status: **Approved for staged implementation on `kevin/web-ui`**
+Status: **Implemented and rendered-audited on `kevin/web-ui`**
 
 This document defines a browser UI for the reusable `oh` application. It is a local-first host for
 the existing OpenHarness runtime, not a second agent engine and not an `ohmo` administration UI.
@@ -395,9 +395,14 @@ Stage 4 implementation now includes:
 - a zero-finding full npm audit after upgrading to fixed Node-20-compatible Vite and Vitest
   versions, plus production bundle regeneration.
 
-The in-app browser connector was unavailable again during Stage 4, so actual desktop/mobile paint,
-contrast, and overflow screenshots remain unverified and must not be inferred from jsdom, axe, or
-responsive-source checks.
+The final Stage 4 gate uses CLI Playwright rather than the unavailable in-app browser connector.
+It drives the packaged application through the real loopback host with a deterministic,
+credential-free controller and resource fixture. Desktop (1440×900), tablet (1024×768), and mobile
+(390×844) runs cover every main area, bounded dialogs, the command palette, runtime selection,
+permission review, light/dark paint, horizontal overflow, and browser console/page errors. The
+rendered review found and corrected an unnamed compact-rail navigation control at the tablet
+breakpoint. Commands, evidence handling, and limitations are recorded in the
+[Playwright audit](../testing/WEB_UI_PLAYWRIGHT_AUDIT.md).
 
 ## Test strategy
 

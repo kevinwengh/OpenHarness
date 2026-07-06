@@ -95,6 +95,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -105,12 +115,19 @@ jobs:
       - name: Install web dependencies
         run: npm ci
 
+      - name: Install Python runtime dependencies
+        working-directory: ${{ github.workspace }}
+        run: uv sync --extra dev
+
       - name: Test web components
         run: npm test
 
-      - name: Build packaged web assets
-        run: npm run build
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build and audit the rendered web UI
+        run: npm run test:e2e
 
       - name: Verify packaged assets are current
-        working-directory: .
+        working-directory: ${{ github.workspace }}
         run: git diff --exit-code -- src/openharness/_web

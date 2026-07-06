@@ -123,6 +123,7 @@ function NavigationButton({
     <button
       className={`nav-item${active ? " nav-item--active" : ""}${compact ? " nav-item--compact" : ""}`}
       onClick={() => onSelect(item)}
+      aria-label={item.label}
       aria-current={active ? "page" : undefined}
       title={compact ? item.label : undefined}
     >

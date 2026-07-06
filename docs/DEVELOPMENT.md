@@ -39,11 +39,13 @@ For local web UI work:
 cd frontend/web
 npm ci
 npm test
-npm run build
+npx playwright install chromium  # first run only
+npm run test:e2e
 ```
 
-The web build writes the production bundle to `src/openharness/_web`. Commit source and generated
-package assets together; CI rebuilds the bundle and fails when they disagree.
+The E2E command builds the production bundle into `src/openharness/_web` before launching the
+credential-free local Playwright fixture. Commit source and generated package assets together; CI
+reruns component and rendered-browser checks, rebuilds the bundle, and fails when assets disagree.
 
 For autopilot dashboard work:
 

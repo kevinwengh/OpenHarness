@@ -13,6 +13,7 @@ export default defineConfig({
     port: 4173,
   },
   test: {
+    include: ["src/**/*.test.{ts,tsx}"],
     environment: "jsdom",
     environmentOptions: {
       jsdom: { url: "http://127.0.0.1:4173/" },

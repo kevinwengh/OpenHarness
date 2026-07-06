@@ -755,9 +755,9 @@ Currently `ohmo init` / `ohmo config` can guide channel setup for:
 
 Pull requests run the offline Python suite on Python 3.10 and 3.11, Ruff on the Python source,
 tests, and scripts, a Node 20 TypeScript check for the React terminal, and Node 20 component/build
-checks for the local web UI. The live model, Docker, interactive terminal, and rendered browser
-drivers are opt-in because they need credentials, external services, a real TTY, or a browser
-surface. See the [testing and validation guide](docs/TESTING.md) for the current CI contract and
+and CLI Playwright browser checks for the local web UI. The live model, Docker, and interactive
+terminal drivers remain opt-in because they need credentials, external services, or a real TTY.
+See the [testing and validation guide](docs/TESTING.md) for the current CI contract and
 change-specific test matrix.
 
 ```bash
