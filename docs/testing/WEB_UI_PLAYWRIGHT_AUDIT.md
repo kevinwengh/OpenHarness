@@ -57,16 +57,19 @@ Successful runs write fixed-viewport screenshots under
 WEB_AUDIT_OUTPUT=/tmp/my-web-audit npm run test:e2e
 ```
 
-Screenshots are review evidence, not golden pixel snapshots. They stay outside the repository to
-avoid platform/font churn. Playwright retains a failure screenshot and trace under
-`frontend/web/test-results/`; that directory is ignored by Git.
+Routine screenshots are review evidence, not golden pixel snapshots, so the default output stays
+outside the repository to avoid platform/font churn. The 31 manually reviewed completion frames
+are preserved in the [rendered evidence gallery](images/web-ui-playwright/README.md). Playwright
+retains a failure screenshot and trace under `frontend/web/test-results/`; that directory is
+ignored by Git.
 
 ## Current audit result
 
 The July 5, 2026 completion run passed seven checks with two deliberate skips: the interaction
 scenario runs once on desktop, while route and detail coverage run in all three projects. The run
 produced 31 viewport screenshots, including all main areas, responsive details, the command
-palette, runtime chooser, permission review, and a light-theme Workbench.
+palette, runtime chooser, permission review, and a light-theme Workbench. Those exact reviewed
+frames are versioned in the [documentation gallery](images/web-ui-playwright/README.md).
 
 Rendered review found one product defect: at the tablet breakpoint, CSS made the rail icon-only
 without preserving the buttons' accessible names. Every navigation button now carries its stable

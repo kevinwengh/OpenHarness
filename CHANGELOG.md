@@ -36,7 +36,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - A deterministic CLI Playwright release gate for the packaged local web UI, covering all eight
   main areas at desktop, tablet, and mobile widths, key dialogs and selectors, both color themes,
   browser errors, and horizontal overflow; the rendered audit also preserves accessible names when
-  the tablet navigation rail becomes icon-only.
+  the tablet navigation rail becomes icon-only. The 31 reviewed completion screenshots are
+  preserved in the testing documentation as browsable release evidence.
 - Declarative Ohmo automation workflows with safe YAML rules, deterministic channel-event
   matching, durable/idempotent runs, restricted named-skill agent steps, conditional multi-step
   actions, cross-channel delivery, namespaced personal-knowledge upserts, crash recovery, and
