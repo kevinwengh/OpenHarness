@@ -111,3 +111,11 @@ The React TUI lives in `frontend/terminal/`. The backend serves a WebSocket prot
 - Add/update tests for behavior changes.
 - Add a short `Unreleased` entry in `CHANGELOG.md` for user-visible changes.
 - If improving type coverage, run `uv run mypy src/openharness` (not yet a required gate).
+
+## Commit expectations
+
+Follow the repository-wide **Create reviewable commits** policy in `AGENTS.md` for every commit.
+In particular, do not create subject-only commits: use a specific Conventional Commit subject, a
+body that explains motivation and behavioral or design impact, and a final `Validation:` section
+containing only checks actually run. Review staged and untracked files before committing, keep
+unrelated changes separate, preserve contributor attribution, and never invent validation results.

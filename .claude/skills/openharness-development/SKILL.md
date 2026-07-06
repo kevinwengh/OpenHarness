@@ -36,6 +36,21 @@ For tool work, invoke `openharness-add-tool`. For provider/auth/client work, inv
 5. Use `harness-eval` only for explicitly requested or justified real-model validation.
 6. Report commands and results precisely; state any unrun relevant checks.
 
+## Commit and hand off
+
+When the user authorizes a commit:
+
+1. Follow the root `AGENTS.md` **Create reviewable commits** policy; it is the canonical commit
+   contract for both Codex and Claude.
+2. Reinspect status plus staged and unstaged diffs after validation so unrelated user work is not
+   included accidentally.
+3. Create a specific Conventional Commit subject and a substantive body explaining motivation,
+   behavioral or boundary impact, and relevant trade-offs.
+4. End the body with an honest `Validation:` section listing only checks actually completed, or
+   explicitly state why validation was not run.
+5. Report the commit hash, subject, validation outcome, and any intentionally uncommitted files in
+   the handoff.
+
 ## Guardrails
 
 - Preserve sensitive-path denial and project-plugin opt-in trust.
