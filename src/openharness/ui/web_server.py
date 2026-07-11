@@ -440,6 +440,7 @@ class WebUiServer:
         return (
             auth_host == target_h
             or {auth_host, target_h} == {"localhost", "127.0.0.1"}
+            or {target_h, auth_host} == {"localhost", "127.0.0.1"}
         )
 
     @web.middleware
