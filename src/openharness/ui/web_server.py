@@ -75,16 +75,20 @@ class WebServerConfig:
     reconnect_grace_seconds: float = 5.0
 
     def __post_init__(self) -> None:
-        try:
-            address = ipaddress.ip_address(self.host)
-        except ValueError as exc:
-            raise WebServerConfigurationError(
-                "The web UI host must be a loopback IP address such as 127.0.0.1"
-            ) from exc
-        if not address.is_loopback:
-            raise WebServerConfigurationError(
-                "The first web UI release is local-only; --host must be a loopback address"
-            )
+        # Accept "localhost" as an alias for the loopback interface.
+        if self.host == "localhost":
+            object.__setattr__(self, "host", "127.0.0.1")
+        else:
+            try:
+                address = ipaddress.ip_address(self.host)
+            except ValueError as exc:
+                raise WebServerConfigurationError(
+                    "The web UI host must be a loopback IP address such as 127.0.0.1"
+                ) from exc
+            if not address.is_loopback:
+                raise WebServerConfigurationError(
+                    "The first web UI release is local-only; --host must be a loopback address"
+                )
         if not 0 <= self.port <= 65535:
             raise WebServerConfigurationError("--port must be between 0 and 65535")
         if not 0 <= self.reconnect_grace_seconds <= 30:
@@ -418,15 +422,39 @@ class WebUiServer:
             response.headers["Cache-Control"] = "no-cache"
         return response
 
+    @staticmethod
+    def _host_matches(authority: str, target_host: str) -> bool:
+        """Compare an incoming Host header against a configured loopback authority."""
+
+        # Strip port from both for host comparison
+        auth_host = authority.rsplit(":", 1)[0] if ":" in authority else authority
+        target_h = target_host.rsplit(":", 1)[0] if ":" in target_host else target_host
+
+        # Normalize IPv6 addresses (strip brackets)
+        if auth_host.startswith("[") and auth_host.endswith("]"):
+            auth_host = auth_host[1:-1]
+        if target_h.startswith("[") and target_h.endswith("]"):
+            target_h = target_h[1:-1]
+
+        # Allow localhost ↔ 127.0.0.1 interchangeability
+        return (
+            auth_host == target_h
+            or {auth_host, target_h} == {"localhost", "127.0.0.1"}
+        )
+
     @web.middleware
     async def _validate_host(
         self,
         request: web.Request,
         handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
     ) -> web.StreamResponse:
-        if self._allowed_authorities and request.host not in self._allowed_authorities:
-            raise web.HTTPMisdirectedRequest(text="Unrecognized local host")
-        return await handler(request)
+        if not self._allowed_authorities:
+            return await handler(request)
+        incoming = request.host
+        for authority in self._allowed_authorities:
+            if WebUiServer._host_matches(incoming, authority):
+                return await handler(request)
+        raise web.HTTPMisdirectedRequest(text="Unrecognized local host")
 
     @web.middleware
     async def _authorize_api(
@@ -625,7 +653,17 @@ class WebUiServer:
             )
             authority = f"{authority_host}:{self._port}"
             self._allowed_authorities = {authority}
-            self._allowed_origins = {f"http://{authority}"}
+            origin = f"http://{authority}"
+            self._allowed_origins = {origin}
+            # Also allow localhost if the host is 127.0.0.1 (and vice versa) so that browsers
+            # accessing via http://localhost:<port>/ or http://127.0.0.1:<port>/ both work, since
+            # their Origin headers will differ but refer to the same local server.
+            if self.config.host == "127.0.0.1":
+                localhost_origin = f"http://localhost:{self._port}"
+                self._allowed_origins.add(localhost_origin)
+            elif self.config.host == "localhost":
+                loopback_origin = f"http://127.0.0.1:{self._port}"
+                self._allowed_origins.add(loopback_origin)
             self._runner = runner
             self._site = site
         except BaseException:

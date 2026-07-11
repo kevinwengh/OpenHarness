@@ -216,6 +216,72 @@ async def test_api_requires_token_and_exact_origin(assets_dir: Path, tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_api_allows_localhost_and_loopback_origins(assets_dir: Path, tmp_path: Path):
+    """Verify that localhost and 127.0.0.1 origins both work when binding to either."""
+
+    snapshot = build_web_bootstrap(tmp_path)
+    server = WebUiServer(
+        WebServerConfig(
+            cwd=tmp_path,
+            assets_dir=assets_dir,
+            host="127.0.0.1",
+            token="localhost-token",
+            open_browser=False,
+        ),
+        bootstrap_factory=lambda _cwd: snapshot,
+    )
+
+    async with server, aiohttp.ClientSession() as client:
+        headers = {"Authorization": "Bearer localhost-token"}
+        loopback_allowed = await client.get(
+            f"{server.origin}/api/bootstrap",
+            headers={**headers, "Origin": f"http://127.0.0.1:{server.port}"},
+        )
+        assert loopback_allowed.status == 200
+
+        localhost_allowed = await client.get(
+            f"http://localhost:{server.port}/api/bootstrap",
+            headers={**headers, "Origin": f"http://localhost:{server.port}"},
+        )
+        assert localhost_allowed.status == 200
+
+
+@pytest.mark.asyncio
+async def test_api_allows_localhost_and_loopback_origins_reverse(assets_dir: Path, tmp_path: Path):
+    """Verify that localhost is normalized to 127.0.0.1 and origins both work."""
+
+    snapshot = build_web_bootstrap(tmp_path)
+    server = WebUiServer(
+        WebServerConfig(
+            cwd=tmp_path,
+            assets_dir=assets_dir,
+            host="localhost",  # Should be normalized to 127.0.0.1
+            token="loopback-token",
+            open_browser=False,
+        ),
+        bootstrap_factory=lambda _cwd: snapshot,
+    )
+
+    async with server, aiohttp.ClientSession() as client:
+        headers = {"Authorization": "Bearer loopback-token"}
+        # The server should now bind to 127.0.0.1 (normalized from localhost)
+        assert f"127.0.0.1:{server.port}" in server.origin
+
+        # Both origins should work since we allow localhost ↔ 127.0.0.1 interchangeability
+        loopback_allowed = await client.get(
+            f"{server.origin}/api/bootstrap",
+            headers={**headers, "Origin": f"http://127.0.0.1:{server.port}"},
+        )
+        assert loopback_allowed.status == 200
+
+        localhost_allowed = await client.get(
+            f"http://localhost:{server.port}/api/bootstrap",
+            headers={**headers, "Origin": f"http://localhost:{server.port}"},
+        )
+        assert localhost_allowed.status == 200
+
+
+@pytest.mark.asyncio
 async def test_server_applies_security_headers_and_serves_spa_routes(
     assets_dir: Path,
     tmp_path: Path,
